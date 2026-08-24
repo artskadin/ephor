@@ -1,19 +1,19 @@
 {
-  "name": "ephor",
+  "name": "ephor-monorepo",
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "npm run build --workspace --if-present",
+    "build": "pnpm -r --if-present run build",
     "typecheck": "tsc --build",
     "test": "vitest run",
-    "lint": "biome check"
+    "lint": "biome check ."
   },
   "engines": {
     "node": ">=22"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -32,10 +32,5 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
     "zod": "^4.4.3"
-  },
-  "dependencies": {
-    "commander": "^15.0.0",
-    "ink": "^7.1.1",
-    "react": "^19.2.8"
   }
 }

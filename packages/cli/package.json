@@ -1,15 +1,14 @@
 {
   "name": "ephor",
   "version": "0.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Monitoring for self-hosted VPN nodes",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "build": "tsc --build"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "ephor": "./dist/index.js"
@@ -18,5 +17,8 @@
     "commander": "^15.0.0",
     "ink": "^7.1.1",
     "react": "^19.2.8"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }
