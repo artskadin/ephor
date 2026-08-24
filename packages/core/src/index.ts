@@ -4,3 +4,4 @@ export * from "./config/schema.js";
 export { Duration } from "./config/duration.js";
 export type { ResolvedCheck, ResolvedNode } from "./config/resolve.js";
 export { resolveConfig, resolveNode } from "./config/resolve.js";
+export { loadConfig, ConfigError } from "./config/load.js";

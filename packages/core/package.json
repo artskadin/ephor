@@ -4,7 +4,8 @@
   "description": "",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "check-config": "tsx ./scripts/check-config.ts"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +17,7 @@
   },
   "private": true,
   "dependencies": {
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   }
 }
