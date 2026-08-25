@@ -23,7 +23,7 @@ describe("resolveConfig", () => {
 
   it("node override with over defaults", () => {
     const config = ConfigSchema.parse({
-      default: { interval: "5m" },
+      defaults: { interval: "10m" },
       nodes: [
         {
           name: "lupa",
@@ -36,7 +36,7 @@ describe("resolveConfig", () => {
     const [resolved] = resolveConfig(config, PROBES);
 
     expect(resolved?.checks.get("speed")?.interval).toBe(3600);
-    expect(resolved?.checks.get("system")?.interval).toBe(300);
+    expect(resolved?.checks.get("system")?.interval).toBe(600);
   });
 
   it("keeps retries: 0 instead of falling back to default", () => {
