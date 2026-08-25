@@ -1,0 +1,26 @@
+import type { MetricPoint } from "./metrics.js";
+import type { ProbeOutcome } from "./probe.js";
+
+export interface ProbeContext {
+  nodeName: string;
+  host: string;
+  domain?: string | undefined;
+  executor?: CommandRunner | undefined;
+  startedAt: number;
+  timeoutMs: number;
+}
+
+export interface CommandRunner {
+  run(
+    script: string,
+    options?: { timeoutMs?: number | undefined },
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+}
+
+export interface Probe<TResult = unknown> {
+  readonly name: string;
+  readonly requireExecutor: boolean;
+
+  run(context: ProbeContext): Promise<ProbeOutcome<TResult>>;
+  toMetrics(result: TResult, context: ProbeContext): MetricPoint[];
+}

@@ -1,5 +1,10 @@
 export type { MetricPoint } from "./types/metrics.js";
 export type { ProbeOutcome, ProbeError } from "./types/probe.js";
+export type {
+  Probe,
+  ProbeContext,
+  CommandRunner,
+} from "./types/probe-contract.js";
 export * from "./config/schema.js";
 export { Duration } from "./config/duration.js";
 export type { ResolvedCheck, ResolvedNode } from "./config/resolve.js";
