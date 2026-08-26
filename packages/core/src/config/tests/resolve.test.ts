@@ -1,7 +1,6 @@
 import { describe, test, it, expect } from "vitest";
-import { ConfigSchema } from "../config/schema.js";
-import { resolveConfig } from "../config/resolve.js";
-import { check } from "zod/mini";
+import { ConfigSchema } from "../schema.js";
+import { resolveConfig } from "../resolve.js";
 
 const PROBES = ["reachability", "system", "speed"] as const;
 

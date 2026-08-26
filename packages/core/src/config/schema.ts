@@ -55,9 +55,16 @@ export const DefaultSchema = z
   })
   .strict();
 
+export const ProbeSettingsSchema = z
+  .object({
+    concurrency: z.number().int().min(1).default(8),
+  })
+  .strict();
+
 export const ConfigSchema = z
   .object({
     defaults: DefaultSchema.prefault({}),
+    probes: z.record(z.string(), ProbeSettingsSchema).default({}),
     nodes: z.array(NodeSchema).min(1, "at least one node required"),
   })
   .strict()
@@ -70,5 +77,6 @@ export type Ssh = z.infer<typeof SshSchema>;
 export type Port = z.infer<typeof PortSchema>;
 export type CheckOverride = z.infer<typeof CheckOverrideSchema>;
 export type Node = z.infer<typeof NodeSchema>;
+export type ProbeSettings = z.infer<typeof ProbeSettingsSchema>;
 export type Defaults = z.infer<typeof DefaultSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

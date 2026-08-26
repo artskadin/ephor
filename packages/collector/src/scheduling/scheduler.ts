@@ -9,7 +9,7 @@ export interface Task {
 export interface SchedulerOptions {
   clock: Clock;
   tickMs?: number;
-  onDue: (tasks: Task[]) => void;
+  onTasksDue: (tasks: Task[]) => void;
 }
 
 export class Scheduler {
@@ -90,7 +90,7 @@ export class Scheduler {
     }
 
     if (due.length > 0) {
-      this.options.onDue(due);
+      this.options.onTasksDue(due);
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSshArgs } from "../execution/ssh-args.js";
+import { buildSshArgs } from "../ssh-args.js";
 
 describe("buildSshArgs", () => {
   it("uses alias and ignores other fields", () => {

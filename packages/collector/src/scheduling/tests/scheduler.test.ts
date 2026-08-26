@@ -1,7 +1,7 @@
 import { ConfigSchema, resolveConfig } from "@ephor/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeClock } from "../scheduling/clock.js";
-import { Scheduler, type Task } from "../scheduling/scheduler.js";
+import { FakeClock } from "../clock.js";
+import { Scheduler, type Task } from "../scheduler.js";
 
 const PROBES = ["fast", "slow"] as const;
 
@@ -26,7 +26,7 @@ describe("Scheduler", () => {
     seen = [];
     scheduler = new Scheduler({
       clock,
-      onDue: (tasks) => seen.push(tasks),
+      onTasksDue: (tasks) => seen.push(tasks),
     });
     scheduler.setNodes(makeNodes());
   });
