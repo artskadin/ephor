@@ -22,7 +22,7 @@ export const SYSTEM_COLLECT_SCRIPT = String.raw`
   printf '"load5":%s,' "$load5"
   printf '"load15":%s,' "$load15"
   printf '"cpuCount":%s,' "$cpu_count"
-  printf '"uptimeSeconds":%s,' "\${uptime_seconds%.*}"
+  printf '"uptimeSeconds":%s,' "$uptime_seconds"
   printf '"memTotalKb":%s,' "$mem_total"
   printf '"memAvailableKb":%s,' "$mem_available"
   printf '"hostName":"%s",' "$host_name"

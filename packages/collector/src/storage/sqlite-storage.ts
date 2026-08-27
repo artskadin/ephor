@@ -1,8 +1,7 @@
-import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { MetricPoint, QueryFilter, Storage } from "@ephor/core";
-import { config } from "zod";
 
 interface MetricRow {
   ts: number;
@@ -17,14 +16,12 @@ export class SqliteStorage implements Storage {
   private readonly db: DatabaseSync;
 
   constructor(path: string) {
-    if (path !== ":memory") {
+    if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true });
     }
-
     this.db = new DatabaseSync(path);
 
     this.db.exec("PRAGMA journal_mode = WAL");
-
     this.db.exec("PRAGMA synchronous = NORMAL");
   }
 
@@ -67,7 +64,7 @@ export class SqliteStorage implements Storage {
           point.node,
           point.metric,
           point.value ?? null,
-          point.ok == undefined ? null : point.ok ? 1 : 0,
+          point.ok === undefined ? null : point.ok ? 1 : 0,
           point.meta ? JSON.stringify(point.meta) : null,
         );
       }
@@ -105,7 +102,6 @@ export class SqliteStorage implements Storage {
     const where =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = filter.limit !== undefined ? "LIMIT ?" : "";
-
     if (filter.limit !== undefined) params.push(filter.limit);
 
     const rows = this.db
@@ -118,22 +114,21 @@ export class SqliteStorage implements Storage {
   async latest(node?: string): Promise<MetricPoint[]> {
     const params: string[] = [];
     const where = node !== undefined ? "WHERE node = ?" : "";
-
     if (node !== undefined) params.push(node);
 
     const rows = this.db
       .prepare(
         `
-      SELECT ts, node, metric, value, ok, meta FROM (
-        SELECT *,
-          ROW_NUMBER() OVER (
-            PARTITION BY node, metric ORDER BY ts DESC
-          ) AS rn
-        FROM metrics
-        ${where}
-      )
-      WHERE rn = 1
-    `,
+        SELECT ts, node, metric, value, ok, meta FROM (
+          SELECT *,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY node, metric ORDER BY ts DESC
+                 ) AS rn
+          FROM metrics
+          ${where}
+        )
+        WHERE rn = 1
+      `,
       )
       .all(...params) as unknown as MetricRow[];
 
@@ -142,11 +137,7 @@ export class SqliteStorage implements Storage {
 
   async prune(olderThanTs: number): Promise<number> {
     const result = this.db
-      .prepare(
-        `
-      DELETE FROM metrics WHERE ts < ?
-    `,
-      )
+      .prepare("DELETE FROM metrics WHERE ts < ?")
       .run(olderThanTs);
 
     return Number(result.changes);
@@ -166,8 +157,9 @@ function rowToPoint(row: MetricRow): MetricPoint {
 
   if (row.value !== null) point.value = row.value;
   if (row.ok !== null) point.ok = row.ok === 1;
-  if (row.meta !== null)
+  if (row.meta !== null) {
     point.meta = JSON.parse(row.meta) as Record<string, unknown>;
+  }
 
   return point;
 }

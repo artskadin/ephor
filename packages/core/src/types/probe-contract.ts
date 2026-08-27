@@ -19,7 +19,7 @@ export interface CommandRunner {
 
 export interface Probe<TResult = unknown> {
   readonly name: string;
-  readonly requireExecutor: boolean;
+  readonly requiresExecutor: boolean;
 
   run(context: ProbeContext): Promise<ProbeOutcome<TResult>>;
   toMetrics(result: TResult, context: ProbeContext): MetricPoint[];

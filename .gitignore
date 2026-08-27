@@ -14,3 +14,9 @@ config.yaml
 !.vscode/extensions.json
 
 .codegraph
+
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.map
+
+config.local.*

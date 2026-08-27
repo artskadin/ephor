@@ -2,6 +2,7 @@ import type {
   MetricPoint,
   Probe,
   ProbeContext,
+  ProbeError,
   ProbeOutcome,
 } from "@ephor/core";
 import { SYSTEM_COLLECT_SCRIPT } from "./collect-script.js";
@@ -22,7 +23,7 @@ export interface SystemSnapshot {
 
 export class SystemProbe implements Probe<SystemSnapshot> {
   readonly name = "system";
-  readonly requireExecutor = true;
+  readonly requiresExecutor = true;
 
   async run(context: ProbeContext): Promise<ProbeOutcome<SystemSnapshot>> {
     const startedAt = Date.now();
@@ -30,7 +31,7 @@ export class SystemProbe implements Probe<SystemSnapshot> {
     if (!context.executor) {
       return {
         ok: false,
-        error: { kind: "not_configured", what: "ssh acccess" },
+        error: { kind: "not_configured", what: "ssh access" },
         durationMs: 0,
       };
     }
@@ -68,21 +69,21 @@ export class SystemProbe implements Probe<SystemSnapshot> {
   toMetrics(snapshot: SystemSnapshot, context: ProbeContext): MetricPoint[] {
     const base = { ts: context.startedAt, node: context.nodeName };
 
-    const loadPerscent = (snapshot.load1 / snapshot.cpuCount) * 100;
+    const loadPercent = (snapshot.load1 / snapshot.cpuCount) * 100;
     const memUsedPercent =
       ((snapshot.memTotalKb - snapshot.memAvailableKb) / snapshot.memTotalKb) *
       100;
-    const discUsedPercent =
+    const diskUsedPercent =
       (snapshot.diskUsedBytes / snapshot.diskTotalBytes) * 100;
 
     return [
-      { ...base, metric: "system.load_percent", value: round(loadPerscent) },
+      { ...base, metric: "system.load_percent", value: round(loadPercent) },
       { ...base, metric: "system.mem_percent", value: round(memUsedPercent) },
-      { ...base, metric: "system.disk_percent", value: round(discUsedPercent) },
+      { ...base, metric: "system.disk_percent", value: round(diskUsedPercent) },
       {
         ...base,
         metric: "system.uptime_seconds",
-        value: snapshot.uptimeSeconds,
+        value: Math.floor(snapshot.uptimeSeconds),
       },
       {
         ...base,
@@ -104,18 +105,18 @@ function parseSnapshot(stdout: string): SystemSnapshot {
   return parsed as SystemSnapshot;
 }
 
-function toProbeError(cause: unknown) {
+function toProbeError(cause: unknown): ProbeError {
   const message = cause instanceof Error ? cause.message : String(cause);
 
   if (cause instanceof Error && cause.name === "CommandTimeoutError") {
-    return { kind: "timeout" } as const;
+    return { kind: "timeout" };
   }
 
   if (message.includes("Permission denied") || message.includes("publicKey")) {
-    return { kind: "auth_failed" } as const;
+    return { kind: "auth_failed" };
   }
 
-  return { kind: "internal", cause } as const;
+  return { kind: "internal", cause };
 }
 
 function round(value: number): number {

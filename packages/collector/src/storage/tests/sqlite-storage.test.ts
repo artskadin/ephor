@@ -6,7 +6,6 @@ describe("SqliteStorage", () => {
 
   beforeEach(async () => {
     storage = new SqliteStorage(":memory:");
-
     await storage.migrate();
   });
 
