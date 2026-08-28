@@ -13,3 +13,10 @@ export { loadConfig, ConfigError } from "./config/load.js";
 export type { Storage, QueryFilter } from "./storage/types.js";
 export type { NodeSource } from "./nodes/node-source.js";
 export { StaticNodeSource } from "./nodes/node-source.js";
+export type {
+  ProbeReading,
+  Vantage,
+  ReachabilityMethod,
+  ReachabilityProvider,
+  ReachabilityTarget,
+} from "./reachability/types.js";

@@ -61,11 +61,31 @@ export const ProbeSettingsSchema = z
   })
   .strict();
 
+export const RegionSchema = z
+  .object({
+    match: z.array(z.string().min(2).min(1)),
+    count: z.number().int().min(1).default(3),
+    required: z.boolean().default(false),
+  })
+  .strict();
+
+export const ReachabilitySchema = z
+  .object({
+    provider: z.enum(["check-host.net"]).default("check-host.net"),
+    interval: Duration.default(180),
+    methods: z.array(z.enum(["ping", "tcp", "http"])).default(["ping", "tcp"]),
+    quorum: z.number().min(0).max(1).default(0.5),
+    vantageRefresh: Duration.default(86400),
+    regions: z.record(z.string(), RegionSchema),
+  })
+  .strict();
+
 export const ConfigSchema = z
   .object({
     defaults: DefaultSchema.prefault({}),
     probes: z.record(z.string(), ProbeSettingsSchema).default({}),
     nodes: z.array(NodeSchema).min(1, "at least one node required"),
+    reachability: ReachabilitySchema.optional(),
   })
   .strict()
   .refine(
@@ -79,4 +99,6 @@ export type CheckOverride = z.infer<typeof CheckOverrideSchema>;
 export type Node = z.infer<typeof NodeSchema>;
 export type ProbeSettings = z.infer<typeof ProbeSettingsSchema>;
 export type Defaults = z.infer<typeof DefaultSchema>;
+export type Region = z.infer<typeof RegionSchema>;
+export type Reachability = z.infer<typeof ReachabilitySchema>;
 export type Config = z.infer<typeof ConfigSchema>;
