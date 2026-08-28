@@ -80,12 +80,23 @@ export const ReachabilitySchema = z
   })
   .strict();
 
+export const StorageSchema = z
+  .object({
+    retention: Duration.default(7_776_000), // 90 days
+    pruneAt: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Expected HH:MM")
+      .default("04:00"),
+  })
+  .strict();
+
 export const ConfigSchema = z
   .object({
     defaults: DefaultSchema.prefault({}),
     probes: z.record(z.string(), ProbeSettingsSchema).default({}),
     nodes: z.array(NodeSchema).min(1, "at least one node required"),
     reachability: ReachabilitySchema.optional(),
+    storage: StorageSchema.prefault({}),
   })
   .strict()
   .refine(
@@ -101,4 +112,5 @@ export type ProbeSettings = z.infer<typeof ProbeSettingsSchema>;
 export type Defaults = z.infer<typeof DefaultSchema>;
 export type Region = z.infer<typeof RegionSchema>;
 export type Reachability = z.infer<typeof ReachabilitySchema>;
+export type StorageSettings = z.infer<typeof StorageSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

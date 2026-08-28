@@ -1,4 +1,4 @@
-import type { Probe } from "@ephor/core";
+import type { Probe, ProbeDescriptor } from "@ephor/core";
 
 export class ProbeRegistry {
   private readonly probes = new Map<string, Probe>();
@@ -17,5 +17,12 @@ export class ProbeRegistry {
 
   names(): string[] {
     return [...this.probes.keys()];
+  }
+
+  descriptors(): ProbeDescriptor[] {
+    return [...this.probes.values()].map((p) => ({
+      name: p.name,
+      requiresExecutor: p.requiresExecutor,
+    }));
   }
 }

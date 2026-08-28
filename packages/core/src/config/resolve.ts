@@ -1,3 +1,4 @@
+import type { ProbeDescriptor } from "../types/probe-contract.js";
 import type { Config, Node, Defaults } from "./schema.js";
 
 export interface ResolvedCheck {
@@ -15,15 +16,19 @@ export interface ResolvedNode {
 export function resolveNode(
   defaults: Defaults,
   node: Node,
-  probeNames: readonly string[],
+  probes: readonly ProbeDescriptor[],
 ): ResolvedNode {
   const checks = new Map<string, ResolvedCheck>();
+  const hasExecutor = node.local || node.ssh !== undefined;
 
-  for (const probe of probeNames) {
-    const override = node.checks[probe];
+  for (const probe of probes) {
+    const override = node.checks[probe.name];
 
-    checks.set(probe, {
-      enabled: override?.enabled ?? true,
+    const enabled =
+      (override?.enabled ?? true) && (!probe.requiresExecutor || hasExecutor);
+
+    checks.set(probe.name, {
+      enabled,
       interval: override?.interval ?? defaults.interval,
       timeout: override?.timeout ?? defaults.timeout,
       retries: override?.retries ?? defaults.retries,
@@ -35,9 +40,9 @@ export function resolveNode(
 
 export function resolveConfig(
   config: Config,
-  probeNames: readonly string[],
+  probes: readonly ProbeDescriptor[],
 ): ResolvedNode[] {
   return config.nodes
     .filter((n) => n.enabled)
-    .map((n) => resolveNode(config.defaults, n, probeNames));
+    .map((n) => resolveNode(config.defaults, n, probes));
 }

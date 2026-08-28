@@ -69,6 +69,8 @@ export class SystemProbe implements Probe<SystemSnapshot> {
   toMetrics(snapshot: SystemSnapshot, context: ProbeContext): MetricPoint[] {
     const base = { ts: context.startedAt, node: context.nodeName };
 
+    // Normalised to percent: raw load and byte counts are not
+    // comparable between machines with different cores and disks.
     const loadPercent = (snapshot.load1 / snapshot.cpuCount) * 100;
     const memUsedPercent =
       ((snapshot.memTotalKb - snapshot.memAvailableKb) / snapshot.memTotalKb) *
@@ -85,12 +87,7 @@ export class SystemProbe implements Probe<SystemSnapshot> {
         metric: "system.uptime_seconds",
         value: Math.floor(snapshot.uptimeSeconds),
       },
-      {
-        ...base,
-        metric: "system.ports",
-        ok: true,
-        meta: { listening: snapshot.listeningPorts },
-      },
+      { ...base, ...comparePorts(snapshot.listeningPorts, context) },
     ];
   }
 }
@@ -121,4 +118,40 @@ function toProbeError(cause: unknown): ProbeError {
 
 function round(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+/**
+ * Compares what is actually listening against what the config
+ * declares.
+ *
+ * An undeclared port is either something installed and forgotten,
+ * or something that should not be there at all. A declared port
+ * that stopped listening means the service is down.
+ */
+function comparePorts(
+  listeningCsv: string,
+  context: ProbeContext,
+): Pick<MetricPoint, "metric" | "value" | "ok" | "meta"> {
+  const listening = listeningCsv
+    .split(",")
+    .map((port) => Number(port.trim()))
+    .filter((port) => Number.isFinite(port));
+
+  const declaredPorts = new Set(context.ports.map((port) => port.port));
+
+  const undeclared = listening.filter((port) => !declaredPorts.has(port));
+  const missing = context.ports
+    .filter((port) => !listening.includes(port.port))
+    .map((port) => `${port.label}:${port.port}`);
+
+  // Nothing declared means nothing to compare against; reporting
+  // every open port as a problem would be noise.
+  const hasExpectations = context.ports.length > 0;
+
+  return {
+    metric: "system.ports",
+    value: listening.length,
+    ok: !hasExpectations || (undeclared.length === 0 && missing.length === 0),
+    meta: { listening, undeclared, missing },
+  };
 }

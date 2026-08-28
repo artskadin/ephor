@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeClock } from "../clock.js";
 import { Scheduler, type Task } from "../scheduler.js";
 
-const PROBES = ["fast", "slow"] as const;
+const PROBES = [
+  { name: "fast", requiresExecutor: false },
+  { name: "slow", requiresExecutor: false },
+] as const;
 
 function makeNodes() {
   const config = ConfigSchema.parse({

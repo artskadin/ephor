@@ -3,6 +3,8 @@ import { ProbeRegistry } from "./probes/registry.js";
 import { SystemProbe } from "./probes/system/system-probe.js";
 import { Collector } from "./collector.js";
 import { SqliteStorage } from "./storage/sqlite-storage.js";
+import { CheckHostProvider } from "./reachability/check-host-provider.js";
+import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
 
 const CONFIG_PATH = process.env["EPHOR_CONFIG"] ?? "/etc/ephor/config.yaml";
 const DB_PATH = process.env["EPHOR_DB"] ?? "/data/metrics.db";
@@ -12,6 +14,27 @@ async function main(): Promise<void> {
 
   const registry = new ProbeRegistry();
   registry.register(new SystemProbe());
+
+  if (config.reachability) {
+    const provider = new CheckHostProvider(
+      config.reachability.regions,
+      config.reachability.vantageRefresh * 1000,
+    );
+
+    const requiredRegions = Object.entries(config.reachability.regions)
+      .filter(([, region]) => region.required)
+      .map(([key]) => key);
+
+    registry.register(
+      new ReachabilityProbe({
+        provider,
+        methods: config.reachability.methods,
+        requiredRegions,
+        quorum: config.reachability.quorum,
+        fallbackPort: 443,
+      }),
+    );
+  }
 
   const storage = new SqliteStorage(DB_PATH);
   const collector = new Collector({ config, registry, storage });

@@ -8,10 +8,12 @@ import {
   type Storage,
 } from "@ephor/core";
 import type { ProbeRegistry } from "./probes/registry.js";
+import { Pruner } from "./maintenance/pruner.js";
 import { Scheduler, type Task } from "./scheduling/scheduler.js";
 import { TaskExecutor } from "./scheduling/task-executor.js";
 import { systemClock } from "./scheduling/clock.js";
 import { createExecutor } from "./execution/create-executor.js";
+import { runWithRetry } from "./probes/with-retry.js";
 
 export interface CollectorOptions {
   config: Config;
@@ -23,10 +25,13 @@ export class Collector {
   private readonly scheduler: Scheduler;
   private readonly taskExecutor: TaskExecutor;
   private readonly resolvedNodes: ResolvedNode[];
+  private readonly pruner: Pruner;
 
   constructor(private readonly options: CollectorOptions) {
-    const probeNames = options.registry.names();
-    this.resolvedNodes = resolveConfig(options.config, probeNames);
+    this.resolvedNodes = resolveConfig(
+      options.config,
+      options.registry.descriptors(),
+    );
 
     this.scheduler = new Scheduler({
       clock: systemClock,
@@ -41,16 +46,26 @@ export class Collector {
     });
 
     this.scheduler.setNodes(this.resolvedNodes);
+
+    this.pruner = new Pruner({
+      storage: options.storage,
+      clock: systemClock,
+      retentionSeconds: options.config.storage.retention,
+      runAt: options.config.storage.pruneAt,
+      onPruned: (removed) => console.log(`pruned ${removed} metric point(s)`),
+    });
   }
 
   async start(): Promise<void> {
     await this.options.storage.migrate();
 
     this.scheduler.start();
+    this.pruner.start();
   }
 
   stop(): void {
     this.scheduler.stop();
+    this.pruner.stop();
   }
 
   runNow(nodeName?: string, probeName?: string): void {
@@ -71,12 +86,13 @@ export class Collector {
       nodeName: node.name,
       host: node.host,
       domain: node.domain,
+      ports: node.ports,
       executor: createExecutor(node, timeoutMs),
       startedAt,
       timeoutMs,
     };
 
-    const outcome = await probe.run(context);
+    const outcome = await runWithRetry(probe, context, check.retries);
 
     const points: MetricPoint[] = [];
 
