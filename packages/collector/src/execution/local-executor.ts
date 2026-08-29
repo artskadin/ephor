@@ -1,5 +1,5 @@
-import type { CommandExecutor, CommandResult, RunOptions } from "./types.js";
 import { spawnProcess } from "./spawn-process.js";
+import type { CommandExecutor, CommandResult, RunOptions } from "./types.js";
 
 export class LocalExecutor implements CommandExecutor {
   readonly kind = "local" as const;

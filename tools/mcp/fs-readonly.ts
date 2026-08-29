@@ -1,9 +1,9 @@
-import * as z from "zod";
-import * as path from "node:path";
+import { realpathSync } from "node:fs";
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { realpathSync } from "node:fs";
+import * as z from "zod";
 
 const ALLOWED_ROOTS: string[] = process.argv
   .slice(2)

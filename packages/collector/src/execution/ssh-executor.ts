@@ -1,6 +1,6 @@
 import type { Ssh } from "@ephor/core";
-import { buildSshArgs } from "./ssh-args.js";
 import { spawnProcess } from "./spawn-process.js";
+import { buildSshArgs } from "./ssh-args.js";
 import type { CommandExecutor, CommandResult, RunOptions } from "./types.js";
 
 export class SshExecutor implements CommandExecutor {

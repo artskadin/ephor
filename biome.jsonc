@@ -1,0 +1,37 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/*.tsbuildinfo",
+      "!tmp"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 80
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "complexity": {
+        // Shell scripts are embedded as String.raw templates so that a
+        // backslash added later is not silently eaten by TypeScript. The
+        // rule fires whenever the current text happens to need no escaping,
+        // which is exactly when the guard is easiest to remove by accident.
+        "noUselessStringRaw": "off"
+      }
+    }
+  }
+}
