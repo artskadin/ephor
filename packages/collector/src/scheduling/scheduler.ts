@@ -64,8 +64,8 @@ export class Scheduler {
     const due: Task[] = [];
 
     for (const node of this.nodes) {
-      for (const [probe, check] of node.checks) {
-        if (!check.enabled) {
+      for (const [probe, settings] of node.probes) {
+        if (!settings.enabled) {
           continue;
         }
 
@@ -78,7 +78,7 @@ export class Scheduler {
 
         const last = this.lastRun.get(key) ?? 0;
 
-        if (now - last < check.interval * 1000) {
+        if (now - last < settings.interval * 1000) {
           continue;
         }
 

@@ -4,8 +4,7 @@
   "description": "",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc --build",
-    "check-config": "tsx ./scripts/check-config.ts"
+    "build": "tsc --build"
   },
   "keywords": [],
   "author": "",

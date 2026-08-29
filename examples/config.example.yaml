@@ -1,0 +1,122 @@
+# ephor — collector configuration
+#
+# The smallest config that works is just a list of nodes; everything below
+# has a default. Values you do set are inherited by every node and can be
+# overridden per node.
+
+# ---------------------------------------------------------------------------
+# Settings shared by every probe
+#
+# `interval` is not accepted here on purpose: one number cannot sensibly mean
+# both "read /proc" and "download for ten seconds". Set it per probe below.
+# ---------------------------------------------------------------------------
+probeDefaults:
+  timeout: 20s
+  retries: 3
+
+# ---------------------------------------------------------------------------
+# Probes
+#
+# `interval`, `timeout`, `retries` and `enabled` mean the same thing here and
+# inside a node, and the narrower place wins. `concurrency` exists only here:
+# it caps a resource shared by all nodes, which no single node owns.
+# ---------------------------------------------------------------------------
+probes:
+  # Reads /proc, df and ss over ssh. Needs `ssh:` or `local: true` on a node.
+  system:
+    interval: 1m # default: 1m
+    timeout: 15s # default: 15s
+    retries: 2 # default: 2
+    # Each run is one ssh process on this machine. 50 is far above what the
+    # spread-out schedule ever needs and stays clear of a 1024 file
+    # descriptor limit. Lower it to ~8 if nodes are reached through a jump
+    # host: sshd there drops connections past MaxStartups (10:30:100).
+    concurrency: 50
+
+  # Asks external vantage points whether the node answers. Needs no access
+  # to the node — a node that is down cannot report on its own reachability.
+  reachability:
+    interval: 5m
+    timeout: 60s
+    concurrency: 16
+
+    # TCP decides: ICMP frequently passes while the port is filtered, and
+    # that exact pattern is what a blocked node looks like.
+    methods: [ping, tcp]
+
+    # Share of a region's vantage points that must answer for it to pass.
+    quorum: 0.5
+
+    # Regions have no default: where your users live is not something this
+    # tool can guess. Without them the probe reports "not configured".
+    #
+    # At least one `required: false` region is what makes the verdict
+    # possible — it is the control group, not extra data:
+    #
+    #   RU 0/4   EU 3/3   ->  blocked   (filtered, the server is fine)
+    #   RU 0/4   EU 0/3   ->  down      (the server is gone)
+    #   RU 2/4   EU 3/3   ->  partial   (some operators filter it)
+    #   RU 4/4   EU 3/3   ->  ok
+    regions:
+      ru:
+        match: [ru]
+        count: 4
+        required: true
+      eu:
+        match: [de, nl, fi]
+        count: 3
+        required: false
+
+  # speed: not implemented yet. It will ship disabled — a throughput test
+  # both costs bandwidth and saturates the node's link while it runs.
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+nodes:
+  # Fullest form: everything spelled out, nothing taken from ~/.ssh/config.
+  - name: achilles
+    host: 62.60.253.142
+    domain: achilles.example.com
+    tags: [production]
+    ssh:
+      user: monitor
+      port: 3948
+      key: ~/.ssh/id_ephor
+      jump: bastion # ProxyJump; omit when connecting directly
+    ports:
+      - { port: 443, label: xray, expose: public }
+      - { port: 8443, label: nginx, expose: local }
+      - { port: 3948, label: ssh, expose: bastion }
+
+  # Shorter form: `ssh:` as a string is an alias from ~/.ssh/config, and a
+  # bare number is a public tcp port. Convenient, never required.
+  - name: antilochus
+    host: 193.148.59.12
+    ssh: antilochus
+    ports: [443]
+    probes:
+      system:
+        interval: 5m # this node is checked less often than the rest
+
+  # No ssh access at all: reachability still works, system is skipped and
+  # says why rather than silently reporting nothing.
+  - name: german
+    host: 144.31.73.62
+    ports: [443]
+
+# ---------------------------------------------------------------------------
+# Storage
+# ---------------------------------------------------------------------------
+storage:
+  driver: sqlite
+
+  # Optional, and there is no relative default on purpose: a relative path
+  # follows whatever directory the collector was started from. Left out, the
+  # database goes to a fixed place in the user's data directory
+  # (~/.local/share/ephor/metrics.db, %LOCALAPPDATA%\ephor on Windows).
+  # In Docker set it to the mounted volume, or pass EPHOR_DB.
+  # path: /data/metrics.db
+
+  retention: 90d
+  pruneAt: "04:00" # local time of the daily cleanup

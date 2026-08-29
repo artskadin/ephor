@@ -4,11 +4,13 @@ export class ProbeRegistry {
   private readonly probes = new Map<string, Probe>();
 
   register(probe: Probe): void {
-    if (this.probes.has(probe.name)) {
-      throw new Error(`Probe "${probe.name}" is already registered`);
+    const { name } = probe.descriptor;
+
+    if (this.probes.has(name)) {
+      throw new Error(`Probe "${name}" is already registered`);
     }
 
-    this.probes.set(probe.name, probe);
+    this.probes.set(name, probe);
   }
 
   get(name: string): Probe | undefined {
@@ -20,9 +22,6 @@ export class ProbeRegistry {
   }
 
   descriptors(): ProbeDescriptor[] {
-    return [...this.probes.values()].map((p) => ({
-      name: p.name,
-      requiresExecutor: p.requiresExecutor,
-    }));
+    return [...this.probes.values()].map((probe) => probe.descriptor);
   }
 }

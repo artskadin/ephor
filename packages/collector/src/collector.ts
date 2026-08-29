@@ -1,19 +1,20 @@
 import {
-  resolveConfig,
   type Config,
   type MetricPoint,
   type ProbeContext,
   type ProbeError,
   type ResolvedNode,
+  resolveConcurrency,
+  resolveConfig,
   type Storage,
 } from "@ephor/core";
-import type { ProbeRegistry } from "./probes/registry.js";
+import { createExecutor } from "./execution/create-executor.js";
 import { Pruner } from "./maintenance/pruner.js";
+import type { ProbeRegistry } from "./probes/registry.js";
+import { runWithRetry } from "./probes/with-retry.js";
+import { systemClock } from "./scheduling/clock.js";
 import { Scheduler, type Task } from "./scheduling/scheduler.js";
 import { TaskExecutor } from "./scheduling/task-executor.js";
-import { systemClock } from "./scheduling/clock.js";
-import { createExecutor } from "./execution/create-executor.js";
-import { runWithRetry } from "./probes/with-retry.js";
 
 export interface CollectorOptions {
   config: Config;
@@ -39,8 +40,10 @@ export class Collector {
     });
 
     this.taskExecutor = new TaskExecutor({
-      concurrencyByProbe: buildConcurrencyMap(options.config),
-      defaultConcurrency: 8,
+      concurrencyByProbe: resolveConcurrency(
+        options.config,
+        options.registry.descriptors(),
+      ),
       handler: (task) => this.runProbe(task),
       onTaskFinished: (task) => this.scheduler.complete(task),
     });
@@ -74,12 +77,12 @@ export class Collector {
 
   private async runProbe(task: Task): Promise<void> {
     const probe = this.options.registry.get(task.probe);
-    const check = task.node.checks.get(task.probe);
+    const settings = task.node.probes.get(task.probe);
 
-    if (!probe || !check) return;
+    if (!probe || !settings) return;
 
     const node = task.node.node;
-    const timeoutMs = check.timeout * 1000;
+    const timeoutMs = settings.timeout * 1000;
     const startedAt = Math.floor(Date.now() / 1000);
 
     const context: ProbeContext = {
@@ -90,9 +93,10 @@ export class Collector {
       executor: createExecutor(node, timeoutMs),
       startedAt,
       timeoutMs,
+      settings: settings.settings,
     };
 
-    const outcome = await runWithRetry(probe, context, check.retries);
+    const outcome = await runWithRetry(probe, context, settings.retries);
 
     const points: MetricPoint[] = [];
 
@@ -101,7 +105,7 @@ export class Collector {
       points.push({
         ts: startedAt,
         node: node.name,
-        metric: `${probe.name}.up`,
+        metric: `${probe.descriptor.name}.up`,
         ok: true,
         meta: { durationMs: outcome.durationMs },
       });
@@ -109,7 +113,7 @@ export class Collector {
       points.push({
         ts: startedAt,
         node: node.name,
-        metric: `${probe.name}.up`,
+        metric: `${probe.descriptor.name}.up`,
         ok: false,
         meta: {
           errorKind: outcome.error.kind,
@@ -121,16 +125,6 @@ export class Collector {
 
     await this.options.storage.write(points);
   }
-}
-
-function buildConcurrencyMap(config: Config): ReadonlyMap<string, number> {
-  const map = new Map<string, number>();
-
-  for (const [probeName, settings] of Object.entries(config.probes)) {
-    map.set(probeName, settings.concurrency);
-  }
-
-  return map;
 }
 
 function describeError(error: ProbeError): string {

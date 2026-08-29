@@ -1,4 +1,3 @@
-import { ProbeSettingsSchema } from "@ephor/core";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import type { Task } from "./scheduler.js";
 
@@ -6,7 +5,6 @@ export type TaskHandler = (task: Task) => Promise<void>;
 
 export interface TaskExecutorOptions {
   concurrencyByProbe: ReadonlyMap<string, number>;
-  defaultConcurrency: number;
   handler: TaskHandler;
   onTaskFinished: (task: Task) => void;
 }
@@ -19,6 +17,19 @@ export class TaskExecutor {
   submit(tasks: readonly Task[]): void {
     for (const task of tasks) {
       const limiter = this.limiterFor(task.probe);
+
+      // Loud, but not fatal: submit() runs inside the scheduler's interval
+      // callback, so throwing here would take the whole collector down and
+      // leave the task marked in flight forever, silencing that node/probe
+      // pair for good. Report it and let the rest of the batch through.
+      if (!limiter) {
+        console.error(
+          `No concurrency limit configured for probe "${task.probe}"; ` +
+            `skipping task for node "${task.node.node.name}"`,
+        );
+        this.options.onTaskFinished(task);
+        continue;
+      }
 
       void limiter
         .run(() => this.options.handler(task))
@@ -43,13 +54,14 @@ export class TaskExecutor {
     return result;
   }
 
-  private limiterFor(probeName: string): ConcurrencyLimiter {
+  /** Undefined when the task names a probe nobody registered. */
+  private limiterFor(probeName: string): ConcurrencyLimiter | undefined {
     let limiter = this.limiterByProbe.get(probeName);
 
     if (!limiter) {
-      const limit =
-        this.options.concurrencyByProbe.get(probeName) ??
-        this.options.defaultConcurrency;
+      const limit = this.options.concurrencyByProbe.get(probeName);
+
+      if (limit === undefined) return undefined;
 
       limiter = new ConcurrencyLimiter(limit);
 

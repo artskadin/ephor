@@ -2,10 +2,28 @@ import type {
   MetricPoint,
   Probe,
   ProbeContext,
+  ProbeDescriptor,
   ProbeError,
   ProbeOutcome,
 } from "@ephor/core";
 import { SYSTEM_COLLECT_SCRIPT } from "./collect-script.js";
+
+export const systemProbeDescriptor: ProbeDescriptor = {
+  name: "system",
+  requiresExecutor: true,
+  enabledByDefault: true,
+  defaults: {
+    interval: 60,
+    timeout: 15,
+    retries: 2,
+    // One ssh process per node, each a few megabytes and three file
+    // descriptors. 50 is far above what the jittered schedule ever needs
+    // and still leaves room under a default `ulimit -n` of 1024.
+    // Reaching nodes through a jump host is the exception: `MaxStartups`
+    // on that host (10:30:100 by default) drops connections above ~10.
+    concurrency: 50,
+  },
+};
 
 export interface SystemSnapshot {
   hostName: string;
@@ -22,8 +40,7 @@ export interface SystemSnapshot {
 }
 
 export class SystemProbe implements Probe<SystemSnapshot> {
-  readonly name = "system";
-  readonly requiresExecutor = true;
+  readonly descriptor = systemProbeDescriptor;
 
   async run(context: ProbeContext): Promise<ProbeOutcome<SystemSnapshot>> {
     const startedAt = Date.now();
@@ -142,7 +159,9 @@ function comparePorts(
   const undeclared = listening.filter((port) => !declaredPorts.has(port));
   const missing = context.ports
     .filter((port) => !listening.includes(port.port))
-    .map((port) => `${port.label}:${port.port}`);
+    .map((port) =>
+      port.label ? `${port.label}:${port.port}` : `${port.port}`,
+    );
 
   // Nothing declared means nothing to compare against; reporting
   // every open port as a problem would be noise.

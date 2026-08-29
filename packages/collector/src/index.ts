@@ -1,49 +1,42 @@
 import { ConfigError, loadConfig } from "@ephor/core";
+import { Collector } from "./collector.js";
+import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
 import { ProbeRegistry } from "./probes/registry.js";
 import { SystemProbe } from "./probes/system/system-probe.js";
-import { Collector } from "./collector.js";
-import { SqliteStorage } from "./storage/sqlite-storage.js";
 import { CheckHostProvider } from "./reachability/check-host-provider.js";
-import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
+import { resolveDatabasePath } from "./storage/database-path.js";
+import { SqliteStorage } from "./storage/sqlite-storage.js";
 
-const CONFIG_PATH = process.env["EPHOR_CONFIG"] ?? "/etc/ephor/config.yaml";
-const DB_PATH = process.env["EPHOR_DB"] ?? "/data/metrics.db";
+const CONFIG_PATH = process.env.EPHOR_CONFIG ?? "/etc/ephor/config.yaml";
 
 async function main(): Promise<void> {
-  const config = await loadConfig(CONFIG_PATH);
-
+  // The registry is built first: the config schema is generated from the
+  // registered probes, so which probes exist decides what the config may say.
   const registry = new ProbeRegistry();
+
   registry.register(new SystemProbe());
+  registry.register(
+    new ReachabilityProbe(
+      (settings) =>
+        new CheckHostProvider(settings.regions, settings.vantageRefresh * 1000),
+    ),
+  );
 
-  if (config.reachability) {
-    const provider = new CheckHostProvider(
-      config.reachability.regions,
-      config.reachability.vantageRefresh * 1000,
-    );
+  const config = await loadConfig(CONFIG_PATH, registry.descriptors());
 
-    const requiredRegions = Object.entries(config.reachability.regions)
-      .filter(([, region]) => region.required)
-      .map(([key]) => key);
+  const databasePath = resolveDatabasePath({
+    fromEnvironment: process.env.EPHOR_DB,
+    fromConfig: config.storage.path,
+  });
 
-    registry.register(
-      new ReachabilityProbe({
-        provider,
-        methods: config.reachability.methods,
-        requiredRegions,
-        quorum: config.reachability.quorum,
-        fallbackPort: 443,
-      }),
-    );
-  }
-
-  const storage = new SqliteStorage(DB_PATH);
+  const storage = new SqliteStorage(databasePath);
   const collector = new Collector({ config, registry, storage });
 
   await collector.start();
 
   console.log(
     `ephor collector started: ${config.nodes.length} node(s), ` +
-      `probes: ${registry.names().join(", ")}`,
+      `probes: ${registry.names().join(", ")}, database: ${databasePath}`,
   );
 
   const shutdown = async (signal: string): Promise<void> => {

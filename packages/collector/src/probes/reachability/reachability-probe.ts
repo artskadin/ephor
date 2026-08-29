@@ -1,34 +1,78 @@
 import {
-  summarize,
   type MetricPoint,
   type Probe,
   type ProbeContext,
+  type ProbeDescriptor,
   type ProbeOutcome,
-  type ReachabilityMethod,
   type ReachabilityProvider,
   type ReachabilityResult,
+  summarize,
 } from "@ephor/core";
+import {
+  type ReachabilitySettings,
+  ReachabilitySettingsSchema,
+  reachabilitySettingsShape,
+  requiredRegionsOf,
+} from "../../reachability/settings.js";
 
-export interface ReachabilityProbeOptions {
-  provider: ReachabilityProvider;
-  methods: readonly ReachabilityMethod[];
-  requiredRegions: readonly string[];
-  quorum: number;
-  fallbackPort: number;
-}
+export const reachabilityProbeDescriptor: ProbeDescriptor = {
+  name: "reachability",
+  /** Works without node access — that is the whole point. */
+  requiresExecutor: false,
+  enabledByDefault: true,
+  defaults: {
+    interval: 300,
+    timeout: 60,
+    retries: 1,
+    // One check occupies a slot for as long as the external provider takes
+    // to poll its vantage points (tens of seconds), so this number, unlike
+    // the others, has to keep up with the node count rather than merely
+    // cap it: 200 nodes at a five-minute interval need roughly 13.
+    concurrency: 16,
+  },
+  settings: reachabilitySettingsShape,
+};
+
+/** Port used when the node declares no public TCP port of its own. */
+const FALLBACK_PORT = 443;
+
+export type ReachabilityProviderFactory = (
+  settings: ReachabilitySettings,
+) => ReachabilityProvider;
 
 export class ReachabilityProbe implements Probe<ReachabilityResult> {
-  readonly name = "reachability";
-  /** Works without node access — that is the whole point. */
-  readonly requiresExecutor = false;
+  readonly descriptor = reachabilityProbeDescriptor;
 
-  constructor(private readonly options: ReachabilityProbeOptions) {}
+  /**
+   * Created on first use and reused afterwards: the provider caches the
+   * vantage point list, and a fresh instance per run would refetch it.
+   */
+  private provider?: ReachabilityProvider | undefined;
+
+  constructor(private readonly createProvider: ReachabilityProviderFactory) {}
 
   async run(context: ProbeContext): Promise<ProbeOutcome<ReachabilityResult>> {
     const startedAt = Date.now();
 
     try {
-      const vantages = await this.options.provider.listVantages();
+      // Already validated as part of the config; parsing again is how the
+      // probe gets its own settings typed without core knowing about them.
+      const settings = ReachabilitySettingsSchema.parse(context.settings);
+
+      if (Object.keys(settings.regions).length === 0) {
+        return {
+          ok: false,
+          error: {
+            kind: "not_configured",
+            what: "probes.reachability.regions",
+          },
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      this.provider ??= this.createProvider(settings);
+
+      const vantages = await this.provider.listVantages();
 
       if (vantages.length === 0) {
         return {
@@ -38,24 +82,20 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
         };
       }
 
-      const publicPort =
-        context.ports.find((p) => p.expose === "public" && p.proto === "tcp")
-          ?.port ?? this.options.fallbackPort;
-
-      const readings = await this.options.provider.probe(
+      const readings = await this.provider.probe(
         {
           host: context.host,
-          port: publicPort,
+          port: publicPortOf(context),
           domain: context.domain,
         },
         vantages,
-        this.options.methods,
+        settings.methods,
       );
 
       const result = summarize({
         readings,
-        requiredRegions: this.options.requiredRegions,
-        quorum: this.options.quorum,
+        requiredRegions: requiredRegionsOf(settings),
+        quorum: settings.quorum,
       });
 
       return { ok: true, data: result, durationMs: Date.now() - startedAt };
@@ -100,6 +140,14 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
 
     return points;
   }
+}
+
+function publicPortOf(context: ProbeContext): number {
+  return (
+    context.ports.find(
+      (port) => port.expose === "public" && port.proto === "tcp",
+    )?.port ?? FALLBACK_PORT
+  );
 }
 
 /** Ordered by severity so charts read naturally. */

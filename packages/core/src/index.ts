@@ -1,18 +1,27 @@
-export type { MetricPoint } from "./types/metrics.js";
-export type { ProbeOutcome, ProbeError } from "./types/probe.js";
-export type {
-  Probe,
-  ProbeContext,
-  CommandRunner,
-  ProbeDescriptor,
-} from "./types/probe-contract.js";
-export * from "./config/schema.js";
 export { Duration } from "./config/duration.js";
-export type { ResolvedCheck, ResolvedNode } from "./config/resolve.js";
-export { resolveConfig, resolveNode } from "./config/resolve.js";
-export { loadConfig, ConfigError } from "./config/load.js";
-export type { Storage, QueryFilter } from "./storage/types.js";
+export { ConfigError, loadConfig, parseConfig } from "./config/load.js";
+export type {
+  ProbeDisabledReason,
+  ResolvedNode,
+  ResolvedProbe,
+} from "./config/resolve.js";
+export {
+  resolveConcurrency,
+  resolveConfig,
+  resolveNode,
+} from "./config/resolve.js";
+export * from "./config/schema.js";
 export type { NodeSource } from "./nodes/node-source.js";
 export { StaticNodeSource } from "./nodes/node-source.js";
 export * from "./reachability/types.js";
 export * from "./reachability/verdict.js";
+export type { QueryFilter, Storage } from "./storage/types.js";
+export type { MetricPoint } from "./types/metrics.js";
+export type { ProbeError, ProbeOutcome } from "./types/probe.js";
+export type {
+  CommandRunner,
+  Probe,
+  ProbeContext,
+  ProbeDefaults,
+  ProbeDescriptor,
+} from "./types/probe-contract.js";

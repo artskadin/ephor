@@ -3,9 +3,9 @@ import type {
   ReachabilityMethod,
   ReachabilityProvider,
   ReachabilityTarget,
-  Region,
   Vantage,
 } from "@ephor/core";
+import type { Region } from "./settings.js";
 
 const API_BASE = "https://check-host.net";
 
