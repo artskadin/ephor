@@ -1,4 +1,4 @@
-import { ConfigError, loadConfig } from "@ephor/core";
+import { ConfigError, createLogger, loadConfig } from "@ephor/core";
 import { Collector } from "./collector.js";
 import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
 import { ProbeRegistry } from "./probes/registry.js";
@@ -10,6 +10,10 @@ import { SqliteStorage } from "./storage/sqlite-storage.js";
 const CONFIG_PATH = process.env.EPHOR_CONFIG ?? "/etc/ephor/config.yaml";
 
 async function main(): Promise<void> {
+  // Built inside main() so that a bad EPHOR_LOG_LEVEL is reported by the
+  // handler below rather than as an unhandled module-evaluation error.
+  const logger = createLogger();
+
   // The registry is built first: the config schema is generated from the
   // registered probes, so which probes exist decides what the config may say.
   const registry = new ProbeRegistry();
@@ -30,17 +34,18 @@ async function main(): Promise<void> {
   });
 
   const storage = new SqliteStorage(databasePath);
-  const collector = new Collector({ config, registry, storage });
+  const collector = new Collector({ config, registry, storage, logger });
 
   await collector.start();
 
-  console.log(
-    `ephor collector started: ${config.nodes.length} node(s), ` +
-      `probes: ${registry.names().join(", ")}, database: ${databasePath}`,
-  );
+  logger.info("collector started", {
+    nodes: config.nodes.length,
+    probes: registry.names(),
+    database: databasePath,
+  });
 
   const shutdown = async (signal: string): Promise<void> => {
-    console.log(`\n${signal} received, shutting down`);
+    logger.info("shutting down", { signal });
     collector.stop();
 
     await storage.close();
@@ -54,10 +59,17 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   if (error instanceof ConfigError) {
-    console.error(`\n${error.message}\n`);
+    // Written straight to stderr rather than logged: this is a multi-line
+    // message for the person who just edited the file, not a log record.
+    process.stderr.write(`\n${error.message}\n\n`);
     process.exit(1);
   }
 
-  console.error(error);
+  // Explicit level: this path must work even when the failure was the log
+  // level itself, and an explicit one never consults the environment.
+  createLogger({ level: "error" }).error("collector failed to start", {
+    cause: error,
+  });
+
   process.exit(1);
 });

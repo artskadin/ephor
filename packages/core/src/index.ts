@@ -11,6 +11,14 @@ export {
   resolveNode,
 } from "./config/resolve.js";
 export * from "./config/schema.js";
+export type {
+  LogFields,
+  LogFormat,
+  Logger,
+  LoggerOptions,
+  LogLevel,
+} from "./logging/logger.js";
+export { createLogger, LOG_LEVELS, parseLogLevel } from "./logging/logger.js";
 export type { NodeSource } from "./nodes/node-source.js";
 export { StaticNodeSource } from "./nodes/node-source.js";
 export * from "./reachability/types.js";

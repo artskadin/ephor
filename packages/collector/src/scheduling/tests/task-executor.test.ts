@@ -1,4 +1,4 @@
-import type { ResolvedNode } from "@ephor/core";
+import { createLogger, type Logger, type ResolvedNode } from "@ephor/core";
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "../scheduler.js";
 import { TaskExecutor } from "../task-executor.js";
@@ -20,6 +20,21 @@ function taskFor(probe: string): Task {
   return { probe, node: NODE };
 }
 
+/** Captured as parsed records, so assertions name fields, not substrings. */
+function captureLogs(): { logger: Logger; records: Record<string, unknown>[] } {
+  const records: Record<string, unknown>[] = [];
+
+  const logger = createLogger({
+    level: "debug",
+    format: "json",
+    environment: {},
+    isTerminal: false,
+    write: (line) => records.push(JSON.parse(line) as Record<string, unknown>),
+  });
+
+  return { logger, records };
+}
+
 describe("TaskExecutor", () => {
   it("runs a task and reports it finished", async () => {
     const finished: Task[] = [];
@@ -29,6 +44,7 @@ describe("TaskExecutor", () => {
       concurrencyByProbe: new Map([["system", 2]]),
       handler,
       onTaskFinished: (task) => finished.push(task),
+      logger: captureLogs().logger,
     });
 
     executor.submit([taskFor("system")]);
@@ -43,14 +59,13 @@ describe("TaskExecutor", () => {
   it("skips a task for an unregistered probe without throwing", async () => {
     const finished: Task[] = [];
     const handler = vi.fn(async () => {});
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+    const { logger, records } = captureLogs();
 
     const executor = new TaskExecutor({
       concurrencyByProbe: new Map([["system", 2]]),
       handler,
       onTaskFinished: (task) => finished.push(task),
+      logger,
     });
 
     expect(() =>
@@ -61,10 +76,36 @@ describe("TaskExecutor", () => {
 
     // The unknown probe never runs, the known one still does.
     expect(handler).toHaveBeenCalledOnce();
-    expect(consoleError).toHaveBeenCalledOnce();
-    expect(String(consoleError.mock.calls[0]?.[0])).toContain("ghost");
 
-    consoleError.mockRestore();
+    const errors = records.filter((record) => record.level === "error");
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ probe: "ghost", node: "solo" });
+  });
+
+  it("reports a probe that rejects without losing the task", async () => {
+    const finished: Task[] = [];
+    const { logger, records } = captureLogs();
+
+    const executor = new TaskExecutor({
+      concurrencyByProbe: new Map([["system", 1]]),
+      handler: async () => {
+        throw new Error("storage is gone");
+      },
+      onTaskFinished: (task) => finished.push(task),
+      logger,
+    });
+
+    executor.submit([taskFor("system")]);
+    await vi.waitFor(() => expect(finished).toHaveLength(1));
+
+    const [error] = records.filter((record) => record.level === "error");
+
+    expect(error).toMatchObject({
+      msg: "unhandled error while running a probe",
+      probe: "system",
+      cause: { name: "Error", message: "storage is gone" },
+    });
   });
 
   it("keeps one limiter per probe", async () => {
@@ -77,6 +118,7 @@ describe("TaskExecutor", () => {
       ]),
       handler: async () => {},
       onTaskFinished: (task) => finished.push(task),
+      logger: captureLogs().logger,
     });
 
     executor.submit([taskFor("system"), taskFor("reachability")]);

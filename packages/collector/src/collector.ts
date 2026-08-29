@@ -1,5 +1,6 @@
 import {
   type Config,
+  type Logger,
   type MetricPoint,
   type ProbeContext,
   type ProbeError,
@@ -20,6 +21,7 @@ export interface CollectorOptions {
   config: Config;
   registry: ProbeRegistry;
   storage: Storage;
+  logger: Logger;
 }
 
 export class Collector {
@@ -46,6 +48,7 @@ export class Collector {
       ),
       handler: (task) => this.runProbe(task),
       onTaskFinished: (task) => this.scheduler.complete(task),
+      logger: options.logger,
     });
 
     this.scheduler.setNodes(this.resolvedNodes);
@@ -55,7 +58,8 @@ export class Collector {
       clock: systemClock,
       retentionSeconds: options.config.storage.retention,
       runAt: options.config.storage.pruneAt,
-      onPruned: (removed) => console.log(`pruned ${removed} metric point(s)`),
+      onPruned: (removed) =>
+        options.logger.info("pruned old metrics", { removed }),
     });
   }
 
@@ -78,10 +82,17 @@ export class Collector {
   private async runProbe(task: Task): Promise<void> {
     const probe = this.options.registry.get(task.probe);
     const settings = task.node.probes.get(task.probe);
-
-    if (!probe || !settings) return;
-
     const node = task.node.node;
+
+    if (!probe || !settings) {
+      this.options.logger.error("task names a probe that is not resolved", {
+        node: node.name,
+        probe: task.probe,
+      });
+
+      return;
+    }
+
     const timeoutMs = settings.timeout * 1000;
     const startedAt = Math.floor(Date.now() / 1000);
 
@@ -98,6 +109,11 @@ export class Collector {
 
     const outcome = await runWithRetry(probe, context, settings.retries);
 
+    const logger = this.options.logger.child({
+      node: node.name,
+      probe: probe.descriptor.name,
+    });
+
     const points: MetricPoint[] = [];
 
     if (outcome.ok) {
@@ -108,6 +124,11 @@ export class Collector {
         metric: `${probe.descriptor.name}.up`,
         ok: true,
         meta: { durationMs: outcome.durationMs },
+      });
+
+      logger.debug("probe finished", {
+        durationMs: outcome.durationMs,
+        points: points.length,
       });
     } else {
       points.push({
@@ -120,6 +141,14 @@ export class Collector {
           detail: describeError(outcome.error),
           durationMs: outcome.durationMs,
         },
+      });
+
+      // A failing probe is worth a line every cycle: the metric records it
+      // for the UI, but only the log says it while the UI does not exist.
+      logger.warn("probe failed", {
+        errorKind: outcome.error.kind,
+        detail: describeError(outcome.error),
+        durationMs: outcome.durationMs,
       });
     }
 

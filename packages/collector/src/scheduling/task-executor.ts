@@ -1,3 +1,4 @@
+import type { Logger } from "@ephor/core";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import type { Task } from "./scheduler.js";
 
@@ -7,6 +8,7 @@ export interface TaskExecutorOptions {
   concurrencyByProbe: ReadonlyMap<string, number>;
   handler: TaskHandler;
   onTaskFinished: (task: Task) => void;
+  logger: Logger;
 }
 
 export class TaskExecutor {
@@ -23,22 +25,22 @@ export class TaskExecutor {
       // leave the task marked in flight forever, silencing that node/probe
       // pair for good. Report it and let the rest of the batch through.
       if (!limiter) {
-        console.error(
-          `No concurrency limit configured for probe "${task.probe}"; ` +
-            `skipping task for node "${task.node.node.name}"`,
-        );
+        this.options.logger.error("no concurrency limit for probe, skipping", {
+          probe: task.probe,
+          node: task.node.node.name,
+        });
         this.options.onTaskFinished(task);
         continue;
       }
 
       void limiter
         .run(() => this.options.handler(task))
-        .catch((err: unknown) => {
-          console.error(
-            `Unhandled error in probe "${task.probe}" ` +
-              `for node "${task.node.node.name}"`,
-            err,
-          );
+        .catch((cause: unknown) => {
+          this.options.logger.error("unhandled error while running a probe", {
+            probe: task.probe,
+            node: task.node.node.name,
+            cause,
+          });
         })
         .finally(() => this.options.onTaskFinished(task));
     }

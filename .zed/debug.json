@@ -1,0 +1,59 @@
+// Debug configurations for Zed. Zed already detects vitest tests and
+// package.json scripts on its own — these cover the cases it cannot guess.
+[
+  {
+    "label": "vitest: all tests",
+    "adapter": "JavaScript",
+    "type": "node",
+    "request": "launch",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "program": "$ZED_WORKTREE_ROOT/node_modules/vitest/vitest.mjs",
+    // Vitest runs test files in parallel workers by default, and refuses to
+    // start under a debugger without this flag: a breakpoint in a worker is
+    // invisible to a debugger attached to the main process.
+    "args": ["run", "--no-file-parallelism"],
+    "console": "integratedTerminal",
+    "skipFiles": ["<node_internals>/**"]
+  },
+  {
+    "label": "vitest: current file",
+    "adapter": "JavaScript",
+    "type": "node",
+    "request": "launch",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "program": "$ZED_WORKTREE_ROOT/node_modules/vitest/vitest.mjs",
+    "args": ["run", "--no-file-parallelism", "$ZED_FILE"],
+    "console": "integratedTerminal",
+    "skipFiles": ["<node_internals>/**"]
+  },
+  {
+    // Runs the real daemon against the local config. It will open ssh
+    // connections to the nodes and call check-host.net, so use it when that
+    // is what you want to watch.
+    "label": "ephor serve (config.local.yaml)",
+    "adapter": "JavaScript",
+    "type": "node",
+    "request": "launch",
+    "cwd": "$ZED_WORKTREE_ROOT/packages/collector",
+    "program": "$ZED_WORKTREE_ROOT/node_modules/tsx/dist/cli.mjs",
+    "args": ["src/index.ts"],
+    "env": {
+      "EPHOR_CONFIG": "$ZED_WORKTREE_ROOT/examples/config.local.yaml",
+      "EPHOR_DB": "$ZED_WORKTREE_ROOT/tmp/debug-metrics.db",
+      "EPHOR_LOG_LEVEL": "debug"
+    },
+    "console": "integratedTerminal",
+    "skipFiles": ["<node_internals>/**"]
+  },
+  {
+    "label": "check config (config.example.yaml)",
+    "adapter": "JavaScript",
+    "type": "node",
+    "request": "launch",
+    "cwd": "$ZED_WORKTREE_ROOT/packages/collector",
+    "program": "$ZED_WORKTREE_ROOT/node_modules/tsx/dist/cli.mjs",
+    "args": ["scripts/check-config.ts", "$ZED_WORKTREE_ROOT/examples/config.example.yaml"],
+    "console": "integratedTerminal",
+    "skipFiles": ["<node_internals>/**"]
+  }
+]
