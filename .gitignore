@@ -22,3 +22,5 @@ packages/*/src/**/*.map
 config.local.*
 
 tmp/
+
+CLAUDE.md
