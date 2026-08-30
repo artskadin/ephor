@@ -24,11 +24,13 @@ export const reachabilityProbeDescriptor: ProbeDescriptor = {
     interval: 300,
     timeout: 60,
     retries: 1,
-    // One check occupies a slot for as long as the external provider takes
-    // to poll its vantage points (tens of seconds), so this number, unlike
-    // the others, has to keep up with the node count rather than merely
-    // cap it: 200 nodes at a five-minute interval need roughly 13.
-    concurrency: 16,
+    // A backstop, not a throttle. The load on the provider is set by the
+    // interval, not by this number: with the schedule spread out, the count
+    // in flight settles at arrival rate times duration on its own (roughly
+    // 13 for 200 nodes at five minutes). The limit only matters when the
+    // provider slows down, and then a low one would build a queue rather
+    // than prevent anything.
+    concurrency: 50,
   },
   settings: reachabilitySettingsShape,
 };

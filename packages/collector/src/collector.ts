@@ -79,6 +79,15 @@ export class Collector {
     this.scheduler.runNow(nodeName, probeName);
   }
 
+  /** Resolves once the queue has drained; false if it did not in time. */
+  waitUntilIdle(timeoutMs: number): Promise<boolean> {
+    return this.scheduler.waitUntilIdle(timeoutMs);
+  }
+
+  get runningTasks(): number {
+    return this.scheduler.runningTasks;
+  }
+
   private async runProbe(task: Task): Promise<void> {
     const probe = this.options.registry.get(task.probe);
     const settings = task.node.probes.get(task.probe);

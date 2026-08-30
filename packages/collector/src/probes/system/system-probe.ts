@@ -17,8 +17,9 @@ export const systemProbeDescriptor: ProbeDescriptor = {
     timeout: 15,
     retries: 2,
     // One ssh process per node, each a few megabytes and three file
-    // descriptors. 50 is far above what the jittered schedule ever needs
-    // and still leaves room under a default `ulimit -n` of 1024.
+    // descriptors. A backstop against unbounded growth rather than a
+    // throttle: the spread schedule keeps the count in flight far below
+    // this, and 50 still leaves room under a default `ulimit -n` of 1024.
     // Reaching nodes through a jump host is the exception: `MaxStartups`
     // on that host (10:30:100 by default) drops connections above ~10.
     concurrency: 50,

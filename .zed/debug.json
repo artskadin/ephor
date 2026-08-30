@@ -52,7 +52,10 @@
     "request": "launch",
     "cwd": "$ZED_WORKTREE_ROOT/packages/collector",
     "program": "$ZED_WORKTREE_ROOT/node_modules/tsx/dist/cli.mjs",
-    "args": ["scripts/check-config.ts", "$ZED_WORKTREE_ROOT/examples/config.example.yaml"],
+    "args": [
+      "scripts/check-config.ts",
+      "$ZED_WORKTREE_ROOT/examples/config.example.yaml"
+    ],
     "console": "integratedTerminal",
     "skipFiles": ["<node_internals>/**"]
   }

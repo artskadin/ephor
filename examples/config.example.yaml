@@ -27,10 +27,10 @@ probes:
     interval: 1m # default: 1m
     timeout: 15s # default: 15s
     retries: 2 # default: 2
-    # Each run is one ssh process on this machine. 50 is far above what the
-    # spread-out schedule ever needs and stays clear of a 1024 file
-    # descriptor limit. Lower it to ~8 if nodes are reached through a jump
-    # host: sshd there drops connections past MaxStartups (10:30:100).
+    # A backstop, not a throttle: how often a node is checked is set by
+    # `interval`, and the spread schedule keeps far fewer than this in
+    # flight at any moment. Lower it to ~8 if nodes are reached through a
+    # jump host: sshd there drops connections past MaxStartups (10:30:100).
     concurrency: 50
 
   # Asks external vantage points whether the node answers. Needs no access
@@ -38,7 +38,7 @@ probes:
   reachability:
     interval: 5m
     timeout: 60s
-    concurrency: 16
+    concurrency: 50
 
     # TCP decides: ICMP frequently passes while the port is filtered, and
     # that exact pattern is what a blocked node looks like.
