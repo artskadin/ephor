@@ -4,6 +4,7 @@ import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
 import { ProbeRegistry } from "./probes/registry.js";
 import { SystemProbe } from "./probes/system/system-probe.js";
 import { CheckHostProvider } from "./reachability/check-host-provider.js";
+import { DirectHttpRequester } from "./reachability/direct-http-requester.js";
 import { resolveDatabasePath } from "./storage/database-path.js";
 import { SqliteStorage } from "./storage/sqlite-storage.js";
 
@@ -19,11 +20,19 @@ async function main(): Promise<void> {
   const registry = new ProbeRegistry();
 
   registry.register(new SystemProbe());
+  const requester = new DirectHttpRequester();
+
   registry.register(
-    new ReachabilityProbe(
-      (settings) =>
-        new CheckHostProvider(settings.regions, settings.vantageRefresh * 1000),
-    ),
+    new ReachabilityProbe({
+      createProvider: (settings) =>
+        new CheckHostProvider({
+          regions: settings.regions,
+          vantageTtlMs: settings.vantageRefresh * 1000,
+        }),
+      // Always from the collector for now; `requestFrom: nodes` will make
+      // this a choice without the provider noticing.
+      requesterFor: () => requester,
+    }),
   );
 
   const config = await loadConfig(CONFIG_PATH, registry.descriptors());

@@ -1,8 +1,11 @@
 import {
+  HttpRequestError,
+  type HttpRequester,
   type MetricPoint,
   type Probe,
   type ProbeContext,
   type ProbeDescriptor,
+  type ProbeError,
   type ProbeOutcome,
   type ReachabilityProvider,
   type ReachabilityResult,
@@ -26,10 +29,10 @@ export const reachabilityProbeDescriptor: ProbeDescriptor = {
     retries: 1,
     // A backstop, not a throttle. The load on the provider is set by the
     // interval, not by this number: with the schedule spread out, the count
-    // in flight settles at arrival rate times duration on its own (roughly
-    // 13 for 200 nodes at five minutes). The limit only matters when the
-    // provider slows down, and then a low one would build a queue rather
-    // than prevent anything.
+    // in flight settles at arrival rate times duration on its own — a
+    // measured 4s per check puts 200 nodes at a five-minute interval near 3.
+    // The limit only matters when the provider slows down, and then a low
+    // one would build a queue rather than prevent anything.
     concurrency: 50,
   },
   settings: reachabilitySettingsShape,
@@ -42,6 +45,15 @@ export type ReachabilityProviderFactory = (
   settings: ReachabilitySettings,
 ) => ReachabilityProvider;
 
+export interface ReachabilityProbeOptions {
+  createProvider: ReachabilityProviderFactory;
+  /**
+   * Where the requests physically originate. A separate concern from which
+   * provider answers them, and configurable later per deployment.
+   */
+  requesterFor: (context: ProbeContext) => HttpRequester;
+}
+
 export class ReachabilityProbe implements Probe<ReachabilityResult> {
   readonly descriptor = reachabilityProbeDescriptor;
 
@@ -51,7 +63,7 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
    */
   private provider?: ReachabilityProvider | undefined;
 
-  constructor(private readonly createProvider: ReachabilityProviderFactory) {}
+  constructor(private readonly options: ReachabilityProbeOptions) {}
 
   async run(context: ProbeContext): Promise<ProbeOutcome<ReachabilityResult>> {
     const startedAt = Date.now();
@@ -72,9 +84,10 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
         };
       }
 
-      this.provider ??= this.createProvider(settings);
+      this.provider ??= this.options.createProvider(settings);
 
-      const vantages = await this.provider.listVantages();
+      const requester = this.options.requesterFor(context);
+      const vantages = await this.provider.listVantages(requester);
 
       if (vantages.length === 0) {
         return {
@@ -84,15 +97,16 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
         };
       }
 
-      const readings = await this.provider.probe(
-        {
+      const readings = await this.provider.probe({
+        target: {
           host: context.host,
           port: publicPortOf(context),
           domain: context.domain,
         },
         vantages,
-        settings.methods,
-      );
+        methods: settings.methods,
+        requester,
+      });
 
       const result = summarize({
         readings,
@@ -104,7 +118,7 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
     } catch (cause) {
       return {
         ok: false,
-        error: { kind: "internal", cause },
+        error: toProbeError(cause),
         durationMs: Date.now() - startedAt,
       };
     }
@@ -142,6 +156,25 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
 
     return points;
   }
+}
+
+/**
+ * Keeps "the service said no" apart from "we have a bug". They call for
+ * different actions, and they are retried differently: a rate limit asked
+ * again a second later is still a rate limit, while a network failure often
+ * is not.
+ */
+function toProbeError(cause: unknown): ProbeError {
+  if (!(cause instanceof HttpRequestError)) {
+    return { kind: "internal", cause };
+  }
+
+  // No status means the request never got an answer at all.
+  if (cause.status === undefined) {
+    return { kind: "unreachable", detail: cause.message };
+  }
+
+  return { kind: "bad_response", status: cause.status };
 }
 
 function publicPortOf(context: ProbeContext): number {

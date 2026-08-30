@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "build": "pnpm -r --if-present run build",
-    "typecheck": "tsc --build",
+    "typecheck": "tsc --build && tsc --noEmit -p packages/collector/tsconfig.scripts.json",
     "test": "vitest run",
     "lint": "biome check ."
   },

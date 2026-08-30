@@ -3,17 +3,24 @@ import { ReachabilityProbe } from "../src/probes/reachability/reachability-probe
 import { ProbeRegistry } from "../src/probes/registry.js";
 import { SystemProbe } from "../src/probes/system/system-probe.js";
 import { CheckHostProvider } from "../src/reachability/check-host-provider.js";
+import { DirectHttpRequester } from "../src/reachability/direct-http-requester.js";
 
 const path = process.argv[2] ?? "../../examples/config.example.yaml";
 
 const registry = new ProbeRegistry();
 
 registry.register(new SystemProbe());
+const requester = new DirectHttpRequester();
+
 registry.register(
-  new ReachabilityProbe(
-    (settings) =>
-      new CheckHostProvider(settings.regions, settings.vantageRefresh * 1000),
-  ),
+  new ReachabilityProbe({
+    createProvider: (settings) =>
+      new CheckHostProvider({
+        regions: settings.regions,
+        vantageTtlMs: settings.vantageRefresh * 1000,
+      }),
+    requesterFor: () => requester,
+  }),
 );
 
 try {
