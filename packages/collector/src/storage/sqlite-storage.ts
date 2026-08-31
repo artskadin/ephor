@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { MetricPoint, QueryFilter, Storage } from "@ephor/core";
+import { applyMigrations } from "./migrations.js";
 
 interface MetricRow {
   ts: number;
@@ -26,26 +27,7 @@ export class SqliteStorage implements Storage {
   }
 
   async migrate(): Promise<void> {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS metrics (
-        ts     INTEGER NOT NULL,
-        node   TEXT    NOT NULL,
-        metric TEXT    NOT NULL,
-        value  REAL,
-        ok     INTEGER,
-        meta   TEXT
-      )
-    `);
-
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_metrics_lookup
-      ON metrics (node, metric, ts DESC)
-    `);
-
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_metrics_ts
-      ON metrics (ts)
-    `);
+    applyMigrations(this.db);
   }
 
   async write(points: readonly MetricPoint[]): Promise<void> {
