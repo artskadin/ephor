@@ -1,11 +1,17 @@
 import type { DatabaseSync } from "node:sqlite";
+import { createLogger, type Logger } from "@ephor/core";
 
 export interface Migration {
   /** Position in the sequence, starting at 1. Never reused, never reordered. */
   version: number;
   /** Shown in errors and in the schema_migrations table. */
   name: string;
-  apply(database: DatabaseSync): void;
+  /**
+   * The logger is passed in rather than reached for so that a migration
+   * touching existing rows can say what it did to them — data changed
+   * during an upgrade must never happen in silence.
+   */
+  apply(database: DatabaseSync, logger: Logger): void;
 }
 
 /**
@@ -43,7 +49,79 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    name: "metrics-latest",
+    apply(database, logger) {
+      // Nothing enforced one point per (node, metric, ts) until now, so a
+      // forced run landing in the same whole second as a scheduled one could
+      // leave two rows. Collapse them before the unique index refuses to
+      // build: a migration that fails here would keep the collector from
+      // starting at all.
+      const collapsed = database
+        .prepare(
+          `DELETE FROM metrics
+           WHERE rowid NOT IN (
+             SELECT MAX(rowid) FROM metrics GROUP BY node, metric, ts
+           )`,
+        )
+        .run();
+
+      // Deleting a user's rows is not something to do quietly, even when the
+      // rows were redundant.
+      if (Number(collapsed.changes) > 0) {
+        logger.warn("collapsed points duplicated for the same instant", {
+          removed: Number(collapsed.changes),
+        });
+      }
+
+      // Replaced rather than added: a separate unique index would be a second
+      // B-tree over the same three columns, paid for on every insert. The
+      // DESC one serves both roles — the conflict target for an upsert and
+      // the order for "newest first" without a temporary sort.
+      database.exec("DROP INDEX IF EXISTS idx_metrics_lookup");
+      database.exec(`
+        CREATE UNIQUE INDEX idx_metrics_lookup
+        ON metrics (node, metric, ts DESC)
+      `);
+
+      // One row per series, so its size follows the number of nodes rather
+      // than the length of history: 2800 rows for 200 nodes, whether the
+      // database holds a day or a year.
+      database.exec(`
+        CREATE TABLE metrics_latest (
+          node   TEXT    NOT NULL,
+          metric TEXT    NOT NULL,
+          ts     INTEGER NOT NULL,
+          value  REAL,
+          ok     INTEGER,
+          meta   TEXT,
+          PRIMARY KEY (node, metric)
+        )
+      `);
+
+      database.exec(`
+        INSERT INTO metrics_latest (node, metric, ts, value, ok, meta)
+        SELECT node, metric, ts, value, ok, meta FROM (
+          SELECT *,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY node, metric ORDER BY ts DESC
+                 ) AS rn
+          FROM metrics
+        )
+        WHERE rn = 1
+      `);
+    },
+  },
 ];
+
+/**
+ * Stand-in for callers that have no logger to give — tests, mostly. Built
+ * once rather than per call, and safe at module scope because an explicit
+ * level means `EPHOR_LOG_LEVEL` is never parsed here: a bad value in the
+ * environment must be reported by the entry point, not thrown during import.
+ */
+export const SILENT_LOGGER: Logger = createLogger({ level: "silent" });
 
 export class MigrationError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
@@ -60,6 +138,7 @@ export class MigrationError extends Error {
 export function applyMigrations(
   database: DatabaseSync,
   migrations: readonly Migration[] = MIGRATIONS,
+  logger: Logger = SILENT_LOGGER,
 ): void {
   assertSequential(migrations);
 
@@ -104,6 +183,17 @@ export function applyMigrations(
   for (const migration of migrations) {
     if (migration.version <= appliedVersion) continue;
 
+    // Announced before it starts, not after. A migration that rewrites the
+    // history table is measured in seconds on a personal database and in
+    // minutes on a large fleet, and it runs before the collector prints
+    // anything else — silence there is indistinguishable from a hang.
+    const migrationLogger = logger.child({
+      migration: migration.version,
+      name: migration.name,
+    });
+    migrationLogger.info("applying migration");
+    const startedAt = performance.now();
+
     try {
       // IMMEDIATE rather than plain BEGIN: a deferred transaction takes no
       // write lock until its first write, so two collectors started against
@@ -111,7 +201,7 @@ export function applyMigrations(
       // migration. Inside the try, so that losing the lock is reported as
       // this migration failing rather than as a bare "database is locked".
       database.exec("BEGIN IMMEDIATE");
-      migration.apply(database);
+      migration.apply(database, migrationLogger);
       database
         .prepare(
           `INSERT INTO schema_migrations (version, name, applied_at)
@@ -120,6 +210,10 @@ export function applyMigrations(
         .run(migration.version, migration.name);
       database.exec("COMMIT");
       appliedVersion = migration.version;
+
+      migrationLogger.info("migration applied", {
+        durationMs: Math.round(performance.now() - startedAt),
+      });
     } catch (error) {
       rollbackQuietly(database);
       throw new MigrationError(

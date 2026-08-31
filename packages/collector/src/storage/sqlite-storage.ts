@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { MetricPoint, QueryFilter, Storage } from "@ephor/core";
-import { applyMigrations } from "./migrations.js";
+import type { Logger, MetricPoint, QueryFilter, Storage } from "@ephor/core";
+import { applyMigrations, MIGRATIONS, SILENT_LOGGER } from "./migrations.js";
 
 interface MetricRow {
   ts: number;
@@ -15,40 +15,63 @@ interface MetricRow {
 
 export class SqliteStorage implements Storage {
   private readonly db: DatabaseSync;
+  private readonly logger: Logger;
 
-  constructor(path: string) {
+  constructor(path: string, logger: Logger = SILENT_LOGGER) {
     if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true });
     }
     this.db = new DatabaseSync(path);
+    this.logger = logger;
 
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA synchronous = NORMAL");
   }
 
   async migrate(): Promise<void> {
-    applyMigrations(this.db);
+    applyMigrations(this.db, MIGRATIONS, this.logger);
   }
 
   async write(points: readonly MetricPoint[]): Promise<void> {
     if (points.length === 0) return;
 
+    // Writing the same point twice replaces it rather than failing: a forced
+    // run can land in the same whole second as a scheduled one, and refusing
+    // the second would turn `ephor check` into an error for no reason.
     const insert = this.db.prepare(`
       INSERT INTO metrics (ts, node, metric, value, ok, meta)
       VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (node, metric, ts) DO UPDATE SET
+        value = excluded.value,
+        ok    = excluded.ok,
+        meta  = excluded.meta
+    `);
+
+    // The guard on `ts` is what keeps a late write from dragging the current
+    // state backwards — a retried probe finishing after a newer one must not
+    // make the node look older than it is.
+    const upsertLatest = this.db.prepare(`
+      INSERT INTO metrics_latest (node, metric, ts, value, ok, meta)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (node, metric) DO UPDATE SET
+        ts    = excluded.ts,
+        value = excluded.value,
+        ok    = excluded.ok,
+        meta  = excluded.meta
+      WHERE excluded.ts >= metrics_latest.ts
     `);
 
     this.db.exec("BEGIN");
     try {
       for (const point of points) {
-        insert.run(
-          point.ts,
-          point.node,
-          point.metric,
-          point.value ?? null,
-          point.ok === undefined ? null : point.ok ? 1 : 0,
-          point.meta ? JSON.stringify(point.meta) : null,
-        );
+        const value = point.value ?? null;
+        const ok = point.ok === undefined ? null : point.ok ? 1 : 0;
+        const meta = point.meta ? JSON.stringify(point.meta) : null;
+
+        insert.run(point.ts, point.node, point.metric, value, ok, meta);
+        // Same transaction as the history row: the two must never disagree
+        // about what the last value was.
+        upsertLatest.run(point.node, point.metric, point.ts, value, ok, meta);
       }
       this.db.exec("COMMIT");
     } catch (error) {
@@ -100,23 +123,20 @@ export class SqliteStorage implements Storage {
 
     const rows = this.db
       .prepare(
-        `
-        SELECT ts, node, metric, value, ok, meta FROM (
-          SELECT *,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY node, metric ORDER BY ts DESC
-                 ) AS rn
-          FROM metrics
-          ${where}
-        )
-        WHERE rn = 1
-      `,
+        `SELECT ts, node, metric, value, ok, meta FROM metrics_latest ${where}`,
       )
       .all(...params) as unknown as MetricRow[];
 
     return rows.map(rowToPoint);
   }
 
+  /**
+   * History only. `metrics_latest` is deliberately left alone: a node that
+   * stopped reporting must keep its last known value, with its real age, so
+   * the client can call it stale. Dropping the row instead would make the
+   * node disappear from `ephor status`, which reads as "not configured"
+   * rather than "not answering".
+   */
   async prune(olderThanTs: number): Promise<number> {
     const result = this.db
       .prepare("DELETE FROM metrics WHERE ts < ?")

@@ -125,6 +125,20 @@ export function describeStorageContract(
         expect(await storage.query({})).toHaveLength(3);
       });
 
+      // A forced run can start in the same whole second as a scheduled one,
+      // which makes the same (node, metric, ts) arrive twice. One point in
+      // time is one measurement, so the second write replaces the first
+      // instead of leaving two rows for a reader to choose between.
+      it("replaces a point written twice for the same instant", async () => {
+        await storage.write([{ ts: 100, node: "a", metric: "cpu", value: 1 }]);
+        await storage.write([{ ts: 100, node: "a", metric: "cpu", value: 2 }]);
+
+        const points = await storage.query({});
+
+        expect(points).toHaveLength(1);
+        expect(points[0]?.value).toBe(2);
+      });
+
       it("filters by node", async () => {
         await storage.write([
           { ts: 100, node: "a", metric: "cpu", value: 1 },
@@ -279,6 +293,32 @@ export function describeStorageContract(
 
         expect(point?.ok).toBe(false);
         expect(point?.meta).toEqual({ verdict: "blocked" });
+      });
+
+      it("drops a field that the newest point no longer carries", async () => {
+        await storage.write([
+          { ts: 100, node: "a", metric: "system.up", ok: true, value: 1 },
+        ]);
+        await storage.write([{ ts: 200, node: "a", metric: "system.up" }]);
+
+        const [point] = await storage.latest();
+
+        expect(point).not.toHaveProperty("value");
+        expect(point).not.toHaveProperty("ok");
+      });
+
+      // A node that fell silent has to keep its last known value with its
+      // real age: the client calls that stale. Losing the row instead would
+      // make the node vanish from the table, which reads as "not configured".
+      it("survives history being pruned away", async () => {
+        await storage.write([{ ts: 100, node: "a", metric: "cpu", value: 1 }]);
+
+        await storage.prune(500);
+
+        expect(await storage.query({})).toEqual([]);
+        expect(await storage.latest()).toEqual([
+          { ts: 100, node: "a", metric: "cpu", value: 1 },
+        ]);
       });
     });
 

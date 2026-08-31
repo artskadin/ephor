@@ -2,11 +2,54 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { createLogger } from "@ephor/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../sqlite-storage.js";
 import { describeStorageContract } from "./storage-contract.js";
 
 describeStorageContract("SqliteStorage", () => new SqliteStorage(":memory:"));
+
+// The logger is optional here and defaults to silence, so a broken hand-off
+// would cost nothing visible: the collector would just stop reporting its
+// migrations. This is the test that notices.
+describe("SqliteStorage logging", () => {
+  it("gives the migrations the logger it was constructed with", async () => {
+    const lines: Record<string, unknown>[] = [];
+    const storage = new SqliteStorage(
+      ":memory:",
+      createLogger({
+        level: "debug",
+        format: "json",
+        write: (line) =>
+          lines.push(JSON.parse(line) as Record<string, unknown>),
+      }),
+    );
+
+    await storage.migrate();
+    await storage.close();
+
+    expect(lines.map((line) => line.msg)).toContain("applying migration");
+  });
+
+  it("says nothing when it was given no logger", async () => {
+    const written: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const storage = new SqliteStorage(":memory:");
+      await storage.migrate();
+      await storage.close();
+    } finally {
+      process.stderr.write = original;
+    }
+
+    expect(written).toEqual([]);
+  });
+});
 
 describe("SqliteStorage on disk", () => {
   let directory: string;

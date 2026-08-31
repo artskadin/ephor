@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   const registry = new ProbeRegistry();
 
   registry.register(new SystemProbe());
+
   const requester = new DirectHttpRequester();
 
   registry.register(
@@ -42,7 +43,10 @@ async function main(): Promise<void> {
     fromConfig: config.storage.path,
   });
 
-  const storage = new SqliteStorage(databasePath);
+  const storage = new SqliteStorage(
+    databasePath,
+    logger.child({ database: databasePath }),
+  );
   const collector = new Collector({ config, registry, storage, logger });
 
   await collector.start();
