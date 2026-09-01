@@ -27,3 +27,24 @@ export const Duration = z
     z.string().regex(DURATION_RE, "Expected 30, 30s, 15m, 2h or 7d"),
   ])
   .transform(parseDuration);
+
+/**
+ * The inverse, for ages and intervals shown to a person: `45s`, `7m`, `21h`,
+ * `3d 22h`.
+ *
+ * Rounds down rather than to nearest, because these are read as "at least
+ * this old": a value 3 days and 22 hours behind should not be reported as 4
+ * days, which is time that has not passed yet.
+ */
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+
+  if (total < 60) return `${total}s`;
+  if (total < 3600) return `${Math.floor(total / 60)}m`;
+  if (total < 86400) return `${Math.floor(total / 3600)}h`;
+
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+
+  return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+}

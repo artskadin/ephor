@@ -1,4 +1,4 @@
-export { Duration } from "./config/duration.js";
+export { Duration, formatDuration } from "./config/duration.js";
 export { ConfigError, loadConfig, parseConfig } from "./config/load.js";
 export type {
   ProbeDisabledReason,
@@ -23,6 +23,17 @@ export type { NodeSource } from "./nodes/node-source.js";
 export { StaticNodeSource } from "./nodes/node-source.js";
 export * from "./reachability/types.js";
 export * from "./reachability/verdict.js";
+export type {
+  MetricStatus,
+  MetricView,
+  NodeState,
+  NodeStateInput,
+  ThresholdLevel,
+} from "./state/node-state.js";
+export {
+  buildNodeState,
+  REACHABILITY_VERDICT_METRIC,
+} from "./state/node-state.js";
 export type { QueryFilter, Storage } from "./storage/types.js";
 export type { MetricPoint } from "./types/metrics.js";
 export type { ProbeError, ProbeOutcome } from "./types/probe.js";
