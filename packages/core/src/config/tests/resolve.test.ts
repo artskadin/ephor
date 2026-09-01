@@ -249,3 +249,141 @@ describe("resolveConcurrency", () => {
     expect(limits.get("reachability")).toBe(17);
   });
 });
+
+describe("resolveNode thresholds", () => {
+  const thresholdsOf = (data: Record<string, unknown>) => {
+    const config = configOf(data);
+    const [resolved] = resolveConfig(config, TEST_PROBES);
+
+    if (!resolved) throw new Error("expected at least one resolved node");
+
+    return resolved.thresholds;
+  };
+
+  it("is empty when nobody wrote any", () => {
+    expect(
+      thresholdsOf({ nodes: [{ name: "solo", host: "203.0.113.10" }] }).size,
+    ).toBe(0);
+  });
+
+  it("hands every node the global thresholds", () => {
+    const thresholds = thresholdsOf({
+      thresholds: { "system.disk_percent": { warn: 85, critical: 95 } },
+      nodes: [{ name: "solo", host: "203.0.113.10" }],
+    });
+
+    expect(thresholds.get("system.disk_percent")).toEqual({
+      warn: 85,
+      critical: 95,
+      worseWhen: "above",
+    });
+  });
+
+  it("lets the node win for the metric it names, and only that one", () => {
+    const thresholds = thresholdsOf({
+      thresholds: {
+        "system.disk_percent": { warn: 85, critical: 95 },
+        "system.mem_percent": { warn: 80, critical: 90 },
+      },
+      nodes: [
+        {
+          name: "small-disk",
+          host: "203.0.113.10",
+          thresholds: { "system.disk_percent": { warn: 60, critical: 70 } },
+        },
+      ],
+    });
+
+    expect(thresholds.get("system.disk_percent")).toEqual({
+      warn: 60,
+      critical: 70,
+      worseWhen: "above",
+    });
+    expect(thresholds.get("system.mem_percent")).toEqual({
+      warn: 80,
+      critical: 90,
+      worseWhen: "above",
+    });
+  });
+
+  // Merging field by field would leave the global critical of 80 next to the
+  // node's warn of 90 — a warn above the critical, which the schema refuses
+  // when a person writes it and inheritance must not invent.
+  it("replaces the whole entry rather than merging its fields", () => {
+    const thresholds = thresholdsOf({
+      thresholds: { "system.disk_percent": { warn: 60, critical: 80 } },
+      nodes: [
+        {
+          name: "roomy",
+          host: "203.0.113.10",
+          thresholds: {
+            "system.disk_percent": { warn: 90, worseWhen: "above" },
+          },
+        },
+      ],
+    });
+
+    expect(thresholds.get("system.disk_percent")).toEqual({
+      warn: 90,
+      worseWhen: "above",
+    });
+  });
+
+  it("keeps one node's thresholds out of another's", () => {
+    const config = configOf({
+      thresholds: { "system.disk_percent": { warn: 85, critical: 95 } },
+      nodes: [
+        {
+          name: "small-disk",
+          host: "203.0.113.10",
+          thresholds: { "system.disk_percent": { warn: 60, critical: 70 } },
+        },
+        { name: "default-disk", host: "203.0.113.11" },
+      ],
+    });
+
+    const resolved = resolveConfig(config, TEST_PROBES);
+
+    expect(resolved[0]?.thresholds.get("system.disk_percent")?.warn).toBe(60);
+    expect(resolved[1]?.thresholds.get("system.disk_percent")?.warn).toBe(85);
+  });
+});
+
+describe("resolveNode dropping an inherited threshold", () => {
+  // The archive box that lives at 92% disk on purpose. Without null it would
+  // need an invented `warn: 200`, which reads as a mistake and stops warning
+  // about anything real.
+  it("leaves the metric unwatched on the node that says null", () => {
+    const config = configOf({
+      thresholds: {
+        "system.disk_percent": { warn: 85, critical: 95 },
+        "system.mem_percent": { warn: 85, critical: 95 },
+      },
+      nodes: [
+        {
+          name: "archive",
+          host: "203.0.113.10",
+          thresholds: { "system.disk_percent": null },
+        },
+        { name: "normal", host: "203.0.113.11" },
+      ],
+    });
+
+    const resolved = resolveConfig(config, TEST_PROBES);
+
+    expect(resolved[0]?.thresholds.has("system.disk_percent")).toBe(false);
+    expect(resolved[0]?.thresholds.get("system.mem_percent")?.warn).toBe(85);
+    expect(resolved[1]?.thresholds.get("system.disk_percent")?.warn).toBe(85);
+  });
+
+  it("drops a metric the global section itself nulls out", () => {
+    const config = configOf({
+      thresholds: { "system.disk_percent": null },
+      nodes: [{ name: "solo", host: "203.0.113.10" }],
+    });
+
+    const [resolved] = resolveConfig(config, TEST_PROBES);
+
+    expect(resolved?.thresholds.size).toBe(0);
+  });
+});

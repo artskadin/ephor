@@ -253,3 +253,214 @@ describe("buildConfigSchema", () => {
     ).toThrow(ConfigError);
   });
 });
+
+describe("thresholds", () => {
+  const withThresholds = (thresholds: unknown): Record<string, unknown> => ({
+    thresholds,
+    nodes: [{ name: "solo", host: "203.0.113.10" }],
+  });
+
+  it("defaults to none at all", () => {
+    const config = parseConfig(
+      { nodes: [{ name: "solo", host: "203.0.113.10" }] },
+      TEST_PROBES,
+    );
+
+    expect(config.thresholds).toEqual({});
+    expect(config.nodes[0]?.thresholds).toEqual({});
+  });
+
+  it("survives the section being blanked out while editing", () => {
+    const config = parseConfig(withThresholds(null), TEST_PROBES);
+
+    expect(config.thresholds).toEqual({});
+  });
+
+  it("reads a rising pair as worse above", () => {
+    const config = parseConfig(
+      withThresholds({ "system.disk_percent": { warn: 85, critical: 95 } }),
+      TEST_PROBES,
+    );
+
+    expect(config.thresholds["system.disk_percent"]).toEqual({
+      warn: 85,
+      critical: 95,
+      worseWhen: "above",
+    });
+  });
+
+  // The case the pair form exists for: a falling metric needs no extra key.
+  it("reads a falling pair as worse below", () => {
+    const config = parseConfig(
+      withThresholds({ "speed.download_mbps": { warn: 50, critical: 20 } }),
+      TEST_PROBES,
+    );
+
+    expect(config.thresholds["speed.download_mbps"]).toEqual({
+      warn: 50,
+      critical: 20,
+      worseWhen: "below",
+    });
+  });
+
+  it("accepts a lone bound when the direction is spelled out", () => {
+    const config = parseConfig(
+      withThresholds({
+        "speed.download_mbps": { warn: 50, worseWhen: "below" },
+      }),
+      TEST_PROBES,
+    );
+
+    expect(config.thresholds["speed.download_mbps"]).toEqual({
+      warn: 50,
+      worseWhen: "below",
+    });
+  });
+
+  it("accepts a lone critical", () => {
+    const config = parseConfig(
+      withThresholds({
+        "system.disk_percent": { critical: 95, worseWhen: "above" },
+      }),
+      TEST_PROBES,
+    );
+
+    expect(config.thresholds["system.disk_percent"]).toEqual({
+      critical: 95,
+      worseWhen: "above",
+    });
+  });
+
+  // Guessing here is how a monitor reports a 1.5 Gbit/s server as slow.
+  it("refuses a lone bound with no direction", () => {
+    expect(
+      issuesOf(withThresholds({ "speed.download_mbps": { warn: 50 } })),
+    ).toEqual([
+      "thresholds.speed.download_mbps: a single bound does not say which " +
+        "side is bad; add worseWhen: above or worseWhen: below",
+    ]);
+  });
+
+  it("refuses a threshold that sets no bound", () => {
+    expect(issuesOf(withThresholds({ "system.disk_percent": {} }))).toEqual([
+      "thresholds.system.disk_percent: a threshold needs warn, critical, or both",
+    ]);
+  });
+
+  it("refuses warn and critical that are the same number", () => {
+    expect(
+      issuesOf(
+        withThresholds({ "system.disk_percent": { warn: 90, critical: 90 } }),
+      ),
+    ).toEqual([
+      "thresholds.system.disk_percent: warn and critical must differ; both are 90",
+    ]);
+  });
+
+  it("refuses a direction the two bounds contradict", () => {
+    expect(
+      issuesOf(
+        withThresholds({
+          "system.disk_percent": { warn: 85, critical: 95, worseWhen: "below" },
+        }),
+      ),
+    ).toEqual([
+      "thresholds.system.disk_percent.worseWhen: warn 85 and critical 95 mean " +
+        "the metric is worse above, but worseWhen says below",
+    ]);
+  });
+
+  it("refuses a misspelled key rather than ignoring it", () => {
+    expect(
+      issuesOf(
+        withThresholds({ "system.disk_percent": { warn: 85, crit: 95 } }),
+      ),
+    ).toEqual(['thresholds.system.disk_percent: Unrecognized key: "crit"']);
+  });
+
+  it("accepts thresholds written on a node", () => {
+    const config = parseConfig(
+      {
+        nodes: [
+          {
+            name: "solo",
+            host: "203.0.113.10",
+            thresholds: { "system.disk_percent": { warn: 60, critical: 70 } },
+          },
+        ],
+      },
+      TEST_PROBES,
+    );
+
+    expect(config.nodes[0]?.thresholds["system.disk_percent"]).toEqual({
+      warn: 60,
+      critical: 70,
+      worseWhen: "above",
+    });
+  });
+});
+
+describe("threshold metric ids", () => {
+  it("refuses a metric that belongs to no known probe", () => {
+    expect(
+      issuesOf({
+        thresholds: { "sistem.disk_percent": { warn: 85, critical: 95 } },
+        nodes: [{ name: "solo", host: "203.0.113.10" }],
+      }),
+    ).toEqual([
+      'thresholds.sistem.disk_percent: Metric "sistem.disk_percent" belongs ' +
+        "to no known probe. A metric id starts with its probe: system, " +
+        "reachability, speed",
+    ]);
+  });
+
+  it("refuses one written on a node too", () => {
+    expect(
+      issuesOf({
+        nodes: [
+          {
+            name: "solo",
+            host: "203.0.113.10",
+            thresholds: { "nosuch.metric": { warn: 1, worseWhen: "above" } },
+          },
+        ],
+      }),
+    ).toEqual([
+      'nodes.0.thresholds.nosuch.metric: Metric "nosuch.metric" belongs to ' +
+        "no known probe. A metric id starts with its probe: system, " +
+        "reachability, speed",
+    ]);
+  });
+
+  it("accepts a metric of a probe that exists", () => {
+    const config = parseConfig(
+      {
+        thresholds: {
+          "system.anything_at_all": { warn: 1, worseWhen: "above" },
+        },
+        nodes: [{ name: "solo", host: "203.0.113.10" }],
+      },
+      TEST_PROBES,
+    );
+
+    expect(config.thresholds["system.anything_at_all"]).toBeDefined();
+  });
+
+  it('accepts null as "no threshold for this metric"', () => {
+    const config = parseConfig(
+      {
+        thresholds: { "system.disk_percent": { warn: 85, critical: 95 } },
+        nodes: [
+          {
+            name: "archive",
+            host: "203.0.113.10",
+            thresholds: { "system.disk_percent": null },
+          },
+        ],
+      },
+      TEST_PROBES,
+    );
+
+    expect(config.nodes[0]?.thresholds["system.disk_percent"]).toBeNull();
+  });
+});

@@ -150,6 +150,118 @@ export const StorageSchema = z
 export type StorageSettings = z.infer<typeof StorageSchema>;
 
 /* -------------------------------------------------------------------------
+ * Thresholds
+ *
+ * What counts as a problem is the user's to say, not ours: 85% of a disk is
+ * routine on one machine and an emergency on another. Keyed by metric id —
+ * the same name the user already types in `ephor history system.disk_percent`
+ * — so `core` needs to know nothing about which probes exist, and a new probe
+ * becomes thresholdable without touching this file.
+ *
+ * Numbers are in the metric's own unit: percent for `system.disk_percent`,
+ * Mbit/s for `speed.download_mbps`, seconds for `time.drift_seconds`. There
+ * is nothing to convert and no unit to declare.
+ *
+ * Thresholds are optional everywhere. A metric without one is displayed and
+ * never coloured — which is the right default for a value whose normal range
+ * the user does not know yet, and a wrong threshold is worse than none: it
+ * paints the screen for no reason until people stop reading the colours.
+ * ---------------------------------------------------------------------- */
+
+export const WorseWhenSchema = z.enum(["above", "below"]);
+export type WorseWhen = z.infer<typeof WorseWhenSchema>;
+
+export const ThresholdSchema = z
+  .object({
+    warn: z.number().optional(),
+    critical: z.number().optional(),
+    /** Which side of the number is the bad one. */
+    worseWhen: WorseWhenSchema.optional(),
+  })
+  .strict()
+  .superRefine((threshold, ctx) => {
+    const { warn, critical, worseWhen } = threshold;
+
+    if (warn === undefined && critical === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "a threshold needs warn, critical, or both",
+      });
+      return;
+    }
+
+    if (warn !== undefined && critical !== undefined) {
+      if (warn === critical) {
+        ctx.addIssue({
+          code: "custom",
+          message: `warn and critical must differ; both are ${warn}`,
+        });
+        return;
+      }
+
+      // Two bounds say the direction by themselves: 85 → 95 climbs towards
+      // trouble, 50 → 20 falls towards it.
+      const implied = critical > warn ? "above" : "below";
+      if (worseWhen !== undefined && worseWhen !== implied) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            `warn ${warn} and critical ${critical} mean the metric is worse ` +
+            `${implied}, but worseWhen says ${worseWhen}`,
+          path: ["worseWhen"],
+        });
+      }
+      return;
+    }
+
+    // One bound cannot imply a direction, and guessing is how a monitor comes
+    // to report a fast server as slow: 50 Mbit/s is bad below, 50% of a disk
+    // is bad above, and the metric name says nothing to a schema.
+    if (worseWhen === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "a single bound does not say which side is bad; add " +
+          "worseWhen: above or worseWhen: below",
+      });
+    }
+  })
+  .transform((threshold) => {
+    const { warn, critical } = threshold;
+
+    const worseWhen: WorseWhen =
+      warn !== undefined && critical !== undefined
+        ? critical > warn
+          ? "above"
+          : "below"
+        : // Present by the rule above; the fallback keeps the type honest.
+          (threshold.worseWhen ?? "above");
+
+    const resolved: { warn?: number; critical?: number; worseWhen: WorseWhen } =
+      { worseWhen };
+
+    if (warn !== undefined) resolved.warn = warn;
+    if (critical !== undefined) resolved.critical = critical;
+
+    return resolved;
+  });
+
+export type Threshold = z.infer<typeof ThresholdSchema>;
+
+/**
+ * `null` means "no threshold for this metric". Written globally it is the
+ * same as leaving the metric out; written on a node it is the only way to
+ * drop an inherited one — an archive box that lives at 92% disk on purpose
+ * would otherwise need an invented number like `warn: 200`, which reads as a
+ * mistake and hides a real problem the day the metric passes it.
+ */
+const ThresholdsSchema = optionalSection(
+  z.record(z.string().min(1), ThresholdSchema.nullable()).default({}),
+);
+
+export type Thresholds = z.infer<typeof ThresholdsSchema>;
+
+/* -------------------------------------------------------------------------
  * Nodes and the config as a whole
  * ---------------------------------------------------------------------- */
 
@@ -165,6 +277,7 @@ const nodeShape = {
   probes: optionalSection(
     z.record(z.string(), NodeProbeConfigSchema).default({}),
   ),
+  thresholds: ThresholdsSchema,
 } satisfies z.ZodRawShape;
 
 export const NodeSchema = z.object(nodeShape).strict();
@@ -231,22 +344,57 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
         path: ["probes"],
       });
     }
+
+    checkThresholdKeys(node.thresholds, knownNames, ctx, ["thresholds"]);
   });
 
   return z
     .object({
       probeDefaults: optionalSection(ProbeDefaultsSchema.prefault({})),
       probes: GlobalProbesSchema,
+      thresholds: ThresholdsSchema,
       nodes: z.array(NodeWithKnownProbesSchema).min(1, "at least one node"),
       storage: optionalSection(StorageSchema.prefault({})),
     })
     .strict()
+    .superRefine((config, ctx) => {
+      checkThresholdKeys(config.thresholds, knownNames, ctx, ["thresholds"]);
+    })
     .refine(
       (config) =>
         new Set(config.nodes.map((node) => node.name)).size ===
         config.nodes.length,
       { message: "node names must be unique", path: ["nodes"] },
     );
+}
+
+/**
+ * A metric id starts with the name of the probe that emits it, so a threshold
+ * naming a probe that does not exist is a typo worth refusing — the same
+ * treatment `probes:` already gives an unknown section.
+ *
+ * The part after the dot is not checked, because no probe declares the
+ * metrics it writes yet. Until that exists, `system.disk_percnet` still slips
+ * through, and the user believes a threshold applies when it never will.
+ */
+function checkThresholdKeys(
+  thresholds: Readonly<Record<string, unknown>>,
+  knownNames: readonly string[],
+  ctx: z.RefinementCtx,
+  basePath: PropertyKey[],
+): void {
+  for (const metric of Object.keys(thresholds)) {
+    const probe = metric.split(".")[0];
+    if (probe !== undefined && knownNames.includes(probe)) continue;
+
+    ctx.addIssue({
+      code: "custom",
+      message:
+        `Metric "${metric}" belongs to no known probe. A metric id starts ` +
+        `with its probe: ${knownNames.join(", ")}`,
+      path: [...basePath, metric],
+    });
+  }
 }
 
 export type Config = z.infer<ReturnType<typeof buildConfigSchema>>;

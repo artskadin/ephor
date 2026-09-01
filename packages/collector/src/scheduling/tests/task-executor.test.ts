@@ -12,8 +12,10 @@ const NODE: ResolvedNode = {
     local: false,
     ports: [],
     probes: {},
+    thresholds: {},
   },
   probes: new Map(),
+  thresholds: new Map(),
 };
 
 function taskFor(probe: string): Task {

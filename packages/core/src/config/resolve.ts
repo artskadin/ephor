@@ -1,5 +1,10 @@
 import type { ProbeDescriptor } from "../types/probe-contract.js";
-import { BASE_PROBE_KEYS, type Config, type Node } from "./schema.js";
+import {
+  BASE_PROBE_KEYS,
+  type Config,
+  type Node,
+  type Threshold,
+} from "./schema.js";
 
 /** Why a probe will not run, when the user did not switch it off. */
 export type ProbeDisabledReason =
@@ -24,6 +29,8 @@ export interface ResolvedProbe {
 export interface ResolvedNode {
   node: Node;
   probes: ReadonlyMap<string, ResolvedProbe>;
+  /** By metric id, the global section already overlaid by the node's own. */
+  thresholds: ReadonlyMap<string, Threshold>;
 }
 
 /**
@@ -80,7 +87,30 @@ export function resolveNode(
     probes.set(descriptor.name, resolved);
   }
 
-  return { node, probes };
+  return { node, probes, thresholds: resolveThresholds(config, node) };
+}
+
+/**
+ * Per metric, the node's entry replaces the global one outright rather than
+ * merging field by field. `{ warn: 60, critical: 80 }` overridden by
+ * `{ warn: 90 }` would otherwise leave `critical: 80` behind and produce a
+ * warn above the critical — a shape the schema refuses when written by hand,
+ * and one nobody would expect inheritance to invent.
+ */
+function resolveThresholds(
+  config: Config,
+  node: Node,
+): ReadonlyMap<string, Threshold> {
+  const merged = { ...config.thresholds, ...node.thresholds };
+  const resolved = new Map<string, Threshold>();
+
+  for (const [metric, threshold] of Object.entries(merged)) {
+    // `null` is the node saying "watch this one everywhere but here".
+    if (threshold === null) continue;
+    resolved.set(metric, threshold);
+  }
+
+  return resolved;
 }
 
 export function resolveConfig(
