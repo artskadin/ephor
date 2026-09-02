@@ -1,22 +1,10 @@
-import {
-  type ApiSettings,
-  createLogger,
-  type Logger,
-  type MetricPoint,
-  parseConfig,
-  type QueryFilter,
-  resolveConfig,
-  type Storage,
-} from "@ephor/core";
+import { type ApiSettings, createLogger, type Logger } from "@ephor/core";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
-import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe.js";
-import { systemProbeDescriptor } from "../../probes/system/system-probe.js";
 import type { ApiDeps } from "../handlers.js";
 import { createApiServer, MissingTokenError } from "../server.js";
+import { depsOf, NOW, storageOf } from "./fixtures.js";
 
-const TEST_PROBES = [systemProbeDescriptor, reachabilityProbeDescriptor];
-const NOW = 1_800_000_000;
 const TOKEN = "0123456789abcdef";
 
 const SETTINGS: ApiSettings = {
@@ -27,41 +15,18 @@ const SETTINGS: ApiSettings = {
 
 const silent = (): Logger => createLogger({ level: "silent" });
 
-function storageOf(points: readonly MetricPoint[]): Storage {
-  return {
-    migrate: async () => {},
-    write: async () => {},
-    query: async (_filter: QueryFilter) => [],
-    latest: async () => [...points],
-    prune: async () => 0,
-    close: async () => {},
-  };
-}
-
-function depsOf(overrides: Partial<ApiDeps> = {}): ApiDeps {
-  const config = parseConfig(
-    { nodes: [{ name: "achilles", host: "203.0.113.10", ssh: "achilles" }] },
-    TEST_PROBES,
-  );
-
-  return {
-    storage: storageOf([
-      { ts: NOW, node: "achilles", metric: "system.up", ok: true },
-    ]),
-    nodes: resolveConfig(config, TEST_PROBES),
-    probeNames: TEST_PROBES.map((probe) => probe.name),
-    now: () => NOW,
+/** The shared world, with one fresh point so `/api/state` has a row. */
+const serverDeps = (): ApiDeps =>
+  depsOf([{ ts: NOW, node: "achilles", metric: "system.up", ok: true }], {
     startedAt: NOW - 60,
     runningTasks: () => 0,
-    ...overrides,
-  };
-}
+  });
 
 let app: FastifyInstance | undefined;
 
 function serverOf(options: { token?: string; deps?: ApiDeps } = {}) {
   app = createApiServer({
-    deps: options.deps ?? depsOf(),
+    deps: options.deps ?? serverDeps(),
     settings: SETTINGS,
     token: options.token ?? TOKEN,
     logger: silent(),
@@ -163,6 +128,80 @@ describe("createApiServer", () => {
     });
   });
 
+  describe("GET /api/nodes/:name", () => {
+    it("returns the one node", async () => {
+      const response = await serverOf().inject({
+        method: "GET",
+        url: "/api/nodes/achilles",
+        headers: authorized,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().node.node).toBe("achilles");
+      expect(response.json().now).toBe(NOW);
+    });
+
+    it("is a 404 that names the node for one that is not configured", async () => {
+      const response = await serverOf().inject({
+        method: "GET",
+        url: "/api/nodes/nobody",
+        headers: authorized,
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: 'unknown node "nobody"' });
+    });
+  });
+
+  describe("GET /api/metrics", () => {
+    it("answers with the window and limit it applied", async () => {
+      const response = await serverOf().inject({
+        method: "GET",
+        url: "/api/metrics?node=achilles",
+        headers: authorized,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        truncated: false,
+        from: NOW - 3600,
+        to: NOW,
+        limit: 1000,
+      });
+    });
+
+    // The same rule the config follows: a misspelled key must not quietly
+    // widen the query to everything.
+    it.each([
+      ["a misspelled key", "nod=achilles", /Unrecognized key/],
+      ["from later than to", "from=200&to=100", /from must not be later/],
+      ["a limit of zero", "limit=0", /limit/],
+      ["a limit past the maximum", "limit=10001", /limit/],
+      ["a non-numeric time", "from=yesterday", /from/],
+      // `Number("")` is 0: without an explicit refusal a blank field would
+      // read as "since the epoch" and return the node's entire history.
+      ["a blank time", "from=", /from: expected a whole number/],
+      ["a negative time", "from=-1", /from/],
+      ["a time in exponent notation", "from=1e3", /from/],
+      // Only one bound given, so the schema cannot compare; the handler
+      // must, once it has filled in `to`.
+      [
+        "a from later than the defaulted to",
+        "from=4000000000",
+        /from must not be later than to/,
+      ],
+    ])("refuses %s with a 400 that says why", async (_case, query, message) => {
+      const response = await serverOf().inject({
+        method: "GET",
+        url: `/api/metrics?${query}`,
+        headers: authorized,
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error).toMatch(message);
+    });
+  });
+
   it("answers an unknown route in the same shape as any other failure", async () => {
     const response = await serverOf().inject({
       method: "GET",
@@ -177,7 +216,7 @@ describe("createApiServer", () => {
   // The detail belongs in the collector's log, where the operator reads it,
   // not in a response that might be pasted into an issue.
   it("does not leak the cause of an internal failure", async () => {
-    const failing = depsOf({
+    const failing = depsOf([], {
       storage: {
         ...storageOf([]),
         latest: async () => {

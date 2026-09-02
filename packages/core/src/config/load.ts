@@ -64,10 +64,15 @@ export async function loadConfig(
 
 function formatIssues(error: z.ZodError): string {
   return error.issues
-    .map((issue) => {
-      const where = issue.path.length > 0 ? issue.path.join(".") : "(root)";
-
-      return `  ${where}\n    ${issue.message}`;
-    })
+    .map((issue) => `  ${issueLocation(issue)}\n    ${issue.message}`)
     .join("\n\n");
+}
+
+/**
+ * Where a Zod issue points, as a person reads it: `probes.system.interval`,
+ * or `(root)` for the document itself. Shared with the API's 400 responses
+ * so the two never disagree about how a path is spelled.
+ */
+export function issueLocation(issue: z.ZodError["issues"][number]): string {
+  return issue.path.length > 0 ? issue.path.join(".") : "(root)";
 }

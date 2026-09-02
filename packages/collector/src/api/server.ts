@@ -1,7 +1,20 @@
 import { timingSafeEqual } from "node:crypto";
-import type { ApiSettings, ErrorResponse, Logger } from "@ephor/core";
-import Fastify, { type FastifyInstance } from "fastify";
-import { type ApiDeps, getHealth, getState } from "./handlers.js";
+import {
+  type ApiSettings,
+  type ErrorResponse,
+  issueLocation,
+  type Logger,
+  MetricsQuerySchema,
+} from "@ephor/core";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import {
+  type ApiDeps,
+  getHealth,
+  getMetrics,
+  getNode,
+  getState,
+  InvalidQueryError,
+} from "./handlers.js";
 
 /**
  * The only file that knows Fastify exists.
@@ -50,19 +63,51 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
       from: request.ip,
     });
 
-    const body: ErrorResponse = { error: "unauthorized" };
-    await reply.code(401).send(body);
+    await sendError(reply, 401, "unauthorized");
   });
 
   app.get("/api/health", () => getHealth(options.deps));
   app.get("/api/state", () => getState(options.deps));
 
-  app.setNotFoundHandler(async (_request, reply) => {
-    const body: ErrorResponse = { error: "not found" };
-    await reply.code(404).send(body);
+  app.get<{ Params: { name: string } }>(
+    "/api/nodes/:name",
+    async (request, reply) => {
+      const found = await getNode(options.deps, request.params.name);
+      if (found) return found;
+
+      return sendError(reply, 404, `unknown node "${request.params.name}"`);
+    },
+  );
+
+  app.get("/api/metrics", async (request, reply) => {
+    // Parsed here, in the one file that knows about HTTP, so the handler
+    // receives typed values and the schema's messages reach the caller.
+    const parsed = MetricsQuerySchema.safeParse(request.query);
+
+    if (!parsed.success) {
+      return sendError(
+        reply,
+        400,
+        parsed.error.issues
+          .map((issue) => `${issueLocation(issue)}: ${issue.message}`)
+          .join("; "),
+      );
+    }
+
+    return getMetrics(options.deps, parsed.data);
   });
 
+  app.setNotFoundHandler((_request, reply) =>
+    sendError(reply, 404, "not found"),
+  );
+
   app.setErrorHandler(async (error, request, reply) => {
+    // The one failure that is the caller's: it parsed, and it still cannot
+    // be answered as asked.
+    if (error instanceof InvalidQueryError) {
+      return sendError(reply, 400, error.message);
+    }
+
     options.logger.error("API request failed", {
       method: request.method,
       url: request.url,
@@ -71,11 +116,25 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
 
     // Deliberately bare: the detail is in the collector's log, where the
     // operator can read it, and not in a response the caller might publish.
-    const body: ErrorResponse = { error: "internal error" };
-    await reply.code(500).send(body);
+    return sendError(reply, 500, "internal error");
   });
 
   return app;
+}
+
+/**
+ * Every failure leaves through here, so every failure has the one shape.
+ * `send()` hands back the reply itself, which is thenable, so callers may
+ * `await` or `return` it alike.
+ */
+function sendError(
+  reply: FastifyReply,
+  status: number,
+  message: string,
+): FastifyReply {
+  const body: ErrorResponse = { error: message };
+
+  return reply.code(status).send(body);
 }
 
 /**

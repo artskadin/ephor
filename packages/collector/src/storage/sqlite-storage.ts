@@ -109,8 +109,15 @@ export class SqliteStorage implements Storage {
     const limit = filter.limit !== undefined ? "LIMIT ?" : "";
     if (filter.limit !== undefined) params.push(filter.limit);
 
+    // Ties are the normal case, not an edge: one probe run writes every one
+    // of its metrics with the same ts. Without a tiebreaker, a LIMIT landing
+    // inside that instant keeps whichever rows the planner happened to
+    // visit first, and a client paging by time window never sees the rest.
     const rows = this.db
-      .prepare(`SELECT * FROM metrics ${where} ORDER BY ts DESC ${limit}`)
+      .prepare(
+        `SELECT * FROM metrics ${where}
+         ORDER BY ts DESC, node ASC, metric ASC ${limit}`,
+      )
       .all(...params) as unknown as MetricRow[];
 
     return rows.map(rowToPoint);

@@ -203,6 +203,28 @@ export function describeStorageContract(
         expect(points.map((point) => point.ts)).toEqual([300, 200, 100]);
       });
 
+      // One probe run writes all of its metrics with one ts. The order inside
+      // that instant is part of the contract: a page cut there must be the
+      // same page from every driver, or window paging loses rows on one and
+      // not another.
+      it("orders points sharing a timestamp by node, then metric", async () => {
+        await storage.write([
+          { ts: 100, node: "b", metric: "system.up", ok: true },
+          { ts: 100, node: "a", metric: "system.mem_percent", value: 2 },
+          { ts: 100, node: "b", metric: "system.disk_percent", value: 3 },
+          { ts: 100, node: "a", metric: "system.disk_percent", value: 1 },
+        ]);
+
+        const points = await storage.query({});
+
+        expect(points.map((point) => `${point.node}/${point.metric}`)).toEqual([
+          "a/system.disk_percent",
+          "a/system.mem_percent",
+          "b/system.disk_percent",
+          "b/system.up",
+        ]);
+      });
+
       it("limit keeps the newest points, not an arbitrary subset", async () => {
         await storage.write([
           { ts: 100, node: "a", metric: "cpu", value: 1 },

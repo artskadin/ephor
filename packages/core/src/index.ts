@@ -1,10 +1,24 @@
+export {
+  METRICS_QUERY_DEFAULT_LIMIT,
+  METRICS_QUERY_DEFAULT_WINDOW_SECONDS,
+  METRICS_QUERY_MAX_LIMIT,
+  type MetricsQuery,
+  MetricsQuerySchema,
+} from "./api/metrics-query.js";
 export type {
   ErrorResponse,
   HealthResponse,
+  MetricsResponse,
+  NodeResponse,
   StateResponse,
 } from "./api/types.js";
 export { Duration, formatDuration } from "./config/duration.js";
-export { ConfigError, loadConfig, parseConfig } from "./config/load.js";
+export {
+  ConfigError,
+  issueLocation,
+  loadConfig,
+  parseConfig,
+} from "./config/load.js";
 export type {
   ProbeDisabledReason,
   ResolvedNode,

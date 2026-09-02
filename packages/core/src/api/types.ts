@@ -1,4 +1,5 @@
 import type { NodeState } from "../state/node-state.js";
+import type { MetricPoint } from "../types/metrics.js";
 
 /**
  * The wire shapes, in `core` rather than beside the server, so the collector
@@ -28,6 +29,31 @@ export interface HealthResponse {
   /** How many nodes are being watched, after disabled ones are dropped. */
   nodes: number;
   probes: string[];
+}
+
+export interface NodeResponse {
+  now: number;
+  node: NodeState;
+}
+
+export interface MetricsResponse {
+  /** Newest first, as the storage returns them. */
+  points: MetricPoint[];
+  /**
+   * True when the window held more than `limit` points and the rest were
+   * left out. Never silent: truncated history that looks complete is worse
+   * than the crash the limit exists to prevent.
+   *
+   * A truncated page ends on a complete instant — every point sharing the
+   * oldest `ts` is present — so the next page is `to = oldest.ts - 1` with
+   * nothing skipped and nothing repeated. Page by moving the window, never
+   * by offset: offsets shift under a collector that never stops appending.
+   */
+  truncated: boolean;
+  /** The window and limit actually applied, defaults filled in. */
+  from: number;
+  to: number;
+  limit: number;
 }
 
 /**
