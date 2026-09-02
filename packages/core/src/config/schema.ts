@@ -153,7 +153,7 @@ export type StorageSettings = z.infer<typeof StorageSchema>;
  * HTTP API
  *
  * Served from the collector's own process: `POST /api/check` forces a run and
- * waits for the queue to drain, which needs the live scheduler rather than
+ * waits for exactly those pairs, which needs the live scheduler rather than
  * the database. Clients reach it over an SSH tunnel when the collector is
  * remote.
  *

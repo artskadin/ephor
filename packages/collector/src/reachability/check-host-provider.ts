@@ -7,6 +7,7 @@ import type {
   ReachabilityTarget,
   Vantage,
 } from "@ephor/core";
+import { sleep } from "../scheduling/clock.js";
 import type { Region } from "./settings.js";
 
 const API_BASE = "https://check-host.net";
@@ -61,7 +62,7 @@ export class CheckHostProvider implements ReachabilityProvider {
     this.pollIntervalMs = options.pollIntervalMs ?? 3000;
     this.pollTimeoutMs = options.pollTimeoutMs ?? 30_000;
     this.now = options.now ?? Date.now;
-    this.sleep = options.sleep ?? defaultSleep;
+    this.sleep = options.sleep ?? sleep;
   }
 
   /**
@@ -306,8 +307,4 @@ function parseTcp(vantage: Vantage, raw: unknown): ProbeReading {
   const rtt = Number.isFinite(Number(time)) ? Number(time) : undefined;
 
   return { vantage, method: "tcp", ok: true, rtt };
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

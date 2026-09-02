@@ -2,6 +2,7 @@ import { createLogger, type Logger, type ResolvedNode } from "@ephor/core";
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "../scheduler.js";
 import { TaskExecutor } from "../task-executor.js";
+import { deferred } from "./deferred.js";
 
 const NODE: ResolvedNode = {
   node: {
@@ -112,23 +113,62 @@ describe("TaskExecutor", () => {
 
   it("keeps one limiter per probe", async () => {
     const finished: Task[] = [];
+    const gate = deferred();
 
     const executor = new TaskExecutor({
       concurrencyByProbe: new Map([
         ["system", 1],
         ["reachability", 1],
       ]),
-      handler: async () => {},
+      handler: () => gate.promise,
       onTaskFinished: (task) => finished.push(task),
       logger: captureLogs().logger,
     });
 
-    executor.submit([taskFor("system"), taskFor("reachability")]);
-    await vi.waitFor(() => expect(finished).toHaveLength(2));
-
-    expect(Object.keys(executor.stats()).sort()).toEqual([
-      "reachability",
-      "system",
+    executor.submit([
+      taskFor("system"),
+      taskFor("system"),
+      taskFor("reachability"),
     ]);
+
+    // Each probe's queue is against its own limit: two system tasks and a
+    // limit of one leave one waiting, while reachability's slot is untouched.
+    expect(executor.queueOf("system")).toEqual({
+      active: 1,
+      queued: 1,
+      limit: 1,
+    });
+    expect(executor.queueOf("reachability")).toEqual({
+      active: 1,
+      queued: 0,
+      limit: 1,
+    });
+
+    gate.resolve();
+    await vi.waitFor(() => expect(finished).toHaveLength(3));
+
+    expect(executor.queueOf("system")).toEqual({
+      active: 0,
+      queued: 0,
+      limit: 1,
+    });
+  });
+
+  // The limiter is created by the first task; before that the probe still
+  // has a limit and an empty queue, which is different from having none.
+  it("reports an empty queue for a probe that has not run yet", () => {
+    const executor = new TaskExecutor({
+      concurrencyByProbe: new Map([["system", 4]]),
+      handler: async () => {},
+      onTaskFinished: () => {},
+      logger: captureLogs().logger,
+    });
+
+    expect(executor.queueOf("system")).toEqual({
+      active: 0,
+      queued: 0,
+      limit: 4,
+    });
+    expect(executor.queueOf("ghost")).toBeUndefined();
   });
 });

@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ConcurrencyLimiter } from "../concurrency-limiter.js";
-
-function deferred() {
-  let resolve!: () => void;
-
-  const promise = new Promise<void>((r) => {
-    resolve = r;
-  });
-
-  return { promise, resolve };
-}
+import { deferred } from "./deferred.js";
 
 describe("ConcurrencyLimiter", () => {
   it("runs up to the limit immediately", async () => {

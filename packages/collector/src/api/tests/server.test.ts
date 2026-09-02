@@ -15,12 +15,21 @@ const SETTINGS: ApiSettings = {
 
 const silent = (): Logger => createLogger({ level: "silent" });
 
-/** The shared world, with one fresh point so `/api/state` has a row. */
+/**
+ * The shared world, with a fresh `.up` per probe: `/api/state` has rows, and
+ * a forced run of the fixture's node has nothing pending.
+ */
 const serverDeps = (): ApiDeps =>
-  depsOf([{ ts: NOW, node: "achilles", metric: "system.up", ok: true }], {
-    startedAt: NOW - 60,
-    runningTasks: () => 0,
-  });
+  depsOf(
+    [
+      { ts: NOW, node: "achilles", metric: "system.up", ok: true },
+      { ts: NOW, node: "achilles", metric: "reachability.up", ok: true },
+    ],
+    {
+      startedAt: NOW - 60,
+      runningTasks: () => 0,
+    },
+  );
 
 let app: FastifyInstance | undefined;
 
@@ -202,6 +211,104 @@ describe("createApiServer", () => {
     });
   });
 
+  describe("POST /api/check", () => {
+    it("forces the whole fleet with no body and answers with the state", async () => {
+      const response = await serverOf().inject({
+        method: "POST",
+        url: "/api/check",
+        headers: authorized,
+      });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(body).toMatchObject({
+        now: NOW,
+        startedAt: NOW,
+        complete: true,
+        pending: [],
+      });
+      expect(body.nodes.map((node: { node: string }) => node.node)).toEqual([
+        "achilles",
+      ]);
+    });
+
+    it("limits the run to what the body names", async () => {
+      const deps = serverDeps();
+      const forced: [string | undefined, string | undefined][] = [];
+      const inner = deps.forceRun;
+      deps.forceRun = (node, probe) => {
+        forced.push([node, probe]);
+        return inner(node, probe);
+      };
+
+      const response = await serverOf({ deps }).inject({
+        method: "POST",
+        url: "/api/check",
+        headers: authorized,
+        payload: { node: "achilles", probe: "system" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(forced).toEqual([["achilles", "system"]]);
+    });
+
+    it("is a 404 that names the node for one that is not configured", async () => {
+      const response = await serverOf().inject({
+        method: "POST",
+        url: "/api/check",
+        headers: authorized,
+        payload: { node: "nobody" },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: 'unknown node "nobody"' });
+    });
+
+    it.each([
+      [
+        "a probe nobody registered",
+        { probe: "speed" },
+        /unknown probe "speed"/,
+      ],
+      ["a misspelled key", { nod: "achilles" }, /Unrecognized key/],
+      ["a blank node name", { node: "" }, /node/],
+    ])(
+      "refuses %s with a 400 that says why",
+      async (_case, payload, message) => {
+        const response = await serverOf().inject({
+          method: "POST",
+          url: "/api/check",
+          headers: authorized,
+          payload,
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error).toMatch(message);
+      },
+    );
+
+    // Fastify raises these itself, with a status; reporting them as an
+    // internal error would send the caller to the collector's log for a
+    // mistake in their own request.
+    it.each([
+      ["a body that is not JSON", "{not json", /JSON/],
+      ["an empty body declared as JSON", "", /empty/],
+    ])(
+      "refuses %s as the caller's mistake",
+      async (_case, payload, message) => {
+        const response = await serverOf().inject({
+          method: "POST",
+          url: "/api/check",
+          headers: { ...authorized, "content-type": "application/json" },
+          payload,
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error).toMatch(message);
+      },
+    );
+  });
+
   it("answers an unknown route in the same shape as any other failure", async () => {
     const response = await serverOf().inject({
       method: "GET",
@@ -234,5 +341,30 @@ describe("createApiServer", () => {
     expect(response.statusCode).toBe(500);
     expect(response.json()).toEqual({ error: "internal error" });
     expect(response.body).not.toContain("metrics.db");
+  });
+
+  // Only Fastify's own refusals are the caller's. An HTTP client's error
+  // carries a `statusCode` too, and its message names the upstream URL.
+  it("does not mistake a downstream error with a status for a refusal", async () => {
+    const failing = depsOf([], {
+      storage: {
+        ...storageOf([]),
+        latest: async () => {
+          throw Object.assign(
+            new Error("Not Found: https://internal/v1/state?token=secret"),
+            { statusCode: 404 },
+          );
+        },
+      },
+    });
+
+    const response = await serverOf({ deps: failing }).inject({
+      method: "GET",
+      url: "/api/state",
+      headers: authorized,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: "internal error" });
   });
 });

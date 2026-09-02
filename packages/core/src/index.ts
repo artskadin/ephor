@@ -1,4 +1,9 @@
 export {
+  CHECK_MAX_WAIT_SECONDS,
+  type CheckRequest,
+  CheckRequestSchema,
+} from "./api/check-request.js";
+export {
   METRICS_QUERY_DEFAULT_LIMIT,
   METRICS_QUERY_DEFAULT_WINDOW_SECONDS,
   METRICS_QUERY_MAX_LIMIT,
@@ -6,6 +11,7 @@ export {
   MetricsQuerySchema,
 } from "./api/metrics-query.js";
 export type {
+  CheckResponse,
   ErrorResponse,
   HealthResponse,
   MetricsResponse,
@@ -15,6 +21,7 @@ export type {
 export { Duration, formatDuration } from "./config/duration.js";
 export {
   ConfigError,
+  describeIssues,
   issueLocation,
   loadConfig,
   parseConfig,

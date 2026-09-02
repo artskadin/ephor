@@ -1,8 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import {
   type ApiSettings,
+  CheckRequestSchema,
+  describeIssues,
   type ErrorResponse,
-  issueLocation,
   type Logger,
   MetricsQuerySchema,
 } from "@ephor/core";
@@ -14,6 +15,7 @@ import {
   getNode,
   getState,
   InvalidQueryError,
+  postCheck,
 } from "./handlers.js";
 
 /**
@@ -85,16 +87,27 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
     const parsed = MetricsQuerySchema.safeParse(request.query);
 
     if (!parsed.success) {
-      return sendError(
-        reply,
-        400,
-        parsed.error.issues
-          .map((issue) => `${issueLocation(issue)}: ${issue.message}`)
-          .join("; "),
-      );
+      return sendError(reply, 400, describeIssues(parsed.error));
     }
 
     return getMetrics(options.deps, parsed.data);
+  });
+
+  // POST: neither safe nor idempotent — it opens ssh sessions, calls a
+  // third-party API and writes rows.
+  app.post<{ Body: unknown }>("/api/check", async (request, reply) => {
+    // No body is the whole fleet: `curl -X POST` sends none, and making the
+    // common case type `{}` would be a tax on the command-line reader.
+    const parsed = CheckRequestSchema.safeParse(request.body ?? {});
+
+    if (!parsed.success) {
+      return sendError(reply, 400, describeIssues(parsed.error));
+    }
+
+    const result = await postCheck(options.deps, parsed.data);
+    if (result) return result;
+
+    return sendError(reply, 404, `unknown node "${parsed.data.node}"`);
   });
 
   app.setNotFoundHandler((_request, reply) =>
@@ -107,6 +120,13 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
     if (error instanceof InvalidQueryError) {
       return sendError(reply, 400, error.message);
     }
+
+    // Fastify's own refusals — a body that is not JSON, one past the size
+    // limit — are the caller's too, and carry their status. Only Fastify's:
+    // any other error with a status on it is the collector's failure, logged
+    // below and never echoed.
+    const refusal = fastifyRefusal(error);
+    if (refusal) return sendError(reply, refusal.status, refusal.message);
 
     options.logger.error("API request failed", {
       method: request.method,
@@ -135,6 +155,26 @@ function sendError(
   const body: ErrorResponse = { error: message };
 
   return reply.code(status).send(body);
+}
+
+/**
+ * A 4xx Fastify raised itself. Its errors carry an `FST_ERR_` code beside
+ * the status, which is what tells them apart from a downstream error that
+ * merely has a `statusCode` — an HTTP client's, say — and whose message is
+ * not the caller's to read.
+ */
+function fastifyRefusal(
+  error: unknown,
+): { status: number; message: string } | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if (!("code" in error) || typeof error.code !== "string") return undefined;
+  if (!error.code.startsWith("FST_ERR_")) return undefined;
+  if (!("statusCode" in error) || typeof error.statusCode !== "number") {
+    return undefined;
+  }
+  if (error.statusCode < 400 || error.statusCode >= 500) return undefined;
+
+  return { status: error.statusCode, message: error.message };
 }
 
 /**

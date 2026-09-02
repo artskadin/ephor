@@ -1,7 +1,11 @@
 import type { Probe, ProbeContext, ProbeOutcome } from "@ephor/core";
+import { sleep } from "../scheduling/clock.js";
 
 /** Failures worth retrying: transient by nature. */
 const TRANSIENT_KINDS = new Set(["timeout", "unreachable", "internal"]);
+
+/** The pause before the first retry; each later one waits one step more. */
+export const RETRY_DELAY_MS = 1000;
 
 /**
  * Runs a probe again after a transient failure.
@@ -13,7 +17,7 @@ export async function runWithRetry<T>(
   probe: Probe<T>,
   context: ProbeContext,
   attempts: number,
-  delayMs = 1000,
+  delayMs = RETRY_DELAY_MS,
 ): Promise<ProbeOutcome<T>> {
   let lastOutcome = await probe.run(context);
 
@@ -28,6 +32,18 @@ export async function runWithRetry<T>(
   return lastOutcome;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * The longest a run through `runWithRetry` can take: every attempt using
+ * its whole timeout, with the pauses in between. What a caller waiting for
+ * a run must be prepared to wait, or it gives up seconds before the last
+ * attempt lands.
+ */
+export function longestRunMs(
+  timeoutMs: number,
+  retries: number,
+  delayMs = RETRY_DELAY_MS,
+): number {
+  const pauses = (delayMs * retries * (retries + 1)) / 2;
+
+  return timeoutMs * (1 + retries) + pauses;
 }

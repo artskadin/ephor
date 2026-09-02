@@ -76,3 +76,14 @@ function formatIssues(error: z.ZodError): string {
 export function issueLocation(issue: z.ZodError["issues"][number]): string {
   return issue.path.length > 0 ? issue.path.join(".") : "(root)";
 }
+
+/**
+ * Every issue on one line, `location: message` joined by `; ` — what an
+ * API error response has room for. The config loader's multi-line report
+ * is `formatIssues`.
+ */
+export function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issueLocation(issue)}: ${issue.message}`)
+    .join("; ");
+}

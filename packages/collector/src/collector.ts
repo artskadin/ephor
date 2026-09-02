@@ -14,14 +14,25 @@ import { Pruner } from "./maintenance/pruner.js";
 import type { ProbeRegistry } from "./probes/registry.js";
 import { runWithRetry } from "./probes/with-retry.js";
 import { systemClock } from "./scheduling/clock.js";
-import { Scheduler, type Task } from "./scheduling/scheduler.js";
-import { TaskExecutor } from "./scheduling/task-executor.js";
+import {
+  type ForcedRun,
+  Scheduler,
+  type Task,
+} from "./scheduling/scheduler.js";
+import { type QueueState, TaskExecutor } from "./scheduling/task-executor.js";
+import { waitBudgetMs } from "./scheduling/wait-budget.js";
 
 export interface CollectorOptions {
   config: Config;
   registry: ProbeRegistry;
   storage: Storage;
   logger: Logger;
+}
+
+/** A forced run together with how long it is worth waiting for. */
+export interface CheckRun extends ForcedRun {
+  /** Milliseconds the run can take under the current queues. */
+  budgetMs: number;
 }
 
 export class Collector {
@@ -75,13 +86,33 @@ export class Collector {
     this.pruner.stop();
   }
 
-  runNow(nodeName?: string, probeName?: string): void {
-    this.scheduler.runNow(nodeName, probeName);
+  /**
+   * Forces the matching pairs to run, with a promise for them and the
+   * patience they call for — computed here, where the queues are, so that a
+   * caller without an HTTP server in front of it gets the same number.
+   */
+  runNow(nodeName?: string, probeName?: string): CheckRun {
+    const run = this.scheduler.runNow(nodeName, probeName);
+
+    return {
+      ...run,
+      budgetMs: waitBudgetMs(run, (probe) => this.queueOf(probe)),
+    };
   }
 
-  /** Resolves once the queue has drained; false if it did not in time. */
-  waitUntilIdle(timeoutMs: number): Promise<boolean> {
-    return this.scheduler.waitUntilIdle(timeoutMs);
+  /**
+   * How busy a probe's queue is. Throws for a probe nobody registered:
+   * every registered one has a limit, so a missing one is a bug, not a
+   * quiet zero.
+   */
+  queueOf(probeName: string): QueueState {
+    const queue = this.taskExecutor.queueOf(probeName);
+
+    if (!queue) {
+      throw new Error(`no concurrency limit for probe "${probeName}"`);
+    }
+
+    return queue;
   }
 
   get runningTasks(): number {

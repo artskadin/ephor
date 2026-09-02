@@ -4,6 +4,15 @@ import type { Task } from "./scheduler.js";
 
 export type TaskHandler = (task: Task) => Promise<void>;
 
+export interface QueueState {
+  /** Runs holding a slot right now. */
+  active: number;
+  /** Runs waiting for a slot to free up. */
+  queued: number;
+  /** Slots: the probe's concurrency. */
+  limit: number;
+}
+
 export interface TaskExecutorOptions {
   concurrencyByProbe: ReadonlyMap<string, number>;
   handler: TaskHandler;
@@ -46,14 +55,24 @@ export class TaskExecutor {
     }
   }
 
-  stats(): Record<string, { active: number; pending: number }> {
-    const result: Record<string, { active: number; pending: number }> = {};
+  /**
+   * How busy one probe's queue is. Undefined when the probe has no limit,
+   * which means nobody registered it; a registered probe that has not run
+   * yet reports an empty queue, since its limiter exists only from the first
+   * task on.
+   */
+  queueOf(probeName: string): QueueState | undefined {
+    const limit = this.options.concurrencyByProbe.get(probeName);
 
-    for (const [probName, limiter] of this.limiterByProbe) {
-      result[probName] = { active: limiter.active, pending: limiter.pending };
-    }
+    if (limit === undefined) return undefined;
 
-    return result;
+    const limiter = this.limiterByProbe.get(probeName);
+
+    return {
+      active: limiter?.active ?? 0,
+      queued: limiter?.pending ?? 0,
+      limit,
+    };
   }
 
   /** Undefined when the task names a probe nobody registered. */

@@ -6,6 +6,7 @@ import { ProbeRegistry } from "./probes/registry.js";
 import { SystemProbe } from "./probes/system/system-probe.js";
 import { CheckHostProvider } from "./reachability/check-host-provider.js";
 import { DirectHttpRequester } from "./reachability/direct-http-requester.js";
+import { sleep } from "./scheduling/clock.js";
 import { resolveDatabasePath } from "./storage/database-path.js";
 import { SqliteStorage } from "./storage/sqlite-storage.js";
 
@@ -50,6 +51,11 @@ async function main(): Promise<void> {
   );
   const collector = new Collector({ config, registry, storage, logger });
 
+  // Raised on shutdown to cut short any `/api/check` still waiting on its
+  // run: `api.close()` waits for requests in flight, and four minutes is
+  // longer than an init system waits before it sends SIGKILL.
+  const stopping = new AbortController();
+
   // Built before the collector starts, and deliberately: it throws when the
   // token is missing, and a misconfigured deployment should fail before it
   // has migrated a database, opened ssh connections and called a third-party
@@ -65,8 +71,11 @@ async function main(): Promise<void> {
           nodes: collector.nodes,
           probeNames: registry.names(),
           now: () => Math.floor(Date.now() / 1000),
+          sleep: (ms, signal) =>
+            sleep(ms, AbortSignal.any([signal, stopping.signal])),
           startedAt: Math.floor(Date.now() / 1000),
           runningTasks: () => collector.runningTasks,
+          forceRun: (node, probe) => collector.runNow(node, probe),
         },
       })
     : undefined;
@@ -89,6 +98,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("shutting down", { signal });
+    stopping.abort();
     collector.stop();
 
     // Before the storage: a request already in flight would otherwise read

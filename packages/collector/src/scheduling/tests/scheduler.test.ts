@@ -1,6 +1,6 @@
 import { type ProbeDescriptor, parseConfig, resolveConfig } from "@ephor/core";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FakeClock } from "../clock.js";
+import { FakeClock, sleep } from "../clock.js";
 import { Scheduler, type Task } from "../scheduler.js";
 
 const SECOND = 1000;
@@ -21,9 +21,12 @@ const PROBES: ProbeDescriptor[] = [
   },
 ];
 
-function nodesFor(names: readonly string[]) {
+function nodesFor(
+  names: readonly string[],
+  probes: Record<string, { enabled: boolean }> = {},
+) {
   const config = parseConfig(
-    { nodes: names.map((name) => ({ name, host: "203.0.113.10" })) },
+    { nodes: names.map((name) => ({ name, host: "203.0.113.10", probes })) },
     PROBES,
   );
 
@@ -216,46 +219,102 @@ describe("Scheduler", () => {
     });
   });
 
-  describe("waitUntilIdle", () => {
-    it("returns at once when nothing is running", async () => {
-      await expect(scheduler.waitUntilIdle(1000)).resolves.toBe(true);
+  describe("a forced run", () => {
+    /** Whether a promise has settled, once every pending microtask has run. */
+    async function isSettled(promise: Promise<void>): Promise<boolean> {
+      let settled = false;
+
+      void promise.then(() => {
+        settled = true;
+      });
+      await sleep(0);
+
+      return settled;
+    }
+
+    function firstDispatched(): Task {
+      const task = dispatched[0];
+      if (!task) throw new Error("expected a task to be dispatched");
+
+      return task;
+    }
+
+    const pairOf = (task: Task): string =>
+      `${task.node.node.name}/${task.probe}`;
+
+    it("hands back the pairs it forced, in config order", () => {
+      scheduler.setNodes(nodesFor(["pupa", "lupa"]));
+
+      const run = scheduler.runNow("lupa");
+
+      expect(run.tasks.map(pairOf)).toEqual(["lupa/fast", "lupa/slow"]);
+      expect(run.deferredProbes).toEqual(new Set());
     });
 
-    it("waits for the running tasks to finish", async () => {
-      scheduler.runNow();
-      expect(scheduler.runningTasks).toBe(2);
+    it("says which of its pairs are still unfinished", () => {
+      const run = scheduler.runNow();
+      const [first, second] = dispatched;
+      if (!first || !second) throw new Error("expected two tasks");
 
-      const idle = scheduler.waitUntilIdle(1000);
+      expect(run.unfinished().map(pairOf)).toEqual(["pupa/fast", "pupa/slow"]);
+
+      scheduler.complete(first);
+      expect(run.unfinished().map(pairOf)).toEqual(["pupa/slow"]);
+
+      scheduler.complete(second);
+      expect(run.unfinished()).toEqual([]);
+    });
+
+    it("settles at once when nothing matched", async () => {
+      const run = scheduler.runNow("nobody");
+
+      expect(run.tasks).toEqual([]);
+      await expect(run.finished).resolves.toBeUndefined();
+    });
+
+    // `check achilles system` must not wait out a reachability wave on
+    // every other node: the promise is for the pairs asked for, not for the
+    // queue.
+    it("settles when its own pairs finish, whatever else is running", async () => {
+      scheduler.setNodes(nodesFor(["pupa", "lupa"]));
+      scheduler.runNow("lupa");
+      dispatched = [];
+
+      const run = scheduler.runNow("pupa");
 
       for (const task of dispatched) scheduler.complete(task);
 
-      await expect(idle).resolves.toBe(true);
-      expect(scheduler.runningTasks).toBe(0);
+      expect(scheduler.runningTasks).toBe(2);
+      await expect(run.finished).resolves.toBeUndefined();
     });
 
-    it("reports a timeout instead of waiting forever", async () => {
-      scheduler.runNow();
+    it("stays open until the last of its pairs is done", async () => {
+      const run = scheduler.runNow();
+      const [first, second] = dispatched;
+      if (!first || !second) throw new Error("expected two tasks");
 
-      await expect(scheduler.waitUntilIdle(10)).resolves.toBe(false);
+      scheduler.complete(first);
+      expect(await isSettled(run.finished)).toBe(false);
+
+      scheduler.complete(second);
+      expect(await isSettled(run.finished)).toBe(true);
     });
 
     // `ephor check` on a node whose probe happens to be mid-cycle must not
     // be handed the previous cycle's numbers as the fresh ones it asked for.
-    it("does not report idle while a forced run is still owed", async () => {
+    it("reports a pair that is mid-run as deferred and waits for its next run", async () => {
       scheduler.runNow("pupa", "fast");
-      const running = dispatched[0];
-
-      if (!running) throw new Error("expected the first run to be dispatched");
-
+      const running = firstDispatched();
       dispatched = [];
 
       // The user asks for a fresh run while that one is still going.
-      scheduler.runNow("pupa", "fast");
+      const run = scheduler.runNow("pupa", "fast");
 
-      const idle = scheduler.waitUntilIdle(1000);
+      expect(run.deferredProbes).toEqual(new Set(["fast"]));
 
       scheduler.complete(running);
       expect(dispatched).toHaveLength(0);
+      expect(await isSettled(run.finished)).toBe(false);
 
       // Only the tick that actually starts the forced run, and its
       // completion, may end the wait.
@@ -264,20 +323,54 @@ describe("Scheduler", () => {
 
       for (const task of dispatched) scheduler.complete(task);
 
-      await expect(idle).resolves.toBe(true);
+      await expect(run.finished).resolves.toBeUndefined();
     });
 
-    it("settles every waiter, not just the first", async () => {
-      scheduler.runNow();
+    // Two clients checking the same node: the first must get its answer
+    // when its run ends, not when the second one's does.
+    it("settles two overlapping runs of one pair each on its own completion", async () => {
+      const first = scheduler.runNow("pupa", "fast");
+      const firstTask = firstDispatched();
+      dispatched = [];
 
-      const waits = [
-        scheduler.waitUntilIdle(1000),
-        scheduler.waitUntilIdle(1000),
-      ];
+      const second = scheduler.runNow("pupa", "fast");
 
+      scheduler.complete(firstTask);
+      expect(await isSettled(first.finished)).toBe(true);
+      expect(await isSettled(second.finished)).toBe(false);
+
+      scheduler.tick();
       for (const task of dispatched) scheduler.complete(task);
 
-      await expect(Promise.all(waits)).resolves.toEqual([true, true]);
+      expect(await isSettled(second.finished)).toBe(true);
+    });
+
+    it("does not stay open for a pair whose node was removed before it ran", async () => {
+      scheduler.runNow("pupa", "fast");
+      dispatched = [];
+
+      const run = scheduler.runNow("pupa", "fast");
+      expect(run.deferredProbes.size).toBe(1);
+
+      scheduler.setNodes(nodesFor(["lupa"]));
+
+      await expect(run.finished).resolves.toBeUndefined();
+    });
+
+    // A refresh that switches the probe off leaves the pair in the node's
+    // map, marked disabled; the tick will never dispatch it, so the run
+    // must not wait for it either.
+    it("lets go of a pair whose probe was switched off before it ran", async () => {
+      scheduler.runNow("pupa", "fast");
+      dispatched = [];
+
+      const run = scheduler.runNow("pupa", "fast");
+      expect(run.deferredProbes).toEqual(new Set(["fast"]));
+
+      scheduler.setNodes(nodesFor(["pupa"], { fast: { enabled: false } }));
+
+      await expect(run.finished).resolves.toBeUndefined();
+      expect(run.unfinished()).toEqual([]);
     });
   });
 });
