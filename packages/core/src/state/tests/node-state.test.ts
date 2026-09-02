@@ -352,6 +352,80 @@ describe("buildNodeState", () => {
     });
   });
 
+  // Found by running the collector against live nodes: narrowing
+  // `probes.reachability.methods` left the ping rows in `metrics_latest`,
+  // which is never pruned, and they held a healthy node at `stale` for as
+  // long as the database lived.
+  describe("a metric the probe has stopped writing", () => {
+    const narrowed = (): MetricPoint[] => [
+      point("system.up", { ok: true }),
+      point("speed.up", { ok: true }),
+      point("reachability.up", { ok: true }),
+      point("reachability.verdict", {
+        value: 0,
+        ok: true,
+        meta: { verdict: "ok" },
+      }),
+      point("reachability.eu.tcp", { value: 1, ok: true }),
+      // Written back when `methods` still listed ping, and never again.
+      point("reachability.eu.ping", { value: 1, ok: true, ts: NOW - 400_000 }),
+    ];
+
+    it("stops being reported at all", () => {
+      const state = firstOf(soloConfig(), narrowed());
+
+      expect(state.metrics.map((view) => view.metric)).not.toContain(
+        "reachability.eu.ping",
+      );
+    });
+
+    it("does not hold the node stale", () => {
+      const state = firstOf(soloConfig(), narrowed());
+
+      expect(state.status).toBe("ok");
+      expect(state.reasons).toEqual([]);
+    });
+
+    // The window between the two thresholds is what makes a method that
+    // quietly stopped answering visible instead of making it disappear.
+    it("is still stale rather than retired a few misses in", () => {
+      const state = firstOf(soloConfig(), [
+        point("system.up", { ok: true }),
+        point("speed.up", { ok: true }),
+        point("reachability.up", { ok: true }),
+        point("reachability.verdict", {
+          value: 0,
+          ok: true,
+          meta: { verdict: "ok" },
+        }),
+        point("reachability.eu.tcp", { value: 1, ok: true }),
+        point("reachability.eu.ping", {
+          value: 1,
+          ok: true,
+          // Reachability's fixture interval is 301s, so stale past 602s and
+          // retired past 3010s. This sits between the two.
+          ts: NOW - 1000,
+        }),
+      ]);
+
+      expect(viewOf(state, "reachability.eu.ping").status).toBe("stale");
+      expect(state.status).toBe("stale");
+    });
+
+    // The whole probe going quiet is the case staleness exists for, and the
+    // retirement rule must not swallow it.
+    it("keeps every value when the probe itself went silent", () => {
+      const silent = QUIET.map((entry) => ({ ...entry, ts: NOW - 400_000 }));
+      const state = firstOf(soloConfig(), [
+        ...silent,
+        point("system.disk_percent", { value: 12, ts: NOW - 400_000 }),
+      ]);
+
+      expect(viewOf(state, "system.disk_percent").status).toBe("stale");
+      expect(state.status).toBe("stale");
+    });
+  });
+
   describe("a probe that could not run", () => {
     const failing: MetricPoint[] = [
       point("system.up", {
@@ -623,24 +697,34 @@ describe("buildNodeState", () => {
       expect(state.status).toBe("critical");
     });
 
+    // One probe silent while another reports: the whole reachability probe
+    // goes quiet together, which is what staleness is for, while `system`
+    // keeps reporting a value over its warn bound.
+    const systemWarnAndReachabilitySilent = (
+      memPercent: number,
+    ): MetricPoint[] => [
+      point("system.up", { ok: true }),
+      point("speed.up", { ok: true }),
+      point("system.mem_percent", { value: memPercent }),
+      point("reachability.up", { ok: true, ts: NOW - 400_000 }),
+      point("reachability.verdict", {
+        value: 0,
+        ok: true,
+        meta: { verdict: "ok" },
+        ts: NOW - 400_000,
+      }),
+    ];
+
     // Blindness is worse than a known small problem: a node we cannot see
     // could be in trouble right now.
     it("stale beats warn", () => {
-      const state = firstOf(withDisk, [
-        ...QUIET,
-        point("system.mem_percent", { value: 86 }),
-        point("system.disk_percent", { value: 12, ts: NOW - 400_000 }),
-      ]);
+      const state = firstOf(withDisk, systemWarnAndReachabilitySilent(86));
 
       expect(state.status).toBe("stale");
     });
 
     it("critical beats stale", () => {
-      const state = firstOf(withDisk, [
-        ...QUIET,
-        point("system.mem_percent", { value: 96 }),
-        point("system.disk_percent", { value: 12, ts: NOW - 400_000 }),
-      ]);
+      const state = firstOf(withDisk, systemWarnAndReachabilitySilent(96));
 
       expect(state.status).toBe("critical");
     });

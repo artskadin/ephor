@@ -155,8 +155,17 @@ function stateFor(
     }
 
     const staleAges: number[] = [];
+    const lastData = lastDataAt(forProbe);
 
     for (const point of forProbe) {
+      // Retired, not stale: the probe has been writing other metrics all
+      // along and stopped writing this one. Narrowing
+      // `probes.reachability.methods` from `[ping, tcp]` to `[tcp]` leaves
+      // the ping rows behind — `metrics_latest` is never pruned on purpose —
+      // and judging them against the wall clock alone held a healthy node at
+      // `stale` for as long as the database lived.
+      if (isRetired(point, lastData, probe.interval)) continue;
+
       const view = viewOf(point, probe, node.thresholds, now);
       metrics.push(view);
       worsenTo(view.status);
@@ -206,6 +215,56 @@ function stateFor(
   }
 
   return { node: node.node.name, status, reachability, metrics, reasons };
+}
+
+/**
+ * When this probe last produced a measurement, as opposed to when it last
+ * ran.
+ *
+ * `<probe>.up` is excluded deliberately: the collector writes it on failure
+ * too, so counting it would say a probe with broken ssh is "producing data"
+ * and retire the very values that should be shown, aged, while it is broken.
+ * `-Infinity` when the probe has written nothing but `.up`, which retires
+ * nothing.
+ */
+function lastDataAt(points: readonly MetricPoint[]): number {
+  const timestamps = points
+    .filter((point) => !point.metric.endsWith(PROBE_LIVENESS_SUFFIX))
+    .map((point) => point.ts);
+
+  return timestamps.length > 0
+    ? Math.max(...timestamps)
+    : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * How far behind the probe's own last measurement a metric may fall before it
+ * is treated as gone rather than late.
+ *
+ * Deliberately much larger than the two intervals staleness uses, and the
+ * gap between the two numbers is the point: below it the metric reads stale,
+ * which is the signal that part of a measurement started failing; above it we
+ * conclude the probe is no longer writing it at all. Sharing one threshold
+ * would leave no window for the warning, and a method that quietly stopped
+ * answering would vanish from the table instead of saying so.
+ *
+ * Ten is a judgement, not a measurement — nothing in the data separates
+ * "missing for now" from "removed", only how long it has been missing. It is
+ * short enough that a narrowed config clears within an hour at a five-minute
+ * interval, long enough that a run of consecutive failures is still reported.
+ * The guess disappears once probes declare the metrics they emit; see the
+ * debt list.
+ */
+const RETIREMENT_INTERVALS = 10;
+
+function isRetired(
+  point: MetricPoint,
+  lastData: number,
+  intervalSeconds: number,
+): boolean {
+  if (point.metric.endsWith(PROBE_LIVENESS_SUFFIX)) return false;
+
+  return lastData - point.ts > intervalSeconds * RETIREMENT_INTERVALS;
 }
 
 function viewOf(

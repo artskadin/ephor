@@ -150,6 +150,35 @@ export const StorageSchema = z
 export type StorageSettings = z.infer<typeof StorageSchema>;
 
 /* -------------------------------------------------------------------------
+ * HTTP API
+ *
+ * Served from the collector's own process: `POST /api/check` forces a run and
+ * waits for the queue to drain, which needs the live scheduler rather than
+ * the database. Clients reach it over an SSH tunnel when the collector is
+ * remote.
+ *
+ * The token is deliberately not here. It belongs in `EPHOR_TOKEN`, because a
+ * config file gets copied between machines, pasted into a bug report and
+ * committed by accident.
+ * ---------------------------------------------------------------------- */
+
+export const ApiSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    // Configurable rather than fixed only because of containers: inside one,
+    // binding 127.0.0.1 makes the port unreachable from the host's mapping.
+    // On a plain host it should stay as it is — and see the gotcha about
+    // Docker writing nftables rules straight past ufw.
+    bind: z.string().min(1).default("127.0.0.1"),
+    // In the IANA dynamic range (49152-65535, RFC 6335), which is guaranteed
+    // unassigned, so it will not collide with whatever else the bastion runs.
+    port: z.number().int().min(1).max(65535).default(53556),
+  })
+  .strict();
+
+export type ApiSettings = z.infer<typeof ApiSchema>;
+
+/* -------------------------------------------------------------------------
  * Thresholds
  *
  * What counts as a problem is the user's to say, not ours: 85% of a disk is
@@ -355,6 +384,7 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
       thresholds: ThresholdsSchema,
       nodes: z.array(NodeWithKnownProbesSchema).min(1, "at least one node"),
       storage: optionalSection(StorageSchema.prefault({})),
+      api: optionalSection(ApiSchema.prefault({})),
     })
     .strict()
     .superRefine((config, ctx) => {

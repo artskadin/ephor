@@ -1,3 +1,8 @@
+export type {
+  ErrorResponse,
+  HealthResponse,
+  StateResponse,
+} from "./api/types.js";
 export { Duration, formatDuration } from "./config/duration.js";
 export { ConfigError, loadConfig, parseConfig } from "./config/load.js";
 export type {

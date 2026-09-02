@@ -1,4 +1,5 @@
 import { ConfigError, createLogger, loadConfig } from "@ephor/core";
+import { createApiServer, MissingTokenError } from "./api/server.js";
 import { Collector } from "./collector.js";
 import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
 import { ProbeRegistry } from "./probes/registry.js";
@@ -49,6 +50,27 @@ async function main(): Promise<void> {
   );
   const collector = new Collector({ config, registry, storage, logger });
 
+  // Built before the collector starts, and deliberately: it throws when the
+  // token is missing, and a misconfigured deployment should fail before it
+  // has migrated a database, opened ssh connections and called a third-party
+  // API — not after. The nodes are resolved by the constructor, so nothing
+  // here needs the scheduler to be running yet.
+  const api = config.api.enabled
+    ? createApiServer({
+        settings: config.api,
+        token: process.env.EPHOR_TOKEN ?? "",
+        logger: logger.child({ component: "api" }),
+        deps: {
+          storage,
+          nodes: collector.nodes,
+          probeNames: registry.names(),
+          now: () => Math.floor(Date.now() / 1000),
+          startedAt: Math.floor(Date.now() / 1000),
+          runningTasks: () => collector.runningTasks,
+        },
+      })
+    : undefined;
+
   await collector.start();
 
   logger.info("collector started", {
@@ -57,10 +79,21 @@ async function main(): Promise<void> {
     database: databasePath,
   });
 
+  if (api) {
+    await api.listen({ host: config.api.bind, port: config.api.port });
+    logger.info("API listening", {
+      bind: config.api.bind,
+      port: config.api.port,
+    });
+  }
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("shutting down", { signal });
     collector.stop();
 
+    // Before the storage: a request already in flight would otherwise read
+    // from a database that has just been closed under it.
+    if (api) await api.close();
     await storage.close();
 
     process.exit(0);
@@ -71,9 +104,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  if (error instanceof ConfigError) {
-    // Written straight to stderr rather than logged: this is a multi-line
-    // message for the person who just edited the file, not a log record.
+  // Both are messages for the person at the keyboard rather than log records:
+  // one says which line of the config is wrong, the other how to make a
+  // token. Multi-line prose survives neither JSON nor a log level.
+  if (error instanceof ConfigError || error instanceof MissingTokenError) {
     process.stderr.write(`\n${error.message}\n\n`);
     process.exit(1);
   }

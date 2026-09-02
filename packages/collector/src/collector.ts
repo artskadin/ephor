@@ -88,6 +88,11 @@ export class Collector {
     return this.scheduler.runningTasks;
   }
 
+  /** The nodes actually being watched — disabled ones are already dropped. */
+  get nodes(): readonly ResolvedNode[] {
+    return this.resolvedNodes;
+  }
+
   private async runProbe(task: Task): Promise<void> {
     const probe = this.options.registry.get(task.probe);
     const settings = task.node.probes.get(task.probe);
