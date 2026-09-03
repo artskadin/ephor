@@ -10,6 +10,8 @@ import {
   type Storage,
 } from "@ephor/core";
 import { createExecutor } from "./execution/create-executor.js";
+import { SshGates } from "./execution/ssh-gates.js";
+import { inspectSshOptions } from "./execution/ssh-route.js";
 import { Pruner } from "./maintenance/pruner.js";
 import type { ProbeRegistry } from "./probes/registry.js";
 import { runWithRetry } from "./probes/with-retry.js";
@@ -40,12 +42,19 @@ export class Collector {
   private readonly taskExecutor: TaskExecutor;
   private readonly resolvedNodes: ResolvedNode[];
   private readonly pruner: Pruner;
+  /** Shared by every probe that runs ssh: the limits are ssh's, not theirs. */
+  private readonly sshGates: SshGates;
 
   constructor(private readonly options: CollectorOptions) {
     this.resolvedNodes = resolveConfig(
       options.config,
       options.registry.descriptors(),
     );
+
+    this.sshGates = new SshGates({
+      inspect: inspectSshOptions,
+      logger: options.logger.child({ component: "ssh" }),
+    });
 
     this.scheduler = new Scheduler({
       clock: systemClock,
@@ -146,7 +155,7 @@ export class Collector {
       host: node.host,
       domain: node.domain,
       ports: node.ports,
-      executor: createExecutor(node, timeoutMs),
+      executor: createExecutor(node, timeoutMs, this.sshGates),
       startedAt,
       timeoutMs,
       settings: settings.settings,

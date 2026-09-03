@@ -16,12 +16,11 @@ export const systemProbeDescriptor: ProbeDescriptor = {
     interval: 60,
     timeout: 15,
     retries: 2,
-    // One ssh process per node, each a few megabytes and three file
-    // descriptors. A backstop against unbounded growth rather than a
-    // throttle: the spread schedule keeps the count in flight far below
-    // this, and 50 still leaves room under a default `ulimit -n` of 1024.
-    // Reaching nodes through a jump host is the exception: `MaxStartups`
-    // on that host (10:30:100 by default) drops connections above ~10.
+    // A backstop against unbounded growth rather than a throttle: the
+    // spread schedule keeps the count in flight far below this. What ssh
+    // itself can bear — processes on the collector host, logins into one
+    // sshd — is bounded below the probes, in `SshGates`, for every probe
+    // that runs ssh at once.
     concurrency: 50,
   },
 };

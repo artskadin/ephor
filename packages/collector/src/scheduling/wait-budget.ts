@@ -19,9 +19,11 @@ import type { QueueState } from "./task-executor.js";
  * more.
  *
  * An estimate from one reading, not a bound: pairs that finish early come
- * due again and join the same queue while the rest are still waiting, so a
- * long fleet-wide run can outlast it. That is what the caller's cap and
- * `pending` are for.
+ * due again and join the same queue while the rest are still waiting, and
+ * the ssh layer below the probes has limits of its own (`SshGates`: 8 per
+ * sshd, 50 in all) that this does not see — behind one jump host a run is
+ * held far longer than the probe queue suggests. That is what the caller's
+ * cap and `pending` are for.
  */
 export function waitBudgetMs(
   run: ForcedRun,

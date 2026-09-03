@@ -66,7 +66,8 @@ export type Port = z.infer<typeof PortTargetSchema>;
  *
  * The same four keys mean the same thing at both levels, so there is only
  * one word to learn. `concurrency` is global-only: it caps a shared resource
- * (ssh processes, a third-party API, bandwidth), which no single node owns.
+ * (a third-party API, bandwidth), which no single node owns. Ssh has its own
+ * limits below the probes and is not what this number protects.
  * ---------------------------------------------------------------------- */
 
 const baseProbeShape = {

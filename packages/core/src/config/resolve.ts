@@ -124,8 +124,9 @@ export function resolveConfig(
 
 /**
  * Concurrency is resolved per probe rather than per node: it caps a resource
- * shared by every node — ssh processes on the collector host, a third-party
- * API, the bandwidth bill.
+ * shared by every node — a third-party API, the bandwidth bill. What ssh
+ * itself can bear is bounded below the probes, in the collector's
+ * `SshGates`, for every ssh probe at once.
  */
 export function resolveConcurrency(
   config: Config,

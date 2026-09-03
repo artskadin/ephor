@@ -8,6 +8,8 @@
  */
 import { createLogger, loadConfig, resolveConfig } from "@ephor/core";
 import { createExecutor } from "../src/execution/create-executor.js";
+import { SshGates } from "../src/execution/ssh-gates.js";
+import { inspectSshOptions } from "../src/execution/ssh-route.js";
 import { ReachabilityProbe } from "../src/probes/reachability/reachability-probe.js";
 import { ProbeRegistry } from "../src/probes/registry.js";
 import { SystemProbe } from "../src/probes/system/system-probe.js";
@@ -73,7 +75,11 @@ const outcome = await probe.run({
   host: target.node.host,
   domain: target.node.domain,
   ports: target.node.ports,
-  executor: createExecutor(target.node, timeoutMs),
+  executor: createExecutor(
+    target.node,
+    timeoutMs,
+    new SshGates({ inspect: inspectSshOptions, logger }),
+  ),
   startedAt: Math.floor(startedAt / 1000),
   timeoutMs,
   settings: settings.settings,

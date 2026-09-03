@@ -40,7 +40,9 @@ export interface ProbeDefaults {
    * jitter, tasks arrive spread over the interval and the limit is
    * rarely reached. It exists to cap the damage when everything is
    * forced at once — and each probe is capped by a different
-   * resource, which is why there is no single global number.
+   * resource, which is why there is no single global number here.
+   * The one resource every ssh probe shares, ssh itself, is bounded
+   * below the probes, in the collector.
    */
   concurrency: number;
 }
