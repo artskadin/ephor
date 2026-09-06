@@ -1,11 +1,7 @@
 import { ConfigError, createLogger, loadConfig } from "@ephor/core";
 import { createApiServer, MissingTokenError } from "./api/server.js";
 import { Collector } from "./collector.js";
-import { ReachabilityProbe } from "./probes/reachability/reachability-probe.js";
-import { ProbeRegistry } from "./probes/registry.js";
-import { SystemProbe } from "./probes/system/system-probe.js";
-import { CheckHostProvider } from "./reachability/check-host-provider.js";
-import { DirectHttpRequester } from "./reachability/direct-http-requester.js";
+import { createRegistry } from "./probes/create-registry.js";
 import { sleep } from "./scheduling/clock.js";
 import { resolveDatabasePath } from "./storage/database-path.js";
 import { SqliteStorage } from "./storage/sqlite-storage.js";
@@ -19,24 +15,7 @@ async function main(): Promise<void> {
 
   // The registry is built first: the config schema is generated from the
   // registered probes, so which probes exist decides what the config may say.
-  const registry = new ProbeRegistry();
-
-  registry.register(new SystemProbe());
-
-  const requester = new DirectHttpRequester();
-
-  registry.register(
-    new ReachabilityProbe({
-      createProvider: (settings) =>
-        new CheckHostProvider({
-          regions: settings.regions,
-          vantageTtlMs: settings.vantageRefresh * 1000,
-        }),
-      // Always from the collector for now; `requestFrom: nodes` will make
-      // this a choice without the provider noticing.
-      requesterFor: () => requester,
-    }),
-  );
+  const registry = createRegistry();
 
   const config = await loadConfig(CONFIG_PATH, registry.descriptors());
 

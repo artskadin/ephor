@@ -10,32 +10,14 @@ import { createLogger, loadConfig, resolveConfig } from "@ephor/core";
 import { createExecutor } from "../src/execution/create-executor.js";
 import { SshGates } from "../src/execution/ssh-gates.js";
 import { inspectSshOptions } from "../src/execution/ssh-route.js";
-import { ReachabilityProbe } from "../src/probes/reachability/reachability-probe.js";
-import { ProbeRegistry } from "../src/probes/registry.js";
-import { SystemProbe } from "../src/probes/system/system-probe.js";
-import { CheckHostProvider } from "../src/reachability/check-host-provider.js";
-import { DirectHttpRequester } from "../src/reachability/direct-http-requester.js";
+import { createRegistry } from "../src/probes/create-registry.js";
 
 const probeName = process.argv[2] ?? "reachability";
 const nodeName = process.argv[3];
 const configPath = process.argv[4] ?? "../../examples/config.local.yaml";
 
 const logger = createLogger({ level: "debug" });
-const requester = new DirectHttpRequester();
-
-const registry = new ProbeRegistry();
-
-registry.register(new SystemProbe());
-registry.register(
-  new ReachabilityProbe({
-    createProvider: (settings) =>
-      new CheckHostProvider({
-        regions: settings.regions,
-        vantageTtlMs: settings.vantageRefresh * 1000,
-      }),
-    requesterFor: () => requester,
-  }),
-);
+const registry = createRegistry();
 
 const config = await loadConfig(configPath, registry.descriptors());
 const resolved = resolveConfig(config, registry.descriptors());

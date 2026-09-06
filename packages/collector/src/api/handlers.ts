@@ -10,25 +10,17 @@ import {
   type MetricsResponse,
   type NodeResponse,
   type QueueState,
-  type ResolvedNode,
   type SshQueues,
   type StateResponse,
-  type Storage,
 } from "@ephor/core";
-import type { CheckRun } from "../collector.js";
+import { type CheckDeps, checkOnce } from "../check.js";
 
 /**
- * Everything the answers are built from. Passed in rather than reached for,
- * so a handler can be tested with a fake storage and a frozen clock and no
- * server at all.
+ * Everything the answers are built from: what a check needs, and what only
+ * a server has. Passed in rather than reached for, so a handler can be
+ * tested with a fake storage and a frozen clock and no server at all.
  */
-export interface ApiDeps {
-  storage: Storage;
-  /** The nodes actually being watched; disabled ones are already gone. */
-  nodes: readonly ResolvedNode[];
-  probeNames: readonly string[];
-  /** Unix seconds. */
-  now: () => number;
+export interface ApiDeps extends CheckDeps {
   /**
    * Resolves after that many milliseconds, or rejects when `signal` aborts —
    * which the collector does on shutdown, so a waiting check does not hold
@@ -44,8 +36,6 @@ export interface ApiDeps {
   queues: () => Record<string, QueueState>;
   /** What is in line at the ssh limits; see `Collector.sshQueues`. */
   sshQueues: () => SshQueues;
-  /** Forces the matching pairs to run now; see `Collector.runNow`. */
-  forceRun: (node?: string, probe?: string) => CheckRun;
 }
 
 /**
@@ -180,108 +170,27 @@ function endOnCompleteInstant<T extends { ts: number }>(
  * Blocks rather than returning a ticket: a script gets one call and one
  * answer. The wait is bounded by the run's own budget — see `waitBudgetMs` —
  * under a fixed ceiling, and the response says whether the run finished
- * inside it; the probes keep
- * going either way, and a client that was told `complete: false` polls
- * `/api/state` rather than posting again.
+ * inside it; the probes keep going either way, and a client that was told
+ * `complete: false` polls `/api/state` rather than posting again.
  *
- * `undefined` when the request names a node that is not configured — the
- * route's 404. Everything else it cannot do is a 400 that says why: a run
- * that forces nothing would otherwise come back `complete: true` with no
- * data, which reads as success.
+ * The check is `checkOnce`. The route's own part is the cap (the ceiling,
+ * and a sleep the collector cuts short on shutdown) and the statuses:
+ * `undefined` for a node that is not configured, the route's 404, and a
+ * 400 that says why for everything else it cannot do.
  */
 export async function postCheck(
   deps: ApiDeps,
   request: CheckRequest,
 ): Promise<CheckResponse | undefined> {
-  if (
-    request.node !== undefined &&
-    !deps.nodes.some((node) => node.node.name === request.node)
-  ) {
-    return undefined;
-  }
+  const outcome = await checkOnce(deps, request, {
+    ceilingMs: CHECK_MAX_WAIT_SECONDS * 1000,
+    sleep: deps.sleep,
+  });
 
-  if (request.probe !== undefined && !deps.probeNames.includes(request.probe)) {
-    throw new InvalidQueryError(
-      `unknown probe "${request.probe}". Available: ${deps.probeNames.join(", ")}`,
-    );
-  }
+  if (outcome.kind === "unknown-node") return undefined;
+  if (outcome.kind === "invalid") throw new InvalidQueryError(outcome.reason);
 
-  // Taken before forcing: a probe stamps its points with the second it
-  // started in, and that second is at or after this one.
-  const startedAt = deps.now();
-  const run = deps.forceRun(request.node, request.probe);
-
-  if (run.tasks.length === 0) {
-    throw new InvalidQueryError(explainNothingToRun(deps.nodes, request));
-  }
-
-  // The run's own budget, never more than the contract promises. The timer
-  // is cancelled once the run wins, so a three-second check does not leave a
-  // four-minute timer behind; a sleep cut short from outside — shutdown —
-  // ends the wait as if the cap had run out.
-  const cap = new AbortController();
-
-  try {
-    await Promise.race([
-      run.finished,
-      deps
-        .sleep(
-          Math.min(CHECK_MAX_WAIT_SECONDS * 1000, run.budgetMs),
-          cap.signal,
-        )
-        .catch(() => undefined),
-    ]);
-  } finally {
-    cap.abort();
-  }
-
-  // From the scheduler's own books rather than from timestamps in storage:
-  // a previous run stamped in the same second would pass a timestamp test,
-  // and a clock stepped back would fail one until the next cycle.
-  const unfinished = run.unfinished();
-  const now = deps.now();
-
-  return {
-    now,
-    nodes: buildNodeState({
-      nodes: deps.nodes,
-      points: await deps.storage.latest(),
-      now,
-    }),
-    startedAt,
-    complete: unfinished.length === 0,
-    pending: [...new Set(unfinished.map((task) => task.node.node.name))],
-  };
-}
-
-/**
- * Why a request that named real things still had nothing to run. The probe
- * exists and the node exists; what is left is the probe being switched off
- * where it was asked for, and the message says by whom — the config, or
- * the node lacking the access the probe needs.
- */
-function explainNothingToRun(
-  nodes: readonly ResolvedNode[],
-  request: CheckRequest,
-): string {
-  const { node: nodeName, probe: probeName } = request;
-  const what = `${probeName ?? "every probe"} is disabled on ${nodeName ?? "every node"}`;
-
-  if (nodeName === undefined || probeName === undefined) {
-    return nodeName === undefined && probeName === undefined
-      ? `nothing to check: ${what}`
-      : what;
-  }
-
-  const probe = nodes
-    .find((candidate) => candidate.node.name === nodeName)
-    ?.probes.get(probeName);
-  const reason =
-    probe?.disabledReason === "no-executor"
-      ? `it needs ssh access and ${nodeName} has none`
-      : "switched off in the config";
-
-  return `${what}: ${reason}`;
+  return outcome.response;
 }
 
 export function getHealth(deps: ApiDeps): HealthResponse {
