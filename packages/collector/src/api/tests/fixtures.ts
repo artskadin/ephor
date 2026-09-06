@@ -56,6 +56,17 @@ export function storageOf(points: readonly MetricPoint[]): Storage & {
 /** What the fixture's `forceRun` says a run may take; a test that cares sets its own. */
 export const BUDGET_MS = 60_000;
 
+/** Two probe queues and one busy jump host: numbers a test can tell apart. */
+export const QUEUES = {
+  system: { active: 2, queued: 0, limit: 50 },
+  reachability: { active: 0, queued: 0, limit: 50 },
+};
+
+export const SSH_QUEUES = {
+  processes: { active: 2, queued: 0, limit: 50 },
+  logins: { "jump:198.51.100.1:2222": { active: 2, queued: 0, limit: 8 } },
+};
+
 /**
  * The real scheduler over the given nodes, so a fake `forceRun` selects
  * exactly the pairs the daemon would — the selection is the scheduler's,
@@ -116,6 +127,8 @@ export function depsOf(
     sleep: () => new Promise(() => {}),
     startedAt: NOW - 3600,
     runningTasks: () => 2,
+    queues: () => QUEUES,
+    sshQueues: () => SSH_QUEUES,
     forceRun: (node, probe) => ({
       ...scheduler.runNow(node, probe),
       budgetMs: BUDGET_MS,

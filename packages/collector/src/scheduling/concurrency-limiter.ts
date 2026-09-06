@@ -1,3 +1,5 @@
+import type { QueueState } from "@ephor/core";
+
 export class ConcurrencyLimiter {
   private activeCount = 0;
   private readonly waitingResolvers: Array<() => void> = [];
@@ -14,6 +16,15 @@ export class ConcurrencyLimiter {
 
   get pending(): number {
     return this.waitingResolvers.length;
+  }
+
+  /** The queue as it stands: what `/api/health` and the backlog detector read. */
+  state(): QueueState {
+    return {
+      active: this.activeCount,
+      queued: this.waitingResolvers.length,
+      limit: this.maxConcurrent,
+    };
   }
 
   async run<T>(operation: () => Promise<T>): Promise<T> {

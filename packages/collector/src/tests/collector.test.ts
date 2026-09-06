@@ -6,6 +6,7 @@ import {
 } from "@ephor/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { Collector } from "../collector.js";
+import { SSH_TOTAL_LIMIT } from "../execution/ssh-gates.js";
 import { ProbeRegistry } from "../probes/registry.js";
 import { longestRunMs } from "../probes/with-retry.js";
 import { SqliteStorage } from "../storage/sqlite-storage.js";
@@ -100,5 +101,19 @@ describe("Collector.queueOf", () => {
       limit: 2,
     });
     expect(() => collector.queueOf("ghost")).toThrow(/no concurrency limit/);
+  });
+});
+
+describe("Collector.queues", () => {
+  it("lists every registered probe, and the ssh limits at rest", async () => {
+    const collector = await collectorOf();
+
+    expect(collector.queues()).toEqual({
+      fast: { active: 0, queued: 0, limit: 2 },
+    });
+    expect(collector.sshQueues()).toEqual({
+      processes: { active: 0, queued: 0, limit: SSH_TOTAL_LIMIT },
+      logins: {},
+    });
   });
 });

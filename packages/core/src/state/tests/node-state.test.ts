@@ -654,7 +654,7 @@ describe("buildNodeState", () => {
   it("reads a node that was switched off by its provider", () => {
     const state = firstOf(
       {
-        nodes: [{ name: "german", host: "144.31.73.62", ports: [443] }],
+        nodes: [{ name: "german", host: "203.0.113.62", ports: [443] }],
       },
       [
         point("reachability.up", { ok: true, node: "german" }),

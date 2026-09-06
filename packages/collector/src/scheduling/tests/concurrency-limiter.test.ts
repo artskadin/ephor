@@ -60,4 +60,21 @@ describe("ConcurrencyLimiter", () => {
   it("rejects an invalid limit", async () => {
     expect(() => new ConcurrencyLimiter(0)).toThrow();
   });
+
+  // Read straight after `run()` is called, before any turn of the loop: a
+  // caller counting a batch it has just submitted relies on that.
+  it("reports the queue as it stands, synchronously", async () => {
+    const limiter = new ConcurrencyLimiter(1);
+    const first = deferred();
+
+    void limiter.run(() => first.promise);
+    void limiter.run(async () => {});
+
+    expect(limiter.state()).toEqual({ active: 1, queued: 1, limit: 1 });
+
+    first.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(limiter.state()).toEqual({ active: 0, queued: 0, limit: 1 });
+  });
 });

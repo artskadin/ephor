@@ -75,6 +75,8 @@ async function main(): Promise<void> {
             sleep(ms, AbortSignal.any([signal, stopping.signal])),
           startedAt: Math.floor(Date.now() / 1000),
           runningTasks: () => collector.runningTasks,
+          queues: () => collector.queues(),
+          sshQueues: () => collector.sshQueues(),
           forceRun: (node, probe) => collector.runNow(node, probe),
         },
       })

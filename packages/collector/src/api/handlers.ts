@@ -9,7 +9,9 @@ import {
   type MetricsQuery,
   type MetricsResponse,
   type NodeResponse,
+  type QueueState,
   type ResolvedNode,
+  type SshQueues,
   type StateResponse,
   type Storage,
 } from "@ephor/core";
@@ -38,6 +40,10 @@ export interface ApiDeps {
   /** Unix seconds, when the collector started. */
   startedAt: number;
   runningTasks: () => number;
+  /** Every probe's queue; see `Collector.queues`. */
+  queues: () => Record<string, QueueState>;
+  /** What is in line at the ssh limits; see `Collector.sshQueues`. */
+  sshQueues: () => SshQueues;
   /** Forces the matching pairs to run now; see `Collector.runNow`. */
   forceRun: (node?: string, probe?: string) => CheckRun;
 }
@@ -287,5 +293,7 @@ export function getHealth(deps: ApiDeps): HealthResponse {
     runningTasks: deps.runningTasks(),
     nodes: deps.nodes.length,
     probes: [...deps.probeNames],
+    queues: deps.queues(),
+    ssh: deps.sshQueues(),
   };
 }

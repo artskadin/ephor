@@ -8,7 +8,7 @@ import {
   getState,
   InvalidQueryError,
 } from "../handlers.js";
-import { depsOf, NOW, storageOf } from "./fixtures.js";
+import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures.js";
 
 describe("getState", () => {
   it("reports the collector's own clock", async () => {
@@ -273,13 +273,15 @@ describe("getMetrics", () => {
 });
 
 describe("getHealth", () => {
-  it("reports uptime, work in flight and what is watched", () => {
+  it("reports uptime, work in flight, the queues and what is watched", () => {
     expect(getHealth(depsOf([]))).toEqual({
       ok: true,
       uptimeSeconds: 3600,
       runningTasks: 2,
       nodes: 1,
       probes: ["system", "reachability"],
+      queues: QUEUES,
+      ssh: SSH_QUEUES,
     });
   });
 

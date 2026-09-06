@@ -1,10 +1,14 @@
-import { parseConfig, type ResolvedNode, resolveConfig } from "@ephor/core";
+import {
+  parseConfig,
+  type QueueState,
+  type ResolvedNode,
+  resolveConfig,
+} from "@ephor/core";
 import { describe, expect, it } from "vitest";
 import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe.js";
 import { systemProbeDescriptor } from "../../probes/system/system-probe.js";
 import { longestRunMs } from "../../probes/with-retry.js";
 import type { ForcedRun, Task } from "../scheduler.js";
-import type { QueueState } from "../task-executor.js";
 import { waitBudgetMs } from "../wait-budget.js";
 
 /** The shipped descriptors: the budget is judged against real settings. */

@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApiDeps } from "../handlers.js";
 import { createApiServer, MissingTokenError } from "../server.js";
-import { depsOf, NOW, storageOf } from "./fixtures.js";
+import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures.js";
 
 const TOKEN = "0123456789abcdef";
 
@@ -116,6 +116,8 @@ describe("createApiServer", () => {
         runningTasks: 0,
         nodes: 1,
         probes: ["system", "reachability"],
+        queues: QUEUES,
+        ssh: SSH_QUEUES,
       });
     });
   });

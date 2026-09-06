@@ -274,6 +274,136 @@ describe("SshGates", () => {
     expect(sessions.started()).toBe(1);
   });
 
+  // Four sessions through a jump host that takes two: two run, two wait —
+  // one wave. The line names the jump host as the config does, the field
+  // names the sshd as ssh resolved it.
+  it("says once when a jump host has a wave waiting, and once when it caught up", async () => {
+    const { logger, records } = captureLogs();
+    const gates = new SshGates({
+      inspect: inspectorOf(BEHIND_BASTION),
+      logger,
+      perDoorLimit: 2,
+    });
+
+    const sessions = await startSessions(gates, [
+      "achilles",
+      "antilochus",
+      "achilles",
+      "antilochus",
+    ]);
+
+    expect(sessions.started()).toBe(2);
+
+    const behind = records.filter((record) =>
+      String(record.msg).includes("is falling behind"),
+    );
+
+    expect(behind).toMatchObject([
+      {
+        level: "warn",
+        msg: 'ssh through the jump host "bastion" is falling behind: 2 queued, limit 2',
+        door: "jump:198.51.100.1:2222",
+        active: 2,
+        queued: 2,
+        limit: 2,
+      },
+    ]);
+
+    for (let index = 0; index < 4; index++) sessions.release(index);
+    for (let turn = 0; turn < 5; turn++) await new Promise(setImmediate);
+
+    expect(sessions.started()).toBe(4);
+    expect(records.filter((record) => record.level === "info")).toMatchObject([
+      {
+        msg: 'ssh through the jump host "bastion" caught up, peak was 2 queued',
+        door: "jump:198.51.100.1:2222",
+        peak: 2,
+      },
+    ]);
+  });
+
+  // The total's own line, and the field that says which limit spoke: a tag
+  // named `limit` would be overwritten by the number on the same line.
+  it("says when the collector host itself has a wave waiting", async () => {
+    const { logger, records } = captureLogs();
+    const gates = new SshGates({
+      inspect: inspectorOf({
+        "203.0.113.10": DIRECT("203.0.113.10"),
+        "203.0.113.11": DIRECT("203.0.113.11"),
+      }),
+      logger,
+      totalLimit: 1,
+    });
+
+    const sessions = await startSessions(gates, [
+      "203.0.113.10",
+      "203.0.113.11",
+    ]);
+
+    expect(sessions.started()).toBe(1);
+
+    const aboutTheHost = () =>
+      records.filter((record) =>
+        String(record.msg).startsWith("ssh on the collector host"),
+      );
+
+    expect(aboutTheHost()[0]).toMatchObject({
+      level: "warn",
+      msg: "ssh on the collector host is falling behind: 1 queued, limit 1",
+      gate: "processes",
+      active: 1,
+      queued: 1,
+      limit: 1,
+    });
+
+    sessions.release(0);
+    sessions.release(1);
+    for (let turn = 0; turn < 5; turn++) await new Promise(setImmediate);
+
+    expect(sessions.started()).toBe(2);
+    expect(aboutTheHost().at(-1)).toMatchObject({
+      level: "info",
+      msg: "ssh on the collector host caught up, peak was 1 queued",
+      gate: "processes",
+      peak: 1,
+    });
+  });
+
+  it("reports what is in line at each limit, idle doors left out", async () => {
+    const gates = new SshGates({
+      inspect: inspectorOf({
+        ...BEHIND_BASTION,
+        "203.0.113.12": DIRECT("203.0.113.12"),
+      }),
+      logger: captureLogs().logger,
+      perDoorLimit: 2,
+    });
+
+    // A session that already came and went leaves its door idle.
+    await gates.run(["203.0.113.12"], async () => {});
+
+    const sessions = await startSessions(gates, [
+      "achilles",
+      "antilochus",
+      "achilles",
+    ]);
+
+    expect(gates.queues()).toEqual({
+      processes: { active: 2, queued: 0, limit: SSH_TOTAL_LIMIT },
+      logins: {
+        "jump:198.51.100.1:2222": { active: 2, queued: 1, limit: 2 },
+      },
+    });
+
+    for (let index = 0; index < 3; index++) sessions.release(index);
+    for (let turn = 0; turn < 5; turn++) await new Promise(setImmediate);
+
+    expect(gates.queues()).toEqual({
+      processes: { active: 0, queued: 0, limit: SSH_TOTAL_LIMIT },
+      logins: {},
+    });
+  });
+
   // An inspection is an ssh process too; fifty at a cold start would be the
   // burst the total exists to prevent.
   it("counts inspections against the total", async () => {

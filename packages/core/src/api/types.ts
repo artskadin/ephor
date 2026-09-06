@@ -20,6 +20,38 @@ export interface StateResponse {
   nodes: NodeState[];
 }
 
+/**
+ * How busy one limit is: a probe's concurrency, ssh processes, logins into
+ * one sshd. What holds a slot depends on the limit — a probe run, an ssh
+ * session, an `ssh -G` inspection.
+ */
+export interface QueueState {
+  /** Holding a slot right now. */
+  active: number;
+  /** Waiting for a slot to free up. */
+  queued: number;
+  /** Slots: how many may hold one at once. */
+  limit: number;
+}
+
+/**
+ * The two limits ssh has of its own, below the probes; see `SshGates`. A
+ * probe run waiting here still holds its probe's slot, so it is `active` in
+ * `queues` and `queued` here: the two read together.
+ */
+export interface SshQueues {
+  /** Ssh processes on the collector host, whatever they log into. */
+  processes: QueueState;
+  /**
+   * Logins per sshd, keyed `jump:<host>:<port>`, `proxy:<command>` or
+   * `node:<host>:<port>` as the collector resolved them — or, while a
+   * node's route cannot be resolved, `node:<target as configured>`. Only
+   * the sshds with a session in or waiting at them: every node reached
+   * directly has one, and an idle one says nothing.
+   */
+  logins: Record<string, QueueState>;
+}
+
 export interface HealthResponse {
   ok: boolean;
   /** Seconds since the collector started, not since the machine booted. */
@@ -29,6 +61,17 @@ export interface HealthResponse {
   /** How many nodes are being watched, after disabled ones are dropped. */
   nodes: number;
   probes: string[];
+  /**
+   * By probe, every registered one; a probe that has not run yet reads
+   * `{ active: 0, queued: 0, limit }`. `active` counts runs holding a probe
+   * slot, whether running or waiting for ssh below it.
+   *
+   * Raw counts, not a verdict: `ok` stays true while a queue is behind. The
+   * collector's log says when a queue is a wave deep (`queued >= limit`); a
+   * client that wants the same judgement makes it from these numbers.
+   */
+  queues: Record<string, QueueState>;
+  ssh: SshQueues;
 }
 
 export interface NodeResponse {

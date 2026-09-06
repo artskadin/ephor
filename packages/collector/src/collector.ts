@@ -4,9 +4,11 @@ import {
   type MetricPoint,
   type ProbeContext,
   type ProbeError,
+  type QueueState,
   type ResolvedNode,
   resolveConcurrency,
   resolveConfig,
+  type SshQueues,
   type Storage,
 } from "@ephor/core";
 import { createExecutor } from "./execution/create-executor.js";
@@ -21,7 +23,7 @@ import {
   Scheduler,
   type Task,
 } from "./scheduling/scheduler.js";
-import { type QueueState, TaskExecutor } from "./scheduling/task-executor.js";
+import { TaskExecutor } from "./scheduling/task-executor.js";
 import { waitBudgetMs } from "./scheduling/wait-budget.js";
 
 export interface CollectorOptions {
@@ -122,6 +124,16 @@ export class Collector {
     }
 
     return queue;
+  }
+
+  /** Every probe's queue, for `/api/health`; see `TaskExecutor.queues`. */
+  queues(): Record<string, QueueState> {
+    return Object.fromEntries(this.taskExecutor.queues());
+  }
+
+  /** What is in line at the ssh limits, for `/api/health`; see `SshGates.queues`. */
+  sshQueues(): SshQueues {
+    return this.sshGates.queues();
   }
 
   get runningTasks(): number {

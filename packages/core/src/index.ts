@@ -16,6 +16,8 @@ export type {
   HealthResponse,
   MetricsResponse,
   NodeResponse,
+  QueueState,
+  SshQueues,
   StateResponse,
 } from "./api/types.js";
 export { Duration, formatDuration } from "./config/duration.js";

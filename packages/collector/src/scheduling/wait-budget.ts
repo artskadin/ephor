@@ -1,6 +1,6 @@
+import type { QueueState } from "@ephor/core";
 import { longestRunMs } from "../probes/with-retry.js";
 import type { ForcedRun, Task } from "./scheduler.js";
-import type { QueueState } from "./task-executor.js";
 
 /**
  * How long a forced run can take under the queues as they stand — what a

@@ -171,4 +171,116 @@ describe("TaskExecutor", () => {
     });
     expect(executor.queueOf("ghost")).toBeUndefined();
   });
+
+  it("lists every registered probe's queue, run or not", () => {
+    const gate = deferred();
+    const executor = new TaskExecutor({
+      concurrencyByProbe: new Map([
+        ["system", 2],
+        ["reachability", 4],
+      ]),
+      handler: () => gate.promise,
+      onTaskFinished: () => {},
+      logger: captureLogs().logger,
+    });
+
+    executor.submit([taskFor("system")]);
+
+    expect(executor.queues()).toEqual(
+      new Map([
+        ["system", { active: 1, queued: 0, limit: 2 }],
+        ["reachability", { active: 0, queued: 0, limit: 4 }],
+      ]),
+    );
+
+    gate.resolve();
+  });
+
+  // Six at once under a limit of two: two run, four wait. One line for the
+  // batch with the whole count — not one at the first task past the bar,
+  // which would read "2 queued" for a fleet of two hundred.
+  it("says once that a probe is a wave behind, and once that it caught up", async () => {
+    const finished: Task[] = [];
+    const gate = deferred();
+    const { logger, records } = captureLogs();
+
+    const executor = new TaskExecutor({
+      concurrencyByProbe: new Map([["system", 2]]),
+      handler: () => gate.promise,
+      onTaskFinished: (task) => finished.push(task),
+      logger,
+    });
+
+    executor.submit(Array.from({ length: 6 }, () => taskFor("system")));
+
+    expect(records).toMatchObject([
+      {
+        level: "warn",
+        msg: "system is falling behind: 4 queued, limit 2",
+        probe: "system",
+        active: 2,
+        queued: 4,
+        limit: 2,
+      },
+    ]);
+
+    gate.resolve();
+    await vi.waitFor(() => expect(finished).toHaveLength(6));
+
+    expect(records).toMatchObject([
+      { level: "warn" },
+      { level: "info", msg: "system caught up, peak was 4 queued" },
+    ]);
+  });
+
+  it("stays quiet while fewer than a wave are waiting", async () => {
+    const finished: Task[] = [];
+    const gate = deferred();
+    const { logger, records } = captureLogs();
+
+    const executor = new TaskExecutor({
+      concurrencyByProbe: new Map([["system", 2]]),
+      handler: () => gate.promise,
+      onTaskFinished: (task) => finished.push(task),
+      logger,
+    });
+
+    executor.submit([taskFor("system"), taskFor("system"), taskFor("system")]);
+
+    expect(executor.queueOf("system")).toMatchObject({ queued: 1 });
+
+    gate.resolve();
+    await vi.waitFor(() => expect(finished).toHaveLength(3));
+
+    expect(records).toEqual([]);
+  });
+
+  // A second batch while already behind: no second warning, and the closing
+  // line carries the deepest the queue got, not the depth at the crossing.
+  it("keeps one episode across batches and reports its peak", async () => {
+    const finished: Task[] = [];
+    const gate = deferred();
+    const { logger, records } = captureLogs();
+
+    const executor = new TaskExecutor({
+      concurrencyByProbe: new Map([["system", 2]]),
+      handler: () => gate.promise,
+      onTaskFinished: (task) => finished.push(task),
+      logger,
+    });
+
+    executor.submit(Array.from({ length: 6 }, () => taskFor("system")));
+    executor.submit(Array.from({ length: 3 }, () => taskFor("system")));
+
+    expect(executor.queueOf("system")).toMatchObject({ queued: 7 });
+    expect(records.map((record) => record.level)).toEqual(["warn"]);
+
+    gate.resolve();
+    await vi.waitFor(() => expect(finished).toHaveLength(9));
+
+    expect(records.map((record) => record.msg)).toEqual([
+      "system is falling behind: 4 queued, limit 2",
+      "system caught up, peak was 7 queued",
+    ]);
+  });
 });
