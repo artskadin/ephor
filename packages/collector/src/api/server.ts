@@ -6,7 +6,7 @@ import {
   type ErrorResponse,
   type Logger,
   MetricsQuerySchema,
-} from "@ephor/core";
+} from "@ephorate/core";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import {
   type ApiDeps,

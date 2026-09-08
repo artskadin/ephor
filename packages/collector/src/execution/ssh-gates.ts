@@ -1,4 +1,4 @@
-import type { LogFields, Logger, QueueState, SshQueues } from "@ephor/core";
+import type { LogFields, Logger, QueueState, SshQueues } from "@ephorate/core";
 import { BacklogDetector } from "../scheduling/backlog-detector.js";
 import { ConcurrencyLimiter } from "../scheduling/concurrency-limiter.js";
 import {

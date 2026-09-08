@@ -1,4 +1,4 @@
-import type { MetricPoint, Storage } from "@ephor/core";
+import type { MetricPoint, Storage } from "@ephorate/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /**

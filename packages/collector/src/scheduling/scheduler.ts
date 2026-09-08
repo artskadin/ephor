@@ -1,4 +1,4 @@
-import type { ResolvedNode, ResolvedProbe } from "@ephor/core";
+import type { ResolvedNode, ResolvedProbe } from "@ephorate/core";
 import type { Clock } from "./clock.js";
 import { slotOf } from "./jitter.js";
 

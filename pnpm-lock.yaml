@@ -231,7 +231,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@ephor/core':
+      '@ephorate/core':
         specifier: workspace:*
         version: link:../core
       commander:
@@ -246,7 +246,7 @@ importers:
 
   packages/collector:
     dependencies:
-      '@ephor/core':
+      '@ephorate/core':
         specifier: workspace:*
         version: link:../core
       fastify:

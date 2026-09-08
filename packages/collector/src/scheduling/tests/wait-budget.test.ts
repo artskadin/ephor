@@ -3,7 +3,7 @@ import {
   type QueueState,
   type ResolvedNode,
   resolveConfig,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe.js";
 import { systemProbeDescriptor } from "../../probes/system/system-probe.js";

@@ -1,4 +1,8 @@
-import { type ProbeDescriptor, parseConfig, resolveConfig } from "@ephor/core";
+import {
+  type ProbeDescriptor,
+  parseConfig,
+  resolveConfig,
+} from "@ephorate/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeClock, sleep } from "../clock.js";
 import { Scheduler, type Task } from "../scheduler.js";

@@ -1,4 +1,4 @@
-import type { Ssh } from "@ephor/core";
+import type { Ssh } from "@ephorate/core";
 import { spawnProcess } from "./spawn-process.js";
 import { buildSshArgs, sshTargetArgs } from "./ssh-args.js";
 import type { SshGates } from "./ssh-gates.js";

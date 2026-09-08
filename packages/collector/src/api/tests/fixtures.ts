@@ -5,7 +5,7 @@ import {
   type ResolvedNode,
   resolveConfig,
   type Storage,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe.js";
 import { systemProbeDescriptor } from "../../probes/system/system-probe.js";
 import { FakeClock } from "../../scheduling/clock.js";

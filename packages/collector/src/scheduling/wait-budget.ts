@@ -1,4 +1,4 @@
-import type { QueueState } from "@ephor/core";
+import type { QueueState } from "@ephorate/core";
 import { longestRunMs } from "../probes/with-retry.js";
 import type { ForcedRun, Task } from "./scheduler.js";
 

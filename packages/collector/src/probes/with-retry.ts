@@ -1,4 +1,4 @@
-import type { Probe, ProbeContext, ProbeOutcome } from "@ephor/core";
+import type { Probe, ProbeContext, ProbeOutcome } from "@ephorate/core";
 import { sleep } from "../scheduling/clock.js";
 
 /** Failures worth retrying: transient by nature. */

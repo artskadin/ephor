@@ -12,7 +12,7 @@ import {
   type QueueState,
   type SshQueues,
   type StateResponse,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { type CheckDeps, checkOnce } from "../check.js";
 
 /**

@@ -3,10 +3,10 @@
  * deployment 5 before there is a client. For checking by hand against the
  * real world; exit code 2 when the check could not run as asked.
  *
- *   pnpm --filter @ephor/collector exec tsx scripts/check.ts \
+ *   pnpm --filter @ephorate/collector exec tsx scripts/check.ts \
  *     ../../examples/config.local.yaml [node] [probe]
  */
-import { type CheckRequest, createLogger, loadConfig } from "@ephor/core";
+import { type CheckRequest, createLogger, loadConfig } from "@ephorate/core";
 import { checkWithoutDaemon } from "../src/check.js";
 import { createRegistry } from "../src/probes/create-registry.js";
 

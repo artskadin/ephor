@@ -1,4 +1,4 @@
-import { createLogger, type Logger } from "@ephor/core";
+import { createLogger, type Logger } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { deferred } from "../../scheduling/tests/deferred.js";
 import { SSH_PER_DOOR_LIMIT, SSH_TOTAL_LIMIT, SshGates } from "../ssh-gates.js";

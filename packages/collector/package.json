@@ -1,5 +1,5 @@
 {
-  "name": "@ephor/collector",
+  "name": "@ephorate/collector",
   "version": "0.0.0",
   "description": "",
   "main": "./dist/index.js",
@@ -15,7 +15,7 @@
   "type": "module",
   "private": true,
   "dependencies": {
-    "@ephor/core": "workspace:*",
+    "@ephorate/core": "workspace:*",
     "fastify": "^5.12.1",
     "yaml": "^2.9.0"
   }

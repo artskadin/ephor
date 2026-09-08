@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { StateResponse } from "@ephor/core";
+import type { StateResponse } from "@ephorate/core";
 
 export const TOKEN = "0123456789abcdef";
 

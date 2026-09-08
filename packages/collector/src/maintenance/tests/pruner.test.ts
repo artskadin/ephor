@@ -1,4 +1,4 @@
-import type { MetricPoint, QueryFilter, Storage } from "@ephor/core";
+import type { MetricPoint, QueryFilter, Storage } from "@ephorate/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeClock } from "../../scheduling/clock.js";
 import { Pruner } from "../pruner.js";

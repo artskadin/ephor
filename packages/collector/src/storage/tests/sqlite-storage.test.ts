@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createLogger } from "@ephor/core";
+import { createLogger } from "@ephorate/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../sqlite-storage.js";
 import { describeStorageContract } from "./storage-contract.js";

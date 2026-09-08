@@ -1,4 +1,4 @@
-import { Duration } from "@ephor/core";
+import { Duration } from "@ephorate/core";
 import { z } from "zod";
 
 /**

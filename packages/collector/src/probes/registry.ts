@@ -1,4 +1,4 @@
-import type { Probe, ProbeDescriptor } from "@ephor/core";
+import type { Probe, ProbeDescriptor } from "@ephorate/core";
 
 export class ProbeRegistry {
   private readonly probes = new Map<string, Probe>();

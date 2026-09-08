@@ -1,4 +1,4 @@
-import { HttpRequestError, type HttpRequester } from "@ephor/core";
+import { HttpRequestError, type HttpRequester } from "@ephorate/core";
 
 /**
  * Issues the request from the collector itself. The default, and the only

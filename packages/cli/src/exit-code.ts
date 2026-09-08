@@ -1,4 +1,4 @@
-import type { NodeState } from "@ephor/core";
+import type { NodeState } from "@ephorate/core";
 
 /**
  * Part of the contract: scripts branch on these. 0 when every node is

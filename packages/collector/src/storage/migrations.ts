@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { createLogger, type Logger } from "@ephor/core";
+import { createLogger, type Logger } from "@ephorate/core";
 
 export interface Migration {
   /** Position in the sequence, starting at 1. Never reused, never reordered. */

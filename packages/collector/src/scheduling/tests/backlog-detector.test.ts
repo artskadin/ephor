@@ -1,4 +1,4 @@
-import { createLogger, type Logger } from "@ephor/core";
+import { createLogger, type Logger } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { BacklogDetector } from "../backlog-detector.js";
 

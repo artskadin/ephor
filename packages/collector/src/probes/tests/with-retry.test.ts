@@ -1,4 +1,4 @@
-import type { Probe, ProbeContext, ProbeDescriptor } from "@ephor/core";
+import type { Probe, ProbeContext, ProbeDescriptor } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { sleep } from "../../scheduling/clock.js";
 import { longestRunMs, RETRY_DELAY_MS, runWithRetry } from "../with-retry.js";

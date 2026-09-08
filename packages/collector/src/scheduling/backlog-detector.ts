@@ -1,4 +1,4 @@
-import type { Logger, QueueState } from "@ephor/core";
+import type { Logger, QueueState } from "@ephorate/core";
 
 export interface BacklogDetectorOptions {
   /** What the line names: `system`, `ssh through the jump host "bastion"`. */

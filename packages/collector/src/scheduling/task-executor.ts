@@ -1,4 +1,4 @@
-import type { Logger, QueueState } from "@ephor/core";
+import type { Logger, QueueState } from "@ephorate/core";
 import { BacklogDetector } from "./backlog-detector.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import type { Task } from "./scheduler.js";

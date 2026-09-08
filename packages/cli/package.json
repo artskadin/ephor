@@ -16,7 +16,7 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@ephor/core": "workspace:*",
+    "@ephorate/core": "workspace:*",
     "commander": "^15.0.0",
     "ink": "^7.1.1",
     "react": "^19.2.8"

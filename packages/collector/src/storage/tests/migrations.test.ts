@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createLogger, type Logger } from "@ephor/core";
+import { createLogger, type Logger } from "@ephorate/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyMigrations, MIGRATIONS, type Migration } from "../migrations.js";
 

@@ -1,4 +1,4 @@
-import { HttpRequestError, type HttpRequester } from "@ephor/core";
+import { HttpRequestError, type HttpRequester } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { ReachabilityProbe } from "../reachability-probe.js";
 

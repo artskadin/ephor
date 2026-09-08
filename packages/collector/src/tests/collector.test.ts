@@ -3,7 +3,7 @@ import {
   type Probe,
   type ProbeDescriptor,
   parseConfig,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { Collector } from "../collector.js";
 import { SSH_TOTAL_LIMIT } from "../execution/ssh-gates.js";

@@ -1,4 +1,4 @@
-import { createLogger, type Logger, type ResolvedNode } from "@ephor/core";
+import { createLogger, type Logger, type ResolvedNode } from "@ephorate/core";
 import { describe, expect, it, vi } from "vitest";
 import type { Task } from "../scheduler.js";
 import { TaskExecutor } from "../task-executor.js";

@@ -1,4 +1,4 @@
-import type { Storage } from "@ephor/core";
+import type { Storage } from "@ephorate/core";
 import type { Clock } from "../scheduling/clock.js";
 
 export interface PrunerOptions {

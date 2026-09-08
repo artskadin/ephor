@@ -1,4 +1,4 @@
-import type { Node } from "@ephor/core";
+import type { Node } from "@ephorate/core";
 import { LocalExecutor } from "./local-executor.js";
 import { SshExecutor } from "./ssh-executor.js";
 import type { SshGates } from "./ssh-gates.js";

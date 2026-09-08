@@ -6,7 +6,7 @@ import {
   type Logger,
   type ResolvedNode,
   type Storage,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { type CheckRun, Collector } from "./collector.js";
 import type { ProbeRegistry } from "./probes/registry.js";
 import { SqliteStorage } from "./storage/sqlite-storage.js";

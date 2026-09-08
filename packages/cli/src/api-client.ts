@@ -1,4 +1,4 @@
-import type { StateResponse } from "@ephor/core";
+import type { StateResponse } from "@ephorate/core";
 
 /**
  * What went wrong between the client and the collector, for code that

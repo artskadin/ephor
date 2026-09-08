@@ -7,7 +7,7 @@ import {
   type ProbeOutcome,
   parseConfig,
   resolveConfig,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import {
   NOW,

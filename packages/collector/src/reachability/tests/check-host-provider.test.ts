@@ -1,4 +1,4 @@
-import type { HttpRequester, ProbeReading, Vantage } from "@ephor/core";
+import type { HttpRequester, ProbeReading, Vantage } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { CheckHostProvider } from "../check-host-provider.js";
 import type { Region } from "../settings.js";

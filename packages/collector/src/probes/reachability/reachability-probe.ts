@@ -10,7 +10,7 @@ import {
   type ReachabilityProvider,
   type ReachabilityResult,
   summarize,
-} from "@ephor/core";
+} from "@ephorate/core";
 import {
   type ReachabilitySettings,
   ReachabilitySettingsSchema,

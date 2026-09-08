@@ -1,4 +1,4 @@
-import type { QueueState } from "@ephor/core";
+import type { QueueState } from "@ephorate/core";
 
 export class ConcurrencyLimiter {
   private activeCount = 0;

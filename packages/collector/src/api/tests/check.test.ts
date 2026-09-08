@@ -3,7 +3,7 @@ import {
   type MetricPoint,
   parseConfig,
   resolveConfig,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import type { Task } from "../../scheduling/scheduler.js";
 import { postCheck } from "../handlers.js";

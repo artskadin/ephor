@@ -1,4 +1,4 @@
-import { ConfigError, loadConfig } from "@ephor/core";
+import { ConfigError, loadConfig } from "@ephorate/core";
 import { createRegistry } from "../src/probes/create-registry.js";
 
 const path = process.argv[2] ?? "../../examples/config.example.yaml";

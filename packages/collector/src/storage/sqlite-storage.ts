@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Logger, MetricPoint, QueryFilter, Storage } from "@ephor/core";
+import type { Logger, MetricPoint, QueryFilter, Storage } from "@ephorate/core";
 import { applyMigrations, MIGRATIONS, SILENT_LOGGER } from "./migrations.js";
 
 interface MetricRow {

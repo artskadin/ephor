@@ -3,10 +3,10 @@
  * outcome. For checking by hand that a probe still works against the real
  * world — which unit tests, by design, cannot tell you.
  *
- *   pnpm --filter @ephor/collector exec tsx scripts/run-probe.ts \
+ *   pnpm --filter @ephorate/collector exec tsx scripts/run-probe.ts \
  *     reachability achilles ../../examples/config.local.yaml
  */
-import { createLogger, loadConfig, resolveConfig } from "@ephor/core";
+import { createLogger, loadConfig, resolveConfig } from "@ephorate/core";
 import { createExecutor } from "../src/execution/create-executor.js";
 import { SshGates } from "../src/execution/ssh-gates.js";
 import { inspectSshOptions } from "../src/execution/ssh-route.js";

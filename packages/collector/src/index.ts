@@ -1,4 +1,4 @@
-import { ConfigError, createLogger, loadConfig } from "@ephor/core";
+import { ConfigError, createLogger, loadConfig } from "@ephorate/core";
 import { createApiServer, MissingTokenError } from "./api/server.js";
 import { Collector } from "./collector.js";
 import { createRegistry } from "./probes/create-registry.js";

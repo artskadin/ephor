@@ -10,7 +10,7 @@ import {
   resolveConfig,
   type SshQueues,
   type Storage,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { createExecutor } from "./execution/create-executor.js";
 import { SshGates } from "./execution/ssh-gates.js";
 import { inspectSshOptions } from "./execution/ssh-route.js";

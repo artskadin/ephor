@@ -1,4 +1,4 @@
-import { type ApiSettings, createLogger, type Logger } from "@ephor/core";
+import { type ApiSettings, createLogger, type Logger } from "@ephorate/core";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApiDeps } from "../handlers.js";

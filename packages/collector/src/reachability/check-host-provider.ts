@@ -6,7 +6,7 @@ import type {
   ReachabilityRequest,
   ReachabilityTarget,
   Vantage,
-} from "@ephor/core";
+} from "@ephorate/core";
 import { sleep } from "../scheduling/clock.js";
 import type { Region } from "./settings.js";
 

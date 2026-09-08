@@ -1,4 +1,4 @@
-import type { Ssh } from "@ephor/core";
+import type { Ssh } from "@ephorate/core";
 
 /**
  * What names the node to ssh: the alias alone, or the pieces the config
