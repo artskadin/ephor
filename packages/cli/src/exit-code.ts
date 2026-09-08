@@ -1,24 +1,16 @@
-import type { NodeState } from "@ephorate/core";
-
 /**
- * Part of the contract: scripts branch on these. 0 when every node is
- * `ok`, 1 when any is not, 2 when the tool itself failed and the nodes
- * were never seen.
+ * Part of the contract: the code says whether the command did its job,
+ * not how the fleet is. `0`: an answer was printed, whatever the nodes.
+ * `2`: the tool itself failed — no daemon, a rejected token, an option it
+ * lacks, a component that threw — and no answer was printed.
+ *
+ * There is no `1` for "a node is not ok". The first contract had one, and
+ * Warp, which paints a block red on any non-zero exit, showed what it
+ * meant: on a fleet with one `warn` every `status` looked like a failed
+ * command while it had answered in full. The fleet's state is data — the
+ * table for a person, `--json` for a script — and "something changed" is
+ * `watch`'s to notice, not a cron job's to infer from a code that would
+ * say the same thing every minute.
  */
 export const EXIT_OK = 0;
-export const EXIT_NODE_PROBLEMS = 1;
 export const EXIT_TOOL_ERROR = 2;
-
-/**
- * `unknown` counts as a problem: a node that has not reported is not known
- * to be fine, and a script polling a fresh daemon must not see green before
- * the first measurements land. `buildNodeState` ranks it above `ok` for the
- * same reason. An empty fleet has nothing wrong with it.
- */
-export function exitCodeFor(
-  nodes: readonly NodeState[],
-): typeof EXIT_OK | typeof EXIT_NODE_PROBLEMS {
-  return nodes.every((node) => node.status === "ok")
-    ? EXIT_OK
-    : EXIT_NODE_PROBLEMS;
-}

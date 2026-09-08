@@ -84,6 +84,7 @@ export function stateOf(
       node: name,
       status,
       reachability: "ok",
+      probes: ["system", "reachability"],
       metrics: [],
       reasons: status === "ok" ? [] : [`${name} is ${status}`],
     })),

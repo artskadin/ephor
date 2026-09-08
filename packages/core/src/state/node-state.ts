@@ -14,6 +14,9 @@ import type { MetricPoint } from "../types/metrics.js";
  */
 export type MetricStatus = "ok" | "warn" | "critical" | "stale" | "unknown";
 
+/** What a value says on its own; age is not its business, so never `stale`. */
+export type MetricSeverity = Exclude<MetricStatus, "stale">;
+
 export type ThresholdLevel = "warn" | "critical";
 
 export interface MetricView {
@@ -21,6 +24,17 @@ export interface MetricView {
   /** The probe that emits it — the part of the id before the first dot. */
   probe: string;
   status: MetricStatus;
+  /**
+   * How the value read when it was measured, whatever its age: past a
+   * threshold, a `false`, the verdict's own severity. A per-region
+   * reachability reading is the exception: `ok` whatever it says, because
+   * the verdict has already weighed it (see `isDecidedByVerdict`). `status`
+   * folds the age in first, so a stale value is `stale` there and keeps
+   * its reading here — a table paints the value by this and the age by
+   * `status`, and a two-day-old `down` is drawn as `down`. It never drives
+   * the node's status: a reading too old to trust has no say in it.
+   */
+  severity: MetricSeverity;
   value?: number | undefined;
   ok?: boolean | undefined;
   meta?: Record<string, unknown> | undefined;
@@ -37,6 +51,12 @@ export interface NodeState {
   status: MetricStatus;
   /** `null` when the reachability probe is switched off for this node. */
   reachability: Verdict | null;
+  /**
+   * The probes enabled on this node, in registry order: what a table draws
+   * columns for. A probe absent here is switched off; one present with no
+   * metrics has not reported yet — `metrics` alone cannot tell the two apart.
+   */
+  probes: string[];
   metrics: MetricView[];
   /** Why the node is not `ok`, in words a person can act on. */
   reasons: string[];
@@ -68,7 +88,7 @@ const REACHABILITY_PROBE = "reachability";
 const PROBE_LIVENESS_SUFFIX = ".up";
 
 /** What each verdict means for "does this node need me now". */
-const VERDICT_SEVERITY: Readonly<Record<Verdict, MetricStatus>> = {
+const VERDICT_SEVERITY: Readonly<Record<Verdict, MetricSeverity>> = {
   ok: "ok",
   partial: "warn",
   // Both mean the same thing to a user — nobody can connect. Which of the two
@@ -198,23 +218,35 @@ function stateFor(
   const verdict = verdictOf(verdictView);
   const reachability = measured ? verdict : null;
 
-  // A verdict is folded in only while it is current. A four-day-old
-  // `blocked` describes what was true four days ago, and letting it drive
-  // today's status would be the same lie as a green disk from stale numbers;
-  // the value is still reported, with its age, for the client to show.
-  if (measured && verdictView !== undefined && verdictView.status !== "stale") {
+  if (measured && verdictView !== undefined) {
     const severity = VERDICT_SEVERITY[verdict];
 
     // The verdict metric carries the verdict's own severity rather than the
     // plain `warn` any other false would get: `down` is not a nuance.
-    verdictView.status = severity;
-    worsenTo(severity);
+    verdictView.severity = severity;
 
-    const reason = VERDICT_REASON[verdict];
-    if (reason !== undefined) reasons.push(reason);
+    // A verdict is folded in only while it is current. A four-day-old
+    // `blocked` describes what was true four days ago, and letting it drive
+    // today's status would be the same lie as a green disk from stale
+    // numbers; the value is still reported, with its age and its severity,
+    // for the client to show.
+    if (verdictView.status !== "stale") {
+      verdictView.status = severity;
+      worsenTo(severity);
+
+      const reason = VERDICT_REASON[verdict];
+      if (reason !== undefined) reasons.push(reason);
+    }
   }
 
-  return { node: node.node.name, status, reachability, metrics, reasons };
+  return {
+    node: node.node.name,
+    status,
+    reachability,
+    probes: [...enabledProbes.keys()],
+    metrics,
+    reasons,
+  };
 }
 
 /**
@@ -283,6 +315,7 @@ function viewOf(
     metric: point.metric,
     probe: probe.name,
     status: "ok",
+    severity: "ok",
     ts: point.ts,
     ageSeconds,
     expectedEverySeconds: probe.interval,
@@ -292,30 +325,34 @@ function viewOf(
   if (point.ok !== undefined) view.ok = point.ok;
   if (point.meta !== undefined) view.meta = point.meta;
 
+  const threshold = thresholds.get(point.metric);
+  const breached =
+    point.value !== undefined && threshold !== undefined
+      ? breachOf(point.value, threshold)
+      : undefined;
+
+  if (breached !== undefined) {
+    view.severity = breached;
+  } else if (
+    point.ok === false &&
+    !isDecidedByVerdict(point.metric, probe.name)
+  ) {
+    // Everything else a `false` can mean is one probe's business, and probes
+    // do not describe their metrics yet, so all of them warn rather than
+    // some warning and some being an emergency.
+    view.severity = "warn";
+  }
+
   if (stale) {
-    // A value too old to trust is not compared against anything: reporting a
-    // seven-hour-old 12% as "ok" is the green-from-stale-numbers lie.
+    // A value too old to trust decides nothing: reporting a seven-hour-old
+    // 12% as "ok" is the green-from-stale-numbers lie. What it read stays in
+    // `severity`, for a client to show beside the age that says how old.
     view.status = "stale";
     return view;
   }
 
-  const threshold = thresholds.get(point.metric);
-
-  if (point.value !== undefined && threshold !== undefined) {
-    const breached = breachOf(point.value, threshold);
-    if (breached !== undefined) {
-      view.breached = breached;
-      view.status = breached;
-      return view;
-    }
-  }
-
-  // Everything else a `false` can mean is one probe's business, and probes do
-  // not describe their metrics yet, so all of them warn rather than some
-  // warning and some being an emergency.
-  if (point.ok === false && !isDecidedByVerdict(point.metric, probe.name)) {
-    view.status = "warn";
-  }
+  view.status = view.severity;
+  if (breached !== undefined) view.breached = breached;
 
   return view;
 }

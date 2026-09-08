@@ -4,7 +4,8 @@ import { Command, CommanderError } from "commander";
 import { ApiClient, ApiError } from "./api-client.js";
 import { ClientConfigError, clientConfigFrom } from "./client-config.js";
 import { runStatus } from "./commands/status.js";
-import { EXIT_TOOL_ERROR } from "./exit-code.js";
+import { EXIT_OK, EXIT_TOOL_ERROR } from "./exit-code.js";
+import { colourEnabled } from "./render/colour-mode.js";
 
 // The one version, read from the package rather than repeated here.
 const { version } = createRequire(import.meta.url)("../package.json") as {
@@ -13,33 +14,40 @@ const { version } = createRequire(import.meta.url)("../package.json") as {
 
 /**
  * One binary, both roles: `serve` will be the daemon, everything else is a
- * client of one. Commander parses; each command is a function that returns
- * its exit code, so the contract — 0 ok, 1 node problems, 2 tool error — is
- * decided once per command and enforced here.
+ * client of one. Commander parses; a command that runs to its end has done
+ * its job, exit 0, and anything else is thrown — so the contract, 0 or 2
+ * and never a code for how the fleet is, is enforced in one place below.
  */
 const program = new Command("ephor")
   .description("Monitoring for self-hosted VPN nodes")
   .version(version)
-  // Commander would exit 1 on a bad option, which the contract reserves for
-  // node problems; with the override its refusals come back as errors.
+  // Commander would exit 1 on a bad option, a code the contract does not
+  // use; with the override its refusals come back as errors and leave as 2.
   .exitOverride();
 
 program
   .command("status")
   .description("The state of every node, as the collector sees it")
   .option("--json", "print the collector's answer as JSON")
-  .action(async (options: { json?: boolean }) => {
+  .option("--plain", "no colour, whatever the terminal")
+  .action(async (options: { json?: boolean; plain?: boolean }) => {
     const client = new ApiClient(clientConfigFrom(process.env));
 
-    process.exitCode = await runStatus({
+    await runStatus({
       client,
       json: options.json ?? false,
+      colour: colourEnabled({
+        plain: options.plain ?? false,
+        isTerminal: Boolean(process.stdout.isTTY),
+        environment: process.env,
+      }),
       print: (line) => void process.stdout.write(`${line}\n`),
     });
   });
 
 try {
   await program.parseAsync(process.argv);
+  process.exitCode = EXIT_OK;
 } catch (error) {
   process.exitCode = failed(error);
 }
@@ -52,7 +60,7 @@ try {
  */
 function failed(error: unknown): number {
   if (error instanceof CommanderError) {
-    return error.exitCode === 0 ? 0 : EXIT_TOOL_ERROR;
+    return error.exitCode === 0 ? EXIT_OK : EXIT_TOOL_ERROR;
   }
 
   if (error instanceof ClientConfigError || error instanceof ApiError) {

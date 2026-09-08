@@ -52,6 +52,7 @@ export { StaticNodeSource } from "./nodes/node-source.js";
 export * from "./reachability/types.js";
 export * from "./reachability/verdict.js";
 export type {
+  MetricSeverity,
   MetricStatus,
   MetricView,
   NodeState,

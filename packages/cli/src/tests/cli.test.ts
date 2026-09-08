@@ -65,7 +65,32 @@ describe("ephor status", () => {
     expect(run.stderr).toBe("");
   });
 
-  it("exits 1 when a node is not ok, with the state still printed", async () => {
+  it("prints the table without --json, plain when stdout is a pipe", async () => {
+    const collector = await collectorOf(
+      stateOf(
+        { name: "achilles", status: "ok" },
+        { name: "german", status: "critical" },
+      ),
+    );
+    cleanups.push(collector.close);
+
+    const run = await ephor(["status"], {
+      EPHOR_API_URL: collector.url,
+      EPHOR_TOKEN: TOKEN,
+    });
+    const lines = run.stdout.split("\n");
+
+    expect(run.code).toBe(0);
+    expect(lines[0]).toMatch(/^NODE\s+REACH\s+LOAD/);
+    expect(lines).toContain("  german is critical");
+    expect(run.stdout).not.toContain("\u001b");
+    expect(run.stderr).toBe("");
+  });
+
+  // The code says the command did its job, not how the fleet is: a
+  // terminal that reacts to it (Warp paints the block red) would otherwise
+  // call every answer on a fleet with one warn a failure.
+  it("exits 0 when a node is not ok: the state is the answer, not the code", async () => {
     const collector = await collectorOf(
       stateOf(
         { name: "achilles", status: "ok" },
@@ -79,7 +104,7 @@ describe("ephor status", () => {
       EPHOR_TOKEN: TOKEN,
     });
 
-    expect(run.code).toBe(1);
+    expect(run.code).toBe(0);
     expect(JSON.parse(run.stdout).nodes).toHaveLength(2);
   });
 
@@ -136,9 +161,9 @@ describe("ephor", () => {
     expect(run.stdout).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  // Commander's own refusals exit 1 by default; 1 is what the contract
-  // gives to node problems, and a script must be able to tell the two apart.
-  // With a token in the environment, the refusal can only be Commander's.
+  // Commander's own refusals exit 1 by default, a code the contract does not
+  // use: a refusal is a tool error like any other, 2. With a token in the
+  // environment, the refusal can only be Commander's.
   it("exits 2 on a command or option it does not have, saying which", async () => {
     const command = await ephor(["frobnicate"], { EPHOR_TOKEN: TOKEN });
     const option = await ephor(["status", "--nope"], { EPHOR_TOKEN: TOKEN });

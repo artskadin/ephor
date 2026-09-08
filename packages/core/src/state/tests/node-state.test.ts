@@ -72,6 +72,35 @@ const QUIET: MetricPoint[] = [
 ];
 
 describe("buildNodeState", () => {
+  // A table needs to know which columns a node has at all, and `metrics`
+  // cannot say it: a probe that is off and one that has not reported both
+  // leave no views behind.
+  it("lists the probes enabled on the node, however they were switched off", () => {
+    const byConfig = firstOf(
+      soloConfig({ probes: { reachability: { enabled: false } } }),
+      QUIET,
+    );
+    const noSsh = firstOf(
+      { nodes: [{ name: "solo", host: "203.0.113.10" }] },
+      QUIET,
+    );
+
+    expect(byConfig.probes).toContain("system");
+    expect(byConfig.probes).not.toContain("reachability");
+    expect(noSsh.probes).toContain("reachability");
+    expect(noSsh.probes).not.toContain("system");
+
+    // Enabled and silent is still enabled: the column shows, with a dash.
+    // And the order is the registry's, not the alphabet's, so a table's
+    // columns stand where the probes were registered.
+    const silent = firstOf(soloConfig(), []).probes;
+
+    expect(silent.indexOf("system")).toBeGreaterThanOrEqual(0);
+    expect(silent.indexOf("system")).toBeLessThan(
+      silent.indexOf("reachability"),
+    );
+  });
+
   it("reports one state per configured node, in config order", () => {
     const states = stateOf(
       {
@@ -306,6 +335,34 @@ describe("buildNodeState", () => {
       expect(viewOf(state, "system.disk_percent").breached).toBeUndefined();
     });
 
+    // What the value read is kept apart from the status, so a client can
+    // draw a two-day-old 90% as the warning it was and say beside it how old
+    // that reading is; the node's status hears nothing of it.
+    it("keeps what a stale value read, without letting it speak", () => {
+      const aged = [
+        ...QUIET,
+        point("system.disk_percent", { value: 90, ts: NOW - 400_000 }),
+        point("system.ports", { value: 1, ok: false, ts: NOW - 400_000 }),
+      ];
+      const state = firstOf(withDisk, aged);
+
+      expect(viewOf(state, "system.disk_percent").severity).toBe("warn");
+      expect(viewOf(state, "system.ports").severity).toBe("warn");
+      expect(state.status).toBe("stale");
+      expect(state.reasons).toHaveLength(1);
+      expect(state.reasons[0]).toMatch(/^system last reported/);
+
+      // Fresh, the same readings are the status.
+      const fresh = firstOf(
+        withDisk,
+        aged.map((entry) => ({ ...entry, ts: NOW })),
+      );
+
+      expect(viewOf(fresh, "system.disk_percent").status).toBe("warn");
+      expect(viewOf(fresh, "system.ports").severity).toBe("warn");
+      expect(fresh.status).toBe("warn");
+    });
+
     it("carries the age and the expected interval for every value", () => {
       const state = firstOf(withDisk, agedBy(150));
       const view = viewOf(state, "system.disk_percent");
@@ -502,7 +559,10 @@ describe("buildNodeState", () => {
       ["blocked", "critical"],
       ["down", "critical"],
     ])("folds %s into %s", (verdict, expected) => {
-      expect(firstOf(soloConfig(), withVerdict(verdict)).status).toBe(expected);
+      const state = firstOf(soloConfig(), withVerdict(verdict));
+
+      expect(state.status).toBe(expected);
+      expect(viewOf(state, "reachability.verdict").severity).toBe(expected);
     });
 
     // Which of the two it is stays in the verdict, where a reader looks for
@@ -531,6 +591,8 @@ describe("buildNodeState", () => {
       expect(state.reasons).not.toContain(
         "not reachable from any region, the control group included",
       );
+      // The reading itself is kept, for a client to draw `down` as `down`.
+      expect(viewOf(state, "reachability.verdict").severity).toBe("critical");
     });
 
     // `null` is "we do not measure this node", which is not the same answer
