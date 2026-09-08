@@ -171,9 +171,12 @@ export const ApiSchema = z
     // On a plain host it should stay as it is — and see the gotcha about
     // Docker writing nftables rules straight past ufw.
     bind: z.string().min(1).default("127.0.0.1"),
-    // In the IANA dynamic range (49152-65535, RFC 6335), which is guaranteed
-    // unassigned, so it will not collide with whatever else the bastion runs.
-    port: z.number().int().min(1).max(65535).default(53556),
+    // Unassigned at IANA, so it will not collide with whatever else the
+    // bastion runs — and below the ephemeral range the OS hands to outgoing
+    // connections (Linux 32768-60999, macOS 49152-65535). The first default,
+    // 53556, sat inside that range: any outgoing connection could hold it as
+    // its source port, and then `serve` failed to start with EADDRINUSE.
+    port: z.number().int().min(1).max(65535).default(31556),
   })
   .strict();
 

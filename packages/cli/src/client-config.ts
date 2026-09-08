@@ -1,4 +1,4 @@
-export const DEFAULT_API_URL = "http://127.0.0.1:53556";
+export const DEFAULT_API_URL = "http://127.0.0.1:31556";
 
 export interface ClientConfig {
   /** Where the collector's API answers; paths are appended to it. */

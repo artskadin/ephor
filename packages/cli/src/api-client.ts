@@ -171,7 +171,7 @@ function isTimeout(error: unknown): boolean {
 /**
  * The socket errors behind a failed `fetch`. Node wraps them: "fetch
  * failed" says nothing, its cause says "connect ECONNREFUSED
- * 127.0.0.1:53556" — or, for a name with several addresses such as
+ * 127.0.0.1:31556" — or, for a name with several addresses such as
  * `localhost`, holds one such error per address in an `AggregateError`
  * with no message of its own. An error with no cause is its own reason.
  */

@@ -10,7 +10,7 @@ const TOKEN = "0123456789abcdef";
 const SETTINGS: ApiSettings = {
   enabled: true,
   bind: "127.0.0.1",
-  port: 53_556,
+  port: 31_556,
 };
 
 const silent = (): Logger => createLogger({ level: "silent" });

@@ -23,7 +23,7 @@ describe("clientConfigFrom", () => {
   });
 
   it.each([
-    ["http://bastion.example:53556/", "http://bastion.example:53556"],
+    ["http://bastion.example:31556/", "http://bastion.example:31556"],
     ["https://bastion.example", "https://bastion.example"],
     ["https://bastion.example/ephor/", "https://bastion.example/ephor"],
   ])(
