@@ -9,7 +9,7 @@
     "lint": "biome check ."
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "keywords": [],
   "author": "",

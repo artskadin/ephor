@@ -1,9 +1,8 @@
 {
-  "name": "ephor",
+  "name": "ephorate",
   "version": "0.0.0",
-  "description": "Monitoring for self-hosted VPN nodes",
+  "description": "Monitoring for self-hosted VPN nodes: is the node reachable from where its users live?",
   "scripts": {
-    "test": "vitest run",
     "build": "tsc --build"
   },
   "keywords": [],
@@ -13,12 +12,17 @@
   "bin": {
     "ephor": "./dist/index.js"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
+    "@ephor/core": "workspace:*",
     "commander": "^15.0.0",
     "ink": "^7.1.1",
     "react": "^19.2.8"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/tests"
   ]
 }
