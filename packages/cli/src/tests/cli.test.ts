@@ -1,5 +1,6 @@
+import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { ephor } from "./run-binary.js";
+import { BINARY, ephor } from "./run-binary.js";
 import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -140,5 +141,38 @@ describe("ephor", () => {
     expect(run.code).toBe(2);
     expect(run.stdout).toBe("");
     expect(run.stderr).toMatch(/Usage: ephor/);
+  });
+});
+
+describe("ephor with a reader that stops early", () => {
+  // The pipe holds 64 KB and the first read takes 64 KB more: an answer
+  // under 128 KB can be written in full before the reader leaves, and no
+  // EPIPE ever happens. 2000 nodes without metrics are ~400 KB.
+  it("exits 0 and says nothing when the pipe closes under a big answer", async () => {
+    const fleet = Array.from({ length: 2000 }, (_, index) => ({
+      name: `node-${index}`,
+      status: "ok" as const,
+    }));
+    const state = stateOf(...fleet);
+    expect(JSON.stringify(state, null, 2).length).toBeGreaterThan(256 * 1024);
+    const collector = await collectorOf(state);
+    cleanups.push(collector.close);
+
+    const child = spawn(process.execPath, [BINARY, "status", "--json"], {
+      env: { EPHOR_API_URL: collector.url, EPHOR_TOKEN: TOKEN },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stderr: Buffer[] = [];
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+
+    // `head -c 1`: one chunk read, then the reading end is closed.
+    child.stdout.once("data", () => child.stdout.destroy());
+
+    const code = await new Promise<number | null>((resolve) =>
+      child.on("close", resolve),
+    );
+
+    expect(code).toBe(0);
+    expect(Buffer.concat(stderr).toString()).toBe("");
   });
 });

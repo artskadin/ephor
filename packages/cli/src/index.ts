@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+import "./production-mode.js";
 import { createRequire } from "node:module";
 import { type CheckRequest, createLogger, type Logger } from "@ephorate/core";
 import { Command, CommanderError } from "commander";
 import { ApiClient, ApiError } from "./api-client.js";
 import { ClientConfigError, clientConfigFrom } from "./client-config.js";
+import { exitQuietlyOnClosedPipe } from "./closed-pipe.js";
 import { runStatus } from "./commands/status.js";
 import { resolveConfigPath } from "./config-path.js";
 import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code.js";
@@ -12,6 +14,9 @@ import { colourEnabled } from "./render/colour-mode.js";
 const { version } = createRequire(import.meta.url)("../package.json") as {
   version: string;
 };
+
+exitQuietlyOnClosedPipe(process.stdout);
+exitQuietlyOnClosedPipe(process.stderr);
 
 // One binary, both roles: `serve` is the daemon, the rest its clients.
 // A command that runs to its end has done its job; anything else is thrown.
