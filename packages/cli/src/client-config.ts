@@ -1,3 +1,5 @@
+import { UsageError } from "./exit-code.js";
+
 export const DEFAULT_API_URL = "http://127.0.0.1:31556";
 
 interface ClientConfig {
@@ -5,7 +7,7 @@ interface ClientConfig {
   token: string;
 }
 
-export class ClientConfigError extends Error {
+export class ClientConfigError extends UsageError {
   constructor(message: string) {
     super(message);
     this.name = "ClientConfigError";

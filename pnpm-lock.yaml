@@ -231,6 +231,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@ephorate/collector':
+        specifier: workspace:*
+        version: link:../collector
       '@ephorate/core':
         specifier: workspace:*
         version: link:../core

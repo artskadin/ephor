@@ -16,6 +16,7 @@
     "node": ">=24"
   },
   "dependencies": {
+    "@ephorate/collector": "workspace:*",
     "@ephorate/core": "workspace:*",
     "commander": "^15.0.0",
     "ink": "^7.1.1",

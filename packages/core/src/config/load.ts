@@ -18,14 +18,16 @@ export class ConfigError extends Error {
 export function parseConfig(
   data: unknown,
   descriptors: readonly ProbeDescriptor[],
-  path = "(inline)",
+  path?: string,
 ): Config {
   const result = buildConfigSchema(descriptors).safeParse(data);
 
   if (!result.success) {
+    const where = path === undefined ? "" : ` (${path})`;
+
     throw new ConfigError(
-      `Configuration is invalid:\n\n${formatIssues(result.error)}`,
-      path,
+      `Configuration is invalid${where}:\n\n${formatIssues(result.error)}`,
+      path ?? "(inline)",
       result.error,
     );
   }
@@ -42,7 +44,10 @@ export async function loadConfig(
   try {
     raw = await readFile(path, "utf-8");
   } catch (cause) {
-    throw new ConfigError("Cannot read config file", path, cause);
+    // Node's message carries the path: `ENOENT: ..., open '/etc/ephor/…'`.
+    const detail = cause instanceof Error ? cause.message : String(cause);
+
+    throw new ConfigError(`Cannot read config file: ${detail}`, path, cause);
   }
 
   let data: unknown;
@@ -52,7 +57,11 @@ export async function loadConfig(
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
 
-    throw new ConfigError(`Invalid YAML syntax:\n\n${detail}`, path, cause);
+    throw new ConfigError(
+      `Invalid YAML syntax (${path}):\n\n${detail}`,
+      path,
+      cause,
+    );
   }
 
   return parseConfig(data, descriptors, path);
