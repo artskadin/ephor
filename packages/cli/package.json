@@ -3,30 +3,33 @@
   "version": "0.0.0",
   "description": "Monitoring for self-hosted VPN nodes: is the node reachable from where its users live?",
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsdown"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "ephor": "./dist/index.js"
+    "ephor": "./bin/ephor.js"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
-    "@ephorate/collector": "workspace:*",
-    "@ephorate/core": "workspace:*",
     "commander": "^15.0.0",
+    "fastify": "^5.12.1",
     "ink": "^7.1.1",
-    "react": "^19.2.8"
+    "react": "^19.2.8",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "files": [
-    "dist",
-    "!dist/**/tests"
+    "bin",
+    "build"
   ],
   "devDependencies": {
+    "@ephorate/collector": "workspace:*",
+    "@ephorate/core": "workspace:*",
     "@types/react": "^19.2.18",
     "ink-testing-library": "^4.0.0"
   }

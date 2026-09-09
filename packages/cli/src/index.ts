@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-import "./production-mode.js";
 import { createRequire } from "node:module";
 import { type CheckRequest, createLogger, type Logger } from "@ephorate/core";
 import { Command, CommanderError } from "commander";

@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "pnpm -r --if-present run build",
-    "typecheck": "tsc --build && tsc --noEmit -p packages/collector/tsconfig.scripts.json",
+    "build": "tsc --build && tsc --noEmit -p packages/collector/tsconfig.scripts.json && pnpm --filter ephorate exec tsdown",
     "test": "vitest run",
     "lint": "biome check ."
   },
@@ -28,6 +27,7 @@
     "@biomejs/biome": "^2.5.10",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^26.2.0",
+    "tsdown": "^0.23.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",

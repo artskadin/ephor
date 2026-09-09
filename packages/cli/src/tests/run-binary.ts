@@ -3,10 +3,10 @@ import { fileURLToPath } from "node:url";
 
 /**
  * The built binary, as `npm i -g ephorate` would install it. Built by
- * `pnpm typecheck` (`tsc --build`), which is why that runs before the tests.
+ * `pnpm build`, which is why that runs before the tests.
  */
 export const BINARY = fileURLToPath(
-  new URL("../../dist/index.js", import.meta.url),
+  new URL("../../bin/ephor.js", import.meta.url),
 );
 
 export interface Run {

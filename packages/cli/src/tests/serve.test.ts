@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
  * `ephor serve` as a process: the built binary on a config file, stopped
  * by real signals. Both probes are off, so nothing leaves the machine.
  */
-const BINARY = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
+const BINARY = fileURLToPath(new URL("../../bin/ephor.js", import.meta.url));
 const TOKEN = "test-token";
 
 /** A daemon takes ~0.3 s to listen here; vitest's default 5 s is for CI. */
