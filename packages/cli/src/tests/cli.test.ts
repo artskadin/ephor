@@ -1,47 +1,6 @@
-import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { ephor } from "./run-binary.js";
 import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server.js";
-
-/**
- * The built binary, as `npm i -g ephorate` would install it. Built by
- * `pnpm typecheck` (`tsc --build`), which is why that runs before the tests.
- */
-const BINARY = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
-
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Runs `ephor <words>` as a child process with only the given environment:
- * node is started by its own path, and nothing from this shell may leak in.
- * A child that died by a signal or never started reports -1, so it cannot
- * pass for a clean exit.
- */
-function ephor(
-  words: string[],
-  environment: Record<string, string> = {},
-): Promise<Run> {
-  return new Promise((resolve) => {
-    execFile(
-      process.execPath,
-      [BINARY, ...words],
-      { env: environment },
-      (error, stdout, stderr) => {
-        let code = 0;
-
-        if (error !== null) {
-          code = typeof error.code === "number" ? error.code : -1;
-        }
-
-        resolve({ code, stdout, stderr });
-      },
-    );
-  });
-}
 
 const cleanups: (() => Promise<void>)[] = [];
 

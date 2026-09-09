@@ -1,6 +1,5 @@
 import type { ApiClient } from "../api-client.js";
-import { frameOf } from "../render/frame.js";
-import { StatusTable, statusTableWidth } from "../render/status-table.js";
+import { stateText } from "../render/state-text.js";
 
 interface StatusOptions {
   client: ApiClient;
@@ -12,14 +11,5 @@ interface StatusOptions {
 
 /** Returning is the whole answer; anything else is thrown and exits 2. */
 export async function runStatus(options: StatusOptions): Promise<void> {
-  const state = await options.client.state();
-
-  options.print(
-    options.json
-      ? JSON.stringify(state, null, 2)
-      : await frameOf(
-          <StatusTable state={state} colour={options.colour} />,
-          statusTableWidth(state),
-        ),
-  );
+  options.print(await stateText(await options.client.state(), options));
 }
