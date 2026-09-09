@@ -1,15 +1,8 @@
-/**
- * Structured logging for a process nobody is watching.
- *
- * The collector runs for weeks without a terminal, so the only account of
- * what it did is what it wrote down. That account has to be filterable
- * (levels), machine-readable when it lands in journald or `docker logs`
- * (JSON), and readable by a person during development (columns and colour).
- */
+// JSON for journald and `docker logs`, columns and colour for a terminal.
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
-export const LOG_LEVELS: readonly LogLevel[] = [
+const LOG_LEVELS: readonly LogLevel[] = [
   "debug",
   "info",
   "warn",
@@ -33,16 +26,12 @@ const LEVEL_COLOR: Record<Exclude<LogLevel, "silent">, string> = {
   error: "31",
 };
 
-/**
- * Spellings this level is known by elsewhere. syslog, Python and Go all
- * call it "warning", so it is the value an operator is most likely to type
- * — and rejecting it teaches nothing.
- */
+// syslog, Python and Go all say "warning".
 const LEVEL_ALIASES: Readonly<Record<string, LogLevel>> = { warning: "warn" };
 
 export type LogFields = Readonly<Record<string, unknown>>;
 
-/** Keys a field may not occupy in the JSON output; see formatJson. */
+/** Keys a field may not occupy in the JSON output; see `formatJson`. */
 const RESERVED_KEYS: readonly string[] = ["ts", "level", "msg"];
 
 export interface Logger {
@@ -50,11 +39,11 @@ export interface Logger {
   info(message: string, fields?: LogFields): void;
   warn(message: string, fields?: LogFields): void;
   error(message: string, fields?: LogFields): void;
-  /** A logger that adds these fields to every message, including its own children. */
+  /** Adds these fields to every message, its own children included. */
   child(fields: LogFields): Logger;
 }
 
-export type LogFormat = "json" | "pretty";
+type LogFormat = "json" | "pretty";
 
 export interface LoggerOptions {
   level?: LogLevel | undefined;
@@ -69,8 +58,8 @@ export interface LoggerOptions {
   isTerminal?: boolean | undefined;
 }
 
-/** Everything a logger and its children share; resolved once. */
-interface LoggerCore {
+/** Shared by a logger and its children; resolved once. */
+interface LoggerSettings {
   minimumRank: number;
   format: LogFormat;
   color: boolean;
@@ -86,26 +75,21 @@ export function createLogger(options: LoggerOptions = {}): Logger {
     options.level ?? parseLogLevel(environment.EPHOR_LOG_LEVEL) ?? "info";
   const format = options.format ?? (isTerminal ? "pretty" : "json");
 
-  const core: LoggerCore = {
+  const settings: LoggerSettings = {
     minimumRank: LEVEL_RANK[level],
     format,
     color:
       options.color ??
       (format === "pretty" && isTerminal && !prefersNoColor(environment)),
     now: options.now ?? Date.now,
-    // stderr, not stdout: `ephor status --json | jq` must keep stdout as a
-    // clean data channel. Both journald and docker capture stderr anyway.
+    // stderr: `ephor status --json | jq` must keep stdout clean.
     write: options.write ?? ((line) => void process.stderr.write(`${line}\n`)),
   };
 
-  return new StructuredLogger(core, {});
+  return new StructuredLogger(settings, {});
 }
 
-/**
- * Throws on an unrecognised value rather than falling back to a default.
- * `EPHOR_LOG_LEVEL=debgu` means the operator believes debug logging is on;
- * silently leaving it off is the worst of the available answers.
- */
+/** Throws on `EPHOR_LOG_LEVEL=debgu`: silently leaving debug off is worse. */
 export function parseLogLevel(value: string | undefined): LogLevel | undefined {
   if (value === undefined || value.trim() === "") return undefined;
 
@@ -121,8 +105,8 @@ export function parseLogLevel(value: string | undefined): LogLevel | undefined {
 
 class StructuredLogger implements Logger {
   constructor(
-    private readonly core: LoggerCore,
-    private readonly bound: LogFields,
+    private readonly settings: LoggerSettings,
+    private readonly boundFields: LogFields,
   ) {}
 
   debug(message: string, fields?: LogFields): void {
@@ -142,7 +126,10 @@ class StructuredLogger implements Logger {
   }
 
   child(fields: LogFields): Logger {
-    return new StructuredLogger(this.core, { ...this.bound, ...fields });
+    return new StructuredLogger(this.settings, {
+      ...this.boundFields,
+      ...fields,
+    });
   }
 
   private log(
@@ -150,15 +137,17 @@ class StructuredLogger implements Logger {
     message: string,
     fields?: LogFields,
   ): void {
-    if (LEVEL_RANK[level] < this.core.minimumRank) return;
+    if (LEVEL_RANK[level] < this.settings.minimumRank) return;
 
-    const merged = fields ? { ...this.bound, ...fields } : this.bound;
-    const time = this.core.now();
+    const merged = fields
+      ? { ...this.boundFields, ...fields }
+      : this.boundFields;
+    const time = this.settings.now();
 
-    this.core.write(
-      this.core.format === "json"
+    this.settings.write(
+      this.settings.format === "json"
         ? formatJson(time, level, message, merged)
-        : formatPretty(this.core, time, level, message, merged),
+        : formatPretty(this.settings, time, level, message, merged),
     );
   }
 }
@@ -169,10 +158,7 @@ function formatJson(
   message: string,
   fields: LogFields,
 ): string {
-  // Reserved keys first, so a raw line reads left to right, and a field
-  // named `msg` cannot displace the message a log parser looks for. Such a
-  // field is kept under a prefixed name rather than dropped: it is a
-  // mistake worth seeing, not worth losing.
+  // A field named `msg` must not displace the message; it is kept prefixed.
   const record: Record<string, unknown> = {
     ts: new Date(time).toISOString(),
     level,
@@ -186,8 +172,7 @@ function formatJson(
   try {
     return JSON.stringify(record, jsonReplacer);
   } catch {
-    // A circular or otherwise unserialisable field must never take the
-    // process down. Losing the fields beats losing the daemon.
+    // Losing the fields beats losing the daemon.
     return JSON.stringify({
       ts: record.ts,
       level,
@@ -198,7 +183,7 @@ function formatJson(
 }
 
 function formatPretty(
-  core: LoggerCore,
+  settings: LoggerSettings,
   time: number,
   level: LogLevel,
   message: string,
@@ -207,7 +192,7 @@ function formatPretty(
   const stamp = formatLocalTime(new Date(time));
   const label = level.toUpperCase().padEnd(5);
 
-  const head = core.color
+  const head = settings.color
     ? `${paint(stamp, "90")} ${paint(label, LEVEL_COLOR[level as Exclude<LogLevel, "silent">] ?? "0")}`
     : `${stamp} ${label}`;
 
@@ -215,8 +200,7 @@ function formatPretty(
   const stacks: string[] = [];
 
   for (const [key, value] of Object.entries(fields)) {
-    // Optional fields are common; printing `rtt=undefined` is noise, and
-    // JSON.stringify drops them too, so both formats stay in step.
+    // Dropped as JSON.stringify drops them, so both formats agree.
     if (value === undefined) continue;
 
     if (value instanceof Error) {
@@ -242,24 +226,14 @@ function jsonReplacer(_key: string, value: unknown): unknown {
   return value;
 }
 
-/**
- * Own properties are copied along with the standard ones. Node's system
- * errors carry the fields actually worth filtering on — `code`, `errno`,
- * `syscall`, `path` — and none of them appear in `name` or `message`
- * reliably; `ECONNREFUSED` and `EHOSTUNREACH` are different diagnoses.
- *
- * `cause` is left as-is: JSON.stringify walks into it and applies the
- * replacer again, so a nested Error is described the same way, and a cyclic
- * chain is caught by the serialiser rather than by recursion here.
- */
+// Own properties too: Node's system errors carry `code`, `errno`, `syscall`
+// there. `cause` is left for the replacer, which describes it the same way.
 function describeError(error: Error): Record<string, unknown> {
   const described: Record<string, unknown> = {
     name: error.name,
     message: error.message,
   };
 
-  // `message` and `stack` are non-enumerable on Error, so this adds only
-  // what a subclass or Node itself attached.
   for (const [key, value] of Object.entries(error)) {
     if (key in described) continue;
     described[key] = value;
@@ -301,8 +275,7 @@ function indent(text: string): string {
     .join("\n");
 }
 
-/** Written as an escape sequence rather than a literal control byte,
- * which is invisible in a diff and easy to lose in an edit. */
+// An escape, not the byte: git would treat the file as binary.
 const ESCAPE = "\u001b";
 
 function paint(text: string, code: string): string {

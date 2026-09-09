@@ -1,35 +1,24 @@
 import type { ResolvedNode, ResolvedProbe } from "@ephorate/core";
 import type { Clock } from "./clock.js";
-import { slotOf } from "./jitter.js";
+import { intervalSlotAt } from "./jitter.js";
 
 export interface Task {
   node: ResolvedNode;
   probe: string;
 }
 
-/** What a forced run amounts to: which pairs, and a promise for them alone. */
 export interface ForcedRun {
-  /** Every pair that will run, in config order. Empty when nothing matched. */
+  /** In config order; empty when nothing matched. */
   tasks: Task[];
-  /**
-   * Probes with a pair that was already mid-run when forced. Such a pair
-   * runs again once its current run ends, so it takes up to twice as long
-   * as the rest of its probe's queue.
-   */
+  /** Probes with a pair mid-run when forced: it runs again, one wave more. */
   deferredProbes: ReadonlySet<string>;
   /** Settles once every pair in `tasks` has finished its forced run. */
   finished: Promise<void>;
-  /** The pairs whose forced run has not finished yet, in config order. */
   unfinished: () => Task[];
 }
 
-/**
- * One `runNow` still waiting. A key moves from `waiting` to `running` when
- * the scheduler dispatches it and leaves `running` when the run completes;
- * the promise settles when both are empty. Two sets rather than one, so
- * that a pair forced twice — once mid-run, once more — settles each run on
- * its own completion instead of the first.
- */
+// A key moves from `waiting` to `running` on dispatch and leaves on
+// completion; two sets so a pair forced mid-run settles on its own run.
 interface RunWaiter {
   waiting: Set<string>;
   running: Set<string>;
@@ -37,7 +26,7 @@ interface RunWaiter {
   resolve: () => void;
 }
 
-export interface SchedulerOptions {
+interface SchedulerOptions {
   clock: Clock;
   tickMs?: number;
   onTasksDue: (tasks: Task[]) => void;
@@ -52,7 +41,6 @@ interface Pair {
 export class Scheduler {
   /** The interval repetition each pair was last dispatched for. */
   private readonly lastDispatchedSlot = new Map<string, number>();
-  /** Pairs that must run on the next tick regardless of their schedule. */
   private readonly forcedKeys = new Set<string>();
   private readonly inFlight = new Set<string>();
   private readonly runWaiters = new Set<RunWaiter>();
@@ -64,9 +52,8 @@ export class Scheduler {
   setNodes(nodes: ResolvedNode[]): void {
     this.nodes = nodes;
 
-    // A NodeSource may replace the list on every refresh, so per-pair state
-    // has to be dropped along with the pairs. Otherwise a fleet that rotates
-    // leaves keys behind for every node it ever had.
+    // Per-pair state goes with the pairs, or a rotating fleet leaves keys
+    // behind for every node it ever had.
     const live = new Set<string>();
 
     for (const { key } of this.pairs()) live.add(key);
@@ -79,10 +66,7 @@ export class Scheduler {
       if (!live.has(key)) this.forcedKeys.delete(key);
     }
 
-    // A pair that will never be dispatched — its node gone, or its probe
-    // switched off, which `pairs()` treats alike — must not hold a forced
-    // run open forever. One already running still completes through
-    // `complete()`.
+    // A pair that will never be dispatched must not hold a forced run open.
     for (const waiter of this.runWaiters) {
       for (const key of waiter.waiting) {
         if (!live.has(key)) waiter.waiting.delete(key);
@@ -92,7 +76,6 @@ export class Scheduler {
     }
   }
 
-  /** How many tasks are running right now. Consumed by /api/health. */
   get runningTasks(): number {
     return this.inFlight.size;
   }
@@ -114,16 +97,9 @@ export class Scheduler {
     this.timer = undefined;
   }
 
-  /**
-   * Runs the matching pairs on the next tick, ignoring their offsets. This is
-   * what `ephor check` is built on, so it must not be expressed by rewinding
-   * the schedule — that would only move the pair to its next offset.
-   *
-   * The promise is for these pairs and nothing else. Waiting for the whole
-   * queue to drain instead would hold `check achilles system` hostage to a
-   * reachability wave on other nodes, and report a pair that finished in
-   * three seconds as not finished at all.
-   */
+  // Runs the matching pairs on the next tick, offsets ignored. The promise
+  // is for these pairs alone: the whole queue would hold `check achilles
+  // system` hostage to a reachability wave on other nodes.
   runNow(nodeName?: string, probeName?: string): ForcedRun {
     const forced: { task: Task; key: string }[] = [];
     const deferredProbes = new Set<string>();
@@ -135,8 +111,7 @@ export class Scheduler {
       if (this.inFlight.has(key)) deferredProbes.add(task.probe);
     }
 
-    // Registered before the tick, so the tick can move the keys it
-    // dispatches from waiting to running.
+    // Before the tick, so the tick can move dispatched keys to running.
     const waiter = this.awaitRun(forced.map((entry) => entry.key));
 
     this.tick();
@@ -155,7 +130,7 @@ export class Scheduler {
   }
 
   complete(task: Task): void {
-    const key = keyOf(task);
+    const key = pairKey(task);
 
     this.inFlight.delete(key);
 
@@ -169,13 +144,12 @@ export class Scheduler {
     const due: Task[] = [];
 
     for (const { task, key, settings } of this.pairs()) {
-      // A probe slower than its own interval would otherwise queue up
-      // copies of itself without bound.
+      // A probe slower than its interval must not queue copies of itself.
       if (this.inFlight.has(key)) {
         continue;
       }
 
-      const slot = slotOf(now, settings.interval * 1000, key);
+      const slot = intervalSlotAt(now, settings.interval * 1000, key);
       const forced = this.forcedKeys.delete(key);
 
       if (!forced && !this.isDue(key, slot)) {
@@ -193,12 +167,7 @@ export class Scheduler {
     }
   }
 
-  /**
-   * Every pair that may run — the enabled probes of the current nodes —
-   * narrowed by name when asked. The one place that says what "may run"
-   * means, so that forcing, dispatching and forgetting cannot disagree
-   * about it.
-   */
+  /** The one definition of "may run": forcing and dispatching agree. */
   private *pairs(nodeName?: string, probeName?: string): Generator<Pair> {
     for (const node of this.nodes) {
       if (nodeName !== undefined && node.node.name !== nodeName) continue;
@@ -209,7 +178,7 @@ export class Scheduler {
 
         const task = { node, probe };
 
-        yield { task, key: keyOf(task), settings };
+        yield { task, key: pairKey(task), settings };
       }
     }
   }
@@ -232,12 +201,7 @@ export class Scheduler {
     return waiter;
   }
 
-  /**
-   * Any dispatch of a forced key is the forced run: the tick consumes the
-   * forced flag whether the pair was due on its own or not, and a scheduled
-   * run that happens to start now measures exactly what the caller asked
-   * for.
-   */
+  /** Any dispatch of a forced key is the forced run, due on its own or not. */
   private markDispatched(key: string): void {
     for (const waiter of this.runWaiters) {
       if (waiter.waiting.delete(key)) waiter.running.add(key);
@@ -254,9 +218,7 @@ export class Scheduler {
   private isDue(key: string, slot: number): boolean {
     const previous = this.lastDispatchedSlot.get(key);
 
-    // First sight of this pair: remember where the schedule stands rather
-    // than running immediately, so the first run lands on the pair's own
-    // offset instead of joining everyone else's startup burst.
+    // A new pair waits for its own offset instead of joining a startup burst.
     if (previous === undefined) {
       this.lastDispatchedSlot.set(key, slot);
 
@@ -267,9 +229,8 @@ export class Scheduler {
   }
 }
 
-function keyOf(task: Task): string {
-  // A separator neither part can contain, so two different pairs cannot
-  // collide into one key. Written as an escape: a raw control byte in
-  // source makes git treat the file as binary and hides every diff.
+// A separator neither part can contain, written as an escape: a raw control
+// byte makes git treat the file as binary.
+function pairKey(task: Task): string {
   return `${task.node.node.name}\u0000${task.probe}`;
 }

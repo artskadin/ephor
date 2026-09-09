@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashOf, scheduleOffsetMs, slotOf } from "../jitter.js";
+import { fnv1aHash, intervalSlotAt, scheduleOffsetMs } from "../jitter.js";
 
 const MINUTE = 60_000;
 
@@ -18,18 +18,18 @@ const NODES = [
   "paris",
 ];
 
-describe("hashOf", () => {
+describe("fnv1aHash", () => {
   it("is stable for the same input", () => {
-    expect(hashOf("achilles system")).toBe(hashOf("achilles system"));
+    expect(fnv1aHash("achilles system")).toBe(fnv1aHash("achilles system"));
   });
 
   it("separates inputs that differ by one character", () => {
-    expect(hashOf("achilles system")).not.toBe(hashOf("achilles systen"));
+    expect(fnv1aHash("achilles system")).not.toBe(fnv1aHash("achilles systen"));
   });
 
   it("stays a non-negative 32-bit integer", () => {
     for (const node of NODES) {
-      const hash = hashOf(node);
+      const hash = fnv1aHash(node);
 
       expect(Number.isInteger(hash)).toBe(true);
       expect(hash).toBeGreaterThanOrEqual(0);
@@ -100,29 +100,29 @@ describe("scheduleOffsetMs", () => {
   });
 });
 
-describe("slotOf", () => {
+describe("intervalSlotAt", () => {
   it("advances by exactly one per interval", () => {
     const start = Date.parse("2026-08-29T04:00:00.000Z");
     const key = "achilles system";
 
-    expect(slotOf(start + MINUTE, MINUTE, key)).toBe(
-      slotOf(start, MINUTE, key) + 1,
+    expect(intervalSlotAt(start + MINUTE, MINUTE, key)).toBe(
+      intervalSlotAt(start, MINUTE, key) + 1,
     );
-    expect(slotOf(start + 10 * MINUTE, MINUTE, key)).toBe(
-      slotOf(start, MINUTE, key) + 10,
+    expect(intervalSlotAt(start + 10 * MINUTE, MINUTE, key)).toBe(
+      intervalSlotAt(start, MINUTE, key) + 10,
     );
   });
 
   it("holds the same slot for the whole interval", () => {
     const start = Date.parse("2026-08-29T04:00:00.000Z");
     const key = "achilles system";
-    const slot = slotOf(start, MINUTE, key);
+    const slot = intervalSlotAt(start, MINUTE, key);
 
     // Walk to just before the next boundary; the slot must not have moved.
     const boundaries: number[] = [];
 
     for (let elapsed = 0; elapsed < MINUTE; elapsed += 1000) {
-      boundaries.push(slotOf(start + elapsed, MINUTE, key));
+      boundaries.push(intervalSlotAt(start + elapsed, MINUTE, key));
     }
 
     expect(new Set(boundaries).size).toBeLessThanOrEqual(2);
@@ -135,8 +135,8 @@ describe("slotOf", () => {
     const start = Date.parse("2026-08-29T04:00:00.000Z");
     const key = "achilles system";
 
-    expect(slotOf(start + 1000 * MINUTE, MINUTE, key)).toBe(
-      slotOf(start, MINUTE, key) + 1000,
+    expect(intervalSlotAt(start + 1000 * MINUTE, MINUTE, key)).toBe(
+      intervalSlotAt(start, MINUTE, key) + 1000,
     );
   });
 });

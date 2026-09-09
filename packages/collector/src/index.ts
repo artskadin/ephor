@@ -9,12 +9,10 @@ import { SqliteStorage } from "./storage/sqlite-storage.js";
 const CONFIG_PATH = process.env.EPHOR_CONFIG ?? "/etc/ephor/config.yaml";
 
 async function main(): Promise<void> {
-  // Built inside main() so that a bad EPHOR_LOG_LEVEL is reported by the
-  // handler below rather than as an unhandled module-evaluation error.
+  // Inside main(), so a bad EPHOR_LOG_LEVEL is reported by the handler below.
   const logger = createLogger();
 
-  // The registry is built first: the config schema is generated from the
-  // registered probes, so which probes exist decides what the config may say.
+  // The config schema is generated from the registered probes.
   const registry = createRegistry();
 
   const config = await loadConfig(CONFIG_PATH, registry.descriptors());
@@ -30,16 +28,12 @@ async function main(): Promise<void> {
   );
   const collector = new Collector({ config, registry, storage, logger });
 
-  // Raised on shutdown to cut short any `/api/check` still waiting on its
-  // run: `api.close()` waits for requests in flight, and four minutes is
-  // longer than an init system waits before it sends SIGKILL.
+  // Cuts short any `/api/check` still waiting on shutdown: `api.close()`
+  // waits for requests in flight, and systemd does not wait four minutes.
   const stopping = new AbortController();
 
-  // Built before the collector starts, and deliberately: it throws when the
-  // token is missing, and a misconfigured deployment should fail before it
-  // has migrated a database, opened ssh connections and called a third-party
-  // API — not after. The nodes are resolved by the constructor, so nothing
-  // here needs the scheduler to be running yet.
+  // Before the collector starts: a missing token must fail before anything
+  // is touched.
   const api = config.api.enabled
     ? createApiServer({
         settings: config.api,
@@ -82,8 +76,7 @@ async function main(): Promise<void> {
     stopping.abort();
     collector.stop();
 
-    // Before the storage: a request already in flight would otherwise read
-    // from a database that has just been closed under it.
+    // Before the storage, or a request in flight reads a closed database.
     if (api) await api.close();
     await storage.close();
 
@@ -95,16 +88,13 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  // Both are messages for the person at the keyboard rather than log records:
-  // one says which line of the config is wrong, the other how to make a
-  // token. Multi-line prose survives neither JSON nor a log level.
+  // Messages for a person, multi-line; not log records.
   if (error instanceof ConfigError || error instanceof MissingTokenError) {
     process.stderr.write(`\n${error.message}\n\n`);
     process.exit(1);
   }
 
-  // Explicit level: this path must work even when the failure was the log
-  // level itself, and an explicit one never consults the environment.
+  // An explicit level works even when the failure was the log level itself.
   createLogger({ level: "error" }).error("collector failed to start", {
     cause: error,
   });

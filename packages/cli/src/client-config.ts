@@ -1,7 +1,6 @@
 export const DEFAULT_API_URL = "http://127.0.0.1:31556";
 
-export interface ClientConfig {
-  /** Where the collector's API answers; paths are appended to it. */
+interface ClientConfig {
   apiUrl: string;
   token: string;
 }
@@ -13,13 +12,7 @@ export class ClientConfigError extends Error {
   }
 }
 
-/**
- * Where the collector is, from the environment: the `EPHOR_TOKEN` that
- * `ephor serve` runs with, so a client in the daemon's own shell needs no
- * setup, and `EPHOR_API_URL` when the daemon is not at this machine's
- * default port. `cli.yaml`, written by `init`, comes later and will sit
- * below these.
- */
+/** `EPHOR_TOKEN` and `EPHOR_API_URL`; `cli.yaml` from `init` sits below. */
 export function clientConfigFrom(environment: NodeJS.ProcessEnv): ClientConfig {
   const token = environment.EPHOR_TOKEN;
 
@@ -30,11 +23,13 @@ export function clientConfigFrom(environment: NodeJS.ProcessEnv): ClientConfig {
     );
   }
 
-  // An `export EPHOR_API_URL=` left in a profile is the same mistake as an
-  // empty token, and reads the same way: as not set.
-  const given = environment.EPHOR_API_URL;
-  const apiUrl = given === undefined || given === "" ? DEFAULT_API_URL : given;
-  const url = parse(apiUrl);
+  // An `export EPHOR_API_URL=` left in a profile reads as not set.
+  const configured = environment.EPHOR_API_URL;
+  const apiUrl =
+    configured === undefined || configured === ""
+      ? DEFAULT_API_URL
+      : configured;
+  const url = parseUrl(apiUrl);
 
   if (url === undefined) {
     throw new ClientConfigError(`EPHOR_API_URL is not a URL: "${apiUrl}"`);
@@ -52,19 +47,17 @@ export function clientConfigFrom(environment: NodeJS.ProcessEnv): ClientConfig {
     );
   }
 
-  // Paths are appended to the address; anything after them would end up
-  // in the middle of the request.
+  // Paths are appended to the address.
   if (url.search !== "" || url.hash !== "") {
     throw new ClientConfigError(
       `EPHOR_API_URL must be an address without a query or fragment, got "${apiUrl}"`,
     );
   }
 
-  // Trailing slashes go, so `${apiUrl}/api/state` cannot come out with two.
   return { apiUrl: apiUrl.replace(/\/+$/, ""), token };
 }
 
-function parse(candidate: string): URL | undefined {
+function parseUrl(candidate: string): URL | undefined {
   try {
     return new URL(candidate);
   } catch {

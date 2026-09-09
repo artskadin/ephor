@@ -15,10 +15,6 @@ export class ConfigError extends Error {
   }
 }
 
-/**
- * Validates already-parsed data. Kept separate from file reading so tests
- * and `ephor init` can check a config they hold in memory.
- */
 export function parseConfig(
   data: unknown,
   descriptors: readonly ProbeDescriptor[],
@@ -68,20 +64,11 @@ function formatIssues(error: z.ZodError): string {
     .join("\n\n");
 }
 
-/**
- * Where a Zod issue points, as a person reads it: `probes.system.interval`,
- * or `(root)` for the document itself. Shared with the API's 400 responses
- * so the two never disagree about how a path is spelled.
- */
-export function issueLocation(issue: z.ZodError["issues"][number]): string {
+function issueLocation(issue: z.ZodError["issues"][number]): string {
   return issue.path.length > 0 ? issue.path.join(".") : "(root)";
 }
 
-/**
- * Every issue on one line, `location: message` joined by `; ` — what an
- * API error response has room for. The config loader's multi-line report
- * is `formatIssues`.
- */
+/** One line, for an API error; `formatIssues` is the multi-line report. */
 export function describeIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => `${issueLocation(issue)}: ${issue.message}`)

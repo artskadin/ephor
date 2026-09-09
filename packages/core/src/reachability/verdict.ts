@@ -1,47 +1,33 @@
 import type { ProbeReading, ReachabilityMethod, Vantage } from "./types.js";
 
-/**
- * Aggregated result for one region.
- * Methods are kept apart because their combination is the diagnosis:
- * ping ok + tcp failing means filtering, not an outage.
- */
-export interface RegionSummary {
+/** Methods kept apart: ping ok with tcp failing is filtering, not an outage. */
+interface RegionSummary {
   region: string;
   network: Vantage["network"];
   byMethod: Record<ReachabilityMethod, MethodSummary>;
-  /** Region passes when the required methods meet quorum. */
+  /** The decisive method met the quorum. */
   ok: boolean;
 }
 
-export interface MethodSummary {
+interface MethodSummary {
   passed: number;
   total: number;
-  /** Median round-trip time of successful checks, in seconds. */
+  /** Median round-trip time of the successful checks, seconds. */
   rtt?: number | undefined;
 }
 
-export type Verdict =
-  /** Everything reachable where it should be. */
-  | "ok"
-  /** Required region fails while a control region passes. */
-  | "blocked"
-  /** Nothing answers anywhere. */
-  | "down"
-  /** Some vantage points in a required region fail. */
-  | "partial"
-  /** Not enough data to decide. */
-  | "unknown";
+export type Verdict = "ok" | "blocked" | "down" | "partial" | "unknown";
 
 export interface ReachabilityResult {
   regions: RegionSummary[];
   verdict: Verdict;
 }
 
-export interface VerdictInput {
+interface VerdictInput {
   readings: readonly ProbeReading[];
-  /** Region keys that must pass; others act as a control group. */
+  /** The other regions are the control group. */
   requiredRegions: readonly string[];
-  /** Share of vantage points that must succeed. */
+  /** Share of vantage points that must succeed, 0 to 1. */
   quorum: number;
 }
 
@@ -70,8 +56,7 @@ function groupIntoRegions(
   return [...buckets].map(([region, group]) => {
     const byMethod = summarizeMethods(group);
 
-    // TCP decides reachability: ping can succeed while the port is
-    // filtered, which is exactly the case we care about.
+    // TCP decides: ping can pass while the port is filtered.
     const decisive = byMethod.tcp ?? byMethod.http ?? byMethod.ping;
     const ok =
       decisive !== undefined &&
@@ -93,13 +78,13 @@ function summarizeMethods(
   const result = {} as Record<ReachabilityMethod, MethodSummary>;
 
   for (const method of ["ping", "tcp", "http"] as const) {
-    const forMethod = readings.filter((r) => r.method === method);
+    const forMethod = readings.filter((reading) => reading.method === method);
     if (forMethod.length === 0) continue;
 
-    const passed = forMethod.filter((r) => r.ok);
+    const passed = forMethod.filter((reading) => reading.ok);
     const times = passed
-      .map((r) => r.rtt)
-      .filter((t): t is number => t !== undefined);
+      .map((reading) => reading.rtt)
+      .filter((time): time is number => time !== undefined);
 
     result[method] = {
       passed: passed.length,
@@ -111,30 +96,31 @@ function summarizeMethods(
   return result;
 }
 
-/**
- * The verdict comes from comparing regions, not from any single one.
- * Without a control region, "blocked in Russia" and "server is down"
- * look identical.
- */
+// Without a control region "blocked" and "down" look the same.
 function decideVerdict(
   regions: readonly RegionSummary[],
   requiredRegions: readonly string[],
 ): Verdict {
   if (regions.length === 0) return "unknown";
 
-  const required = regions.filter((r) => requiredRegions.includes(r.region));
-  const control = regions.filter((r) => !requiredRegions.includes(r.region));
+  const required = regions.filter((region) =>
+    requiredRegions.includes(region.region),
+  );
+  const control = regions.filter(
+    (region) => !requiredRegions.includes(region.region),
+  );
 
   if (required.length === 0) return "unknown";
 
-  const allRequiredOk = required.every((r) => r.ok);
-  const noRequiredOk = required.every((r) => !r.ok);
+  const allRequiredOk = required.every((region) => region.ok);
+  const noRequiredOk = required.every((region) => !region.ok);
 
   if (allRequiredOk) return "ok";
 
   if (noRequiredOk) {
-    // Control group tells blocking apart from an outage.
-    if (control.length > 0 && control.some((r) => r.ok)) return "blocked";
+    if (control.length > 0 && control.some((region) => region.ok)) {
+      return "blocked";
+    }
     if (control.length > 0) return "down";
     return "unknown";
   }
@@ -142,11 +128,11 @@ function decideVerdict(
   return "partial";
 }
 
-/** Median resists a single slow vantage point better than a mean. */
+/** A median survives one slow vantage point; a mean does not. */
 function median(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;
 
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
 
   return sorted.length % 2 === 0

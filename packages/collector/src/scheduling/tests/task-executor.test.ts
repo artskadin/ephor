@@ -133,12 +133,12 @@ describe("TaskExecutor", () => {
 
     // Each probe's queue is against its own limit: two system tasks and a
     // limit of one leave one waiting, while reachability's slot is untouched.
-    expect(executor.queueOf("system")).toEqual({
+    expect(executor.queueState("system")).toEqual({
       active: 1,
       queued: 1,
       limit: 1,
     });
-    expect(executor.queueOf("reachability")).toEqual({
+    expect(executor.queueState("reachability")).toEqual({
       active: 1,
       queued: 0,
       limit: 1,
@@ -147,7 +147,7 @@ describe("TaskExecutor", () => {
     gate.resolve();
     await vi.waitFor(() => expect(finished).toHaveLength(3));
 
-    expect(executor.queueOf("system")).toEqual({
+    expect(executor.queueState("system")).toEqual({
       active: 0,
       queued: 0,
       limit: 1,
@@ -164,12 +164,12 @@ describe("TaskExecutor", () => {
       logger: captureLogs().logger,
     });
 
-    expect(executor.queueOf("system")).toEqual({
+    expect(executor.queueState("system")).toEqual({
       active: 0,
       queued: 0,
       limit: 4,
     });
-    expect(executor.queueOf("ghost")).toBeUndefined();
+    expect(executor.queueState("ghost")).toBeUndefined();
   });
 
   it("lists every registered probe's queue, run or not", () => {
@@ -247,7 +247,7 @@ describe("TaskExecutor", () => {
 
     executor.submit([taskFor("system"), taskFor("system"), taskFor("system")]);
 
-    expect(executor.queueOf("system")).toMatchObject({ queued: 1 });
+    expect(executor.queueState("system")).toMatchObject({ queued: 1 });
 
     gate.resolve();
     await vi.waitFor(() => expect(finished).toHaveLength(3));
@@ -272,7 +272,7 @@ describe("TaskExecutor", () => {
     executor.submit(Array.from({ length: 6 }, () => taskFor("system")));
     executor.submit(Array.from({ length: 3 }, () => taskFor("system")));
 
-    expect(executor.queueOf("system")).toMatchObject({ queued: 7 });
+    expect(executor.queueState("system")).toMatchObject({ queued: 7 });
     expect(records.map((record) => record.level)).toEqual(["warn"]);
 
     gate.resolve();

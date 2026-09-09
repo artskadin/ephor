@@ -8,12 +8,7 @@ export const systemClock: Clock = {
   now: () => Date.now(),
 };
 
-/**
- * Resolves after `ms`; rejects at once, timer cleared, when `signal` aborts.
- * The default behind every injected `sleep`, and the companion of
- * `systemClock`: a test that freezes one has to hold the other, or the two
- * disagree about how much time has passed.
- */
+/** Rejects at once, timer cleared, when `signal` aborts. */
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return timerAfter(ms, undefined, signal ? { signal } : {});
 }

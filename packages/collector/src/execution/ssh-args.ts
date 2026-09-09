@@ -1,9 +1,7 @@
 import type { Ssh } from "@ephorate/core";
 
-/**
- * What names the node to ssh: the alias alone, or the pieces the config
- * spelled out. The same list is what `ssh -G` resolves the route from.
- */
+// The alias alone, or the pieces the config spelled out; `ssh -G` takes the
+// same list.
 export function sshTargetArgs(sshConfig: Ssh, host: string): string[] {
   if (sshConfig.alias) return [sshConfig.alias];
 

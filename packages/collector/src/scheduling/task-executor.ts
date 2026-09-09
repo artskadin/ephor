@@ -3,16 +3,13 @@ import { BacklogDetector } from "./backlog-detector.js";
 import { ConcurrencyLimiter } from "./concurrency-limiter.js";
 import type { Task } from "./scheduler.js";
 
-export type TaskHandler = (task: Task) => Promise<void>;
-
-export interface TaskExecutorOptions {
+interface TaskExecutorOptions {
   concurrencyByProbe: ReadonlyMap<string, number>;
-  handler: TaskHandler;
+  handler: (task: Task) => Promise<void>;
   onTaskFinished: (task: Task) => void;
   logger: Logger;
 }
 
-/** One probe's queue: its limiter, and the watch that says when it is behind. */
 interface ProbeQueue {
   limiter: ConcurrencyLimiter;
   backlog: BacklogDetector;
@@ -29,10 +26,8 @@ export class TaskExecutor {
     for (const task of tasks) {
       const queue = this.queueFor(task.probe);
 
-      // Loud, but not fatal: submit() runs inside the scheduler's interval
-      // callback, so throwing here would take the whole collector down and
-      // leave the task marked in flight forever, silencing that node/probe
-      // pair for good. Report it and let the rest of the batch through.
+      // Not thrown: this runs inside the scheduler's interval callback, and
+      // a throw would leave the task in flight forever.
       if (!queue) {
         this.options.logger.error("no concurrency limit for probe, skipping", {
           probe: task.probe,
@@ -52,8 +47,6 @@ export class TaskExecutor {
           });
         })
         .finally(() => {
-          // The limiter has already handed the freed slot to the next in
-          // line, so this reads the queue as it now stands.
           queue.backlog.observe(queue.limiter.state());
           this.options.onTaskFinished(task);
         });
@@ -61,39 +54,31 @@ export class TaskExecutor {
       touched.add(queue);
     }
 
-    // Once per batch rather than per task: a fleet forced at once arrives as
-    // one batch, and the line should carry the whole count, not the first
-    // crossing of the bar. The limiter takes or queues a place synchronously,
-    // so the counts are complete here.
+    // Once per batch, so a fleet forced at once is logged with its whole count.
     for (const queue of touched) queue.backlog.observe(queue.limiter.state());
   }
 
-  /**
-   * How busy one probe's queue is. Undefined when the probe has no limit,
-   * which means nobody registered it; a registered probe that has not run
-   * yet reports an empty queue, since its limiter exists only from the first
-   * task on.
-   */
-  queueOf(probeName: string): QueueState | undefined {
+  /** Undefined for a probe nobody registered. */
+  queueState(probeName: string): QueueState | undefined {
     const limit = this.options.concurrencyByProbe.get(probeName);
 
     if (limit === undefined) return undefined;
 
-    return this.stateOf(probeName, limit);
+    return this.queueStateOrIdle(probeName, limit);
   }
 
-  /** Every registered probe's queue, the ones that have not run yet included. */
+  /** Every registered probe, the ones that have not run yet included. */
   queues(): ReadonlyMap<string, QueueState> {
     const queues = new Map<string, QueueState>();
 
     for (const [probe, limit] of this.options.concurrencyByProbe) {
-      queues.set(probe, this.stateOf(probe, limit));
+      queues.set(probe, this.queueStateOrIdle(probe, limit));
     }
 
     return queues;
   }
 
-  private stateOf(probeName: string, limit: number): QueueState {
+  private queueStateOrIdle(probeName: string, limit: number): QueueState {
     return (
       this.queueByProbe.get(probeName)?.limiter.state() ?? {
         active: 0,
@@ -103,7 +88,6 @@ export class TaskExecutor {
     );
   }
 
-  /** Undefined when the task names a probe nobody registered. */
   private queueFor(probeName: string): ProbeQueue | undefined {
     let queue = this.queueByProbe.get(probeName);
 

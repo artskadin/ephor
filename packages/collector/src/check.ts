@@ -11,58 +11,32 @@ import { type CheckRun, Collector } from "./collector.js";
 import type { ProbeRegistry } from "./probes/registry.js";
 import { SqliteStorage } from "./storage/sqlite-storage.js";
 
-/**
- * What a check is built from. One set for both callers, so `POST /api/check`
- * and `ephor check` without a daemon cannot drift in what they force or how
- * they describe it; the API adds what only a server has.
- */
+/** Shared by `POST /api/check` and `ephor check` without a daemon. */
 export interface CheckDeps {
   storage: Storage;
-  /** The nodes actually being watched; disabled ones are already gone. */
   nodes: readonly ResolvedNode[];
   probeNames: readonly string[];
   /** Unix seconds. */
   now: () => number;
-  /** Forces the matching pairs to run now; see `Collector.runNow`. */
   forceRun: (node?: string, probe?: string) => CheckRun;
 }
 
-/**
- * How long a caller is prepared to wait. Without one, the check waits for
- * every forced pair, however long: `ephor check` without a daemon has
- * nobody to hand the rest of the run to. The API has — the probes keep
- * running after it answers — and caps the wait at the run's own budget
- * under its ceiling.
- */
-export interface CheckCap {
-  /** The ceiling; the run's own budget applies when it is lower. */
+/** Without a cap the check waits for every forced pair, however long. */
+interface CheckCap {
+  /** The run's own budget applies when it is lower. */
   ceilingMs: number;
-  /**
-   * Resolves after that many milliseconds, or rejects when `signal` aborts,
-   * which ends the wait as if the cap had run out. Injected alongside
-   * `now`: a test that freezes one must hold the other.
-   */
+  /** Rejects when `signal` aborts, ending the wait as if the cap ran out. */
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
-/**
- * The three things a check can come to. Which of the first two it is
- * matters to the API — a node nobody configured is a 404, everything else
- * it cannot do a 400 — and not to the command line, where both are a
- * message and exit code 2.
- */
+/** The API's 404 and 400; the CLI exits 2 on both. */
 export type CheckOutcome =
   | { kind: "unknown-node"; node: string }
   | { kind: "invalid"; reason: string }
   | { kind: "ran"; response: CheckResponse };
 
-/**
- * Forces a run, waits for it, and describes what it produced.
- *
- * A run that forces nothing is refused with the reason rather than answered:
- * it would otherwise come back `complete: true` with no data, which reads
- * as success.
- */
+// A run that forces nothing is refused: `complete: true` with no data would
+// read as success.
 export async function checkOnce(
   deps: CheckDeps,
   request: CheckRequest,
@@ -82,8 +56,7 @@ export async function checkOnce(
     };
   }
 
-  // Taken before forcing: a probe stamps its points with the second it
-  // started in, and that second is at or after this one.
+  // Before forcing: a probe stamps its points with a second at or after this.
   const startedAt = deps.now();
   const run = deps.forceRun(request.node, request.probe);
 
@@ -96,9 +69,8 @@ export async function checkOnce(
 
   await waitFor(run, cap);
 
-  // From the scheduler's own books rather than from timestamps in storage:
-  // a previous run stamped in the same second would pass a timestamp test,
-  // and a clock stepped back would fail one until the next cycle.
+  // From the scheduler's books, not from timestamps: a previous run in the
+  // same second would pass a timestamp test.
   const unfinished = run.unfinished();
   const now = deps.now();
 
@@ -118,19 +90,14 @@ export async function checkOnce(
   };
 }
 
-export interface CheckWithoutDaemonOptions {
+interface CheckWithoutDaemonOptions {
   config: Config;
   registry: ProbeRegistry;
   logger: Logger;
   request: CheckRequest;
 }
 
-/**
- * Deployment 5: the same collector, never started — no server, no timers.
- * The pairs run once against a database in memory, since there is no
- * history to keep and nothing to be stale against, and the answer is what
- * the API would have given, waited for in full.
- */
+/** The same collector, never started, over a database in memory; no cap. */
 export async function checkWithoutDaemon(
   options: CheckWithoutDaemonOptions,
 ): Promise<CheckOutcome> {
@@ -161,12 +128,8 @@ export async function checkWithoutDaemon(
   }
 }
 
-/**
- * Under a cap, the run's own budget or the ceiling, whichever is lower. The
- * timer is cancelled once the run wins, so a three-second check does not
- * leave a four-minute timer behind; a sleep cut short from outside —
- * shutdown — ends the wait as if the cap had run out.
- */
+// The timer is cancelled once the run wins, so a three-second check leaves
+// no four-minute timer behind.
 async function waitFor(
   run: CheckRun,
   cap: CheckCap | undefined,
@@ -191,12 +154,8 @@ async function waitFor(
   }
 }
 
-/**
- * Why a request that named real things still had nothing to run. The probe
- * exists and the node exists; what is left is the probe being switched off
- * where it was asked for, and the message says by whom — the config, or
- * the node lacking the access the probe needs.
- */
+// The node and the probe exist, so the probe is switched off where it was
+// asked for; the message says by whom.
 function explainNothingToRun(
   nodes: readonly ResolvedNode[],
   request: CheckRequest,

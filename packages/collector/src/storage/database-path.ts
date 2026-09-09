@@ -1,26 +1,19 @@
 import { homedir } from "node:os";
-// Explicit variants rather than the default `join`: that one follows the
-// host's separator, which would make the `platform` argument a no-op.
+// The default `join` follows the host, which would make `platform` a no-op.
 import { posix, win32 } from "node:path";
 
-export interface DatabasePathSources {
-  /** `EPHOR_DB`, when set. */
+interface DatabasePathSources {
+  /** `EPHOR_DB`. */
   fromEnvironment?: string | undefined;
-  /** `storage.path` from the config, when set. */
+  /** `storage.path`. */
   fromConfig?: string | undefined;
   platform?: NodeJS.Platform | undefined;
   environment?: Readonly<Record<string, string | undefined>> | undefined;
   home?: string | undefined;
 }
 
-/**
- * Decides where the database lives.
- *
- * The fallback is deliberately absolute. A relative default follows the
- * working directory, so the same config would write to a different file
- * depending on where the process was started — and in a container it would
- * quietly bypass the mounted volume and lose every metric on recreation.
- */
+// The fallback is absolute: a relative one follows the working directory,
+// and in a container bypasses the mounted volume.
 export function resolveDatabasePath(sources: DatabasePathSources = {}): string {
   const explicit = sources.fromEnvironment ?? sources.fromConfig;
 

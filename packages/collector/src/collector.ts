@@ -26,14 +26,13 @@ import {
 import { TaskExecutor } from "./scheduling/task-executor.js";
 import { waitBudgetMs } from "./scheduling/wait-budget.js";
 
-export interface CollectorOptions {
+interface CollectorOptions {
   config: Config;
   registry: ProbeRegistry;
   storage: Storage;
   logger: Logger;
 }
 
-/** A forced run together with how long it is worth waiting for. */
 export interface CheckRun extends ForcedRun {
   /** Milliseconds the run can take under the current queues. */
   budgetMs: number;
@@ -44,7 +43,7 @@ export class Collector {
   private readonly taskExecutor: TaskExecutor;
   private readonly resolvedNodes: ResolvedNode[];
   private readonly pruner: Pruner;
-  /** Shared by every probe that runs ssh: the limits are ssh's, not theirs. */
+  /** Shared by every ssh probe: the limits are ssh's. */
   private readonly sshGates: SshGates;
 
   constructor(private readonly options: CollectorOptions) {
@@ -97,27 +96,19 @@ export class Collector {
     this.pruner.stop();
   }
 
-  /**
-   * Forces the matching pairs to run, with a promise for them and the
-   * patience they call for — computed here, where the queues are, so that a
-   * caller without an HTTP server in front of it gets the same number.
-   */
+  /** The budget is computed here, where the queues are, for both callers. */
   runNow(nodeName?: string, probeName?: string): CheckRun {
     const run = this.scheduler.runNow(nodeName, probeName);
 
     return {
       ...run,
-      budgetMs: waitBudgetMs(run, (probe) => this.queueOf(probe)),
+      budgetMs: waitBudgetMs(run, (probe) => this.queueState(probe)),
     };
   }
 
-  /**
-   * How busy a probe's queue is. Throws for a probe nobody registered:
-   * every registered one has a limit, so a missing one is a bug, not a
-   * quiet zero.
-   */
-  queueOf(probeName: string): QueueState {
-    const queue = this.taskExecutor.queueOf(probeName);
+  /** Throws for an unregistered probe: a missing limit is a bug, not zero. */
+  queueState(probeName: string): QueueState {
+    const queue = this.taskExecutor.queueState(probeName);
 
     if (!queue) {
       throw new Error(`no concurrency limit for probe "${probeName}"`);
@@ -126,12 +117,10 @@ export class Collector {
     return queue;
   }
 
-  /** Every probe's queue, for `/api/health`; see `TaskExecutor.queues`. */
   queues(): Record<string, QueueState> {
     return Object.fromEntries(this.taskExecutor.queues());
   }
 
-  /** What is in line at the ssh limits, for `/api/health`; see `SshGates.queues`. */
   sshQueues(): SshQueues {
     return this.sshGates.queues();
   }
@@ -140,7 +129,7 @@ export class Collector {
     return this.scheduler.runningTasks;
   }
 
-  /** The nodes actually being watched — disabled ones are already dropped. */
+  /** Disabled nodes already dropped. */
   get nodes(): readonly ResolvedNode[] {
     return this.resolvedNodes;
   }
@@ -204,16 +193,14 @@ export class Collector {
         ok: false,
         meta: {
           errorKind: outcome.error.kind,
-          detail: describeError(outcome.error),
+          detail: probeErrorDetail(outcome.error),
           durationMs: outcome.durationMs,
         },
       });
 
-      // A failing probe is worth a line every cycle: the metric records it
-      // for the UI, but only the log says it while the UI does not exist.
       logger.warn("probe failed", {
         errorKind: outcome.error.kind,
-        detail: describeError(outcome.error),
+        detail: probeErrorDetail(outcome.error),
         durationMs: outcome.durationMs,
       });
     }
@@ -222,7 +209,7 @@ export class Collector {
   }
 }
 
-function describeError(error: ProbeError): string {
+function probeErrorDetail(error: ProbeError): string {
   switch (error.kind) {
     case "unreachable":
       return error.detail;

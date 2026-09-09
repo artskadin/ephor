@@ -12,19 +12,17 @@ import type { Region } from "./settings.js";
 
 const API_BASE = "https://check-host.net";
 
-export interface CheckHostProviderOptions {
+interface CheckHostProviderOptions {
   regions: Readonly<Record<string, Region>>;
-  /** How long a fetched vantage list stays usable. */
   vantageTtlMs: number;
-  /** Gap between polls for a check's results. */
   pollIntervalMs?: number;
-  /** How long to keep polling before returning whatever arrived. */
+  /** After it, whatever arrived is returned. */
   pollTimeoutMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** Shape of /nodes/hosts response. */
+/** `/nodes/hosts`. */
 interface VantageListResponse {
   nodes: Record<
     string,
@@ -36,12 +34,12 @@ interface VantageListResponse {
   >;
 }
 
-/** Shape of /check-<method> response. */
+/** `/check-<method>`. */
 interface CheckStartResponse {
   ok?: number;
   request_id?: string;
   error?: string;
-  /** The vantage points the service actually accepted for this check. */
+  /** The vantage points the service accepted for this check. */
   nodes?: Record<string, unknown>;
 }
 
@@ -65,10 +63,7 @@ export class CheckHostProvider implements ReachabilityProvider {
     this.sleep = options.sleep ?? sleep;
   }
 
-  /**
-   * Cached because the list of vantage points changes on the order of days,
-   * while checks run every few minutes.
-   */
+  /** Cached: the list changes over days, checks run every few minutes. */
   async listVantages(requester: HttpRequester): Promise<Vantage[]> {
     if (
       this.cachedVantages.length > 0 &&
@@ -100,7 +95,9 @@ export class CheckHostProvider implements ReachabilityProvider {
     method: ReachabilityMethod,
   ) {
     const hostParam = buildHostParam(target, method);
-    const nodeParams = vantages.map((v) => `node=${encodeURIComponent(v.id)}`);
+    const nodeParams = vantages.map(
+      (vantage) => `node=${encodeURIComponent(vantage.id)}`,
+    );
 
     const start = await requester.getJson<CheckStartResponse>(
       `${API_BASE}/check-${method}?host=${encodeURIComponent(hostParam)}&${nodeParams.join("&")}`,
@@ -110,37 +107,32 @@ export class CheckHostProvider implements ReachabilityProvider {
       throw new Error(start.error ?? `${this.id} did not return a request id`);
     }
 
-    // The count of nodes the service accepted, not the count we asked for:
-    // a vantage point that is offline is silently dropped, and waiting for a
-    // result it will never send costs the whole polling deadline on every
-    // check for as long as it stays down.
-    const expected = start.nodes
+    // What the service accepted, not what was asked: an offline vantage
+    // point is dropped silently and would never report.
+    const expectedCount = start.nodes
       ? Object.keys(start.nodes).length
       : vantages.length;
 
-    const raw = await this.pollResults(requester, start.request_id, expected);
+    const raw = await this.pollResults(
+      requester,
+      start.request_id,
+      expectedCount,
+    );
 
     return vantages.map((vantage) =>
       toReading(vantage, method, raw[vantage.id]),
     );
   }
 
-  /**
-   * The API answers the start call immediately and fills results in as the
-   * vantage points report back, so a check is one call plus a few polls.
-   * Returns whatever arrived once the deadline passes rather than failing:
-   * partial readings still carry a verdict, no readings do not.
-   */
+  /** Whatever arrived by the deadline; partial readings carry a verdict. */
   private async pollResults(
     requester: HttpRequester,
     requestId: string,
     expectedCount: number,
   ): Promise<CheckResultResponse> {
     const deadline = this.now() + this.pollTimeoutMs;
-    // Counted as well as timed: the clock and the sleep are both injectable,
-    // and a pair that does not advance together would otherwise spin without
-    // end. A bound that cannot be configured away is worth more here than
-    // the extra line.
+    // Counted as well as timed: an injected clock and sleep that do not
+    // advance together would otherwise spin forever.
     const maxPolls = Math.ceil(
       this.pollTimeoutMs / Math.max(this.pollIntervalMs, 1),
     );
@@ -155,7 +147,9 @@ export class CheckHostProvider implements ReachabilityProvider {
         `${API_BASE}/check-result/${requestId}`,
       );
 
-      const finished = Object.values(latest).filter((v) => v !== null).length;
+      const finished = Object.values(latest).filter(
+        (result) => result !== null,
+      ).length;
 
       if (finished >= expectedCount) return latest;
     }
@@ -163,12 +157,7 @@ export class CheckHostProvider implements ReachabilityProvider {
     return latest;
   }
 
-  /**
-   * Takes up to `count` vantage points per region. Fewer is normal and not
-   * an error: check-host has only three Russian nodes, so a region asking
-   * for four gets three. The shortfall is visible downstream, since every
-   * reading carries the region it came from.
-   */
+  /** Fewer than `count` is normal: check-host has three Russian nodes. */
   private selectVantages(response: VantageListResponse): Vantage[] {
     const selected: Vantage[] = [];
 
@@ -225,10 +214,7 @@ function toReading(
   }
 }
 
-/**
- * [[ ["OK", 0.044, "ip"], ["TIMEOUT", 3.005], ... ]]
- * Several attempts per vantage point; a majority of OK counts as up.
- */
+/** `[[ ["OK", 0.044, "ip"], ["TIMEOUT", 3.005] ]]`; a majority of OK is up. */
 function parsePing(vantage: Vantage, raw: unknown): ProbeReading {
   const attempts = Array.isArray(raw) ? raw[0] : null;
 
@@ -252,20 +238,19 @@ function parsePing(vantage: Vantage, raw: unknown): ProbeReading {
 
   const times = successful
     .map((entry) => Number(entry[1]))
-    .filter((n) => Number.isFinite(n));
+    .filter((time) => Number.isFinite(time));
 
   const rtt =
     times.length > 0
-      ? times.reduce((a, b) => a + b, 0) / times.length
+      ? times.reduce((sum, time) => sum + time, 0) / times.length
       : undefined;
 
-  // A vantage point counts as reachable when most packets got through.
   const ok = successful.length * 2 >= results.length;
 
   return { vantage, method: "ping", ok, rtt };
 }
 
-/** [[1, 0.13, "OK", "200", "ip"]] — first field is a success flag. */
+/** `[[1, 0.13, "OK", "200", "ip"]]`; the first field is the success flag. */
 function parseHttp(vantage: Vantage, raw: unknown): ProbeReading {
   const entry = Array.isArray(raw) ? raw[0] : null;
 
@@ -286,7 +271,7 @@ function parseHttp(vantage: Vantage, raw: unknown): ProbeReading {
       };
 }
 
-/** [{"time": 0.03}] on success, [{"error": "..."}] on failure. */
+/** `[{"time": 0.03}]` on success, `[{"error": "..."}]` on failure. */
 function parseTcp(vantage: Vantage, raw: unknown): ProbeReading {
   const entry = Array.isArray(raw) ? raw[0] : null;
 

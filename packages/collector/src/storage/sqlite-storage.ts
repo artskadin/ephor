@@ -14,31 +14,30 @@ interface MetricRow {
 }
 
 export class SqliteStorage implements Storage {
-  private readonly db: DatabaseSync;
+  private readonly database: DatabaseSync;
   private readonly logger: Logger;
 
   constructor(path: string, logger: Logger = SILENT_LOGGER) {
     if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true });
     }
-    this.db = new DatabaseSync(path);
+    this.database = new DatabaseSync(path);
     this.logger = logger;
 
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA synchronous = NORMAL");
+    this.database.exec("PRAGMA journal_mode = WAL");
+    this.database.exec("PRAGMA synchronous = NORMAL");
   }
 
   async migrate(): Promise<void> {
-    applyMigrations(this.db, MIGRATIONS, this.logger);
+    applyMigrations(this.database, MIGRATIONS, this.logger);
   }
 
   async write(points: readonly MetricPoint[]): Promise<void> {
     if (points.length === 0) return;
 
-    // Writing the same point twice replaces it rather than failing: a forced
-    // run can land in the same whole second as a scheduled one, and refusing
-    // the second would turn `ephor check` into an error for no reason.
-    const insert = this.db.prepare(`
+    // A repeat replaces: a forced run can land in the same second as a
+    // scheduled one.
+    const insert = this.database.prepare(`
       INSERT INTO metrics (ts, node, metric, value, ok, meta)
       VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (node, metric, ts) DO UPDATE SET
@@ -47,10 +46,8 @@ export class SqliteStorage implements Storage {
         meta  = excluded.meta
     `);
 
-    // The guard on `ts` is what keeps a late write from dragging the current
-    // state backwards — a retried probe finishing after a newer one must not
-    // make the node look older than it is.
-    const upsertLatest = this.db.prepare(`
+    // The `ts` guard keeps a late retry from dragging the state backwards.
+    const upsertLatest = this.database.prepare(`
       INSERT INTO metrics_latest (node, metric, ts, value, ok, meta)
       VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (node, metric) DO UPDATE SET
@@ -61,7 +58,7 @@ export class SqliteStorage implements Storage {
       WHERE excluded.ts >= metrics_latest.ts
     `);
 
-    this.db.exec("BEGIN");
+    this.database.exec("BEGIN");
     try {
       for (const point of points) {
         const value = point.value ?? null;
@@ -69,13 +66,11 @@ export class SqliteStorage implements Storage {
         const meta = point.meta ? JSON.stringify(point.meta) : null;
 
         insert.run(point.ts, point.node, point.metric, value, ok, meta);
-        // Same transaction as the history row: the two must never disagree
-        // about what the last value was.
         upsertLatest.run(point.node, point.metric, point.ts, value, ok, meta);
       }
-      this.db.exec("COMMIT");
+      this.database.exec("COMMIT");
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      this.database.exec("ROLLBACK");
       throw error;
     }
   }
@@ -109,11 +104,9 @@ export class SqliteStorage implements Storage {
     const limit = filter.limit !== undefined ? "LIMIT ?" : "";
     if (filter.limit !== undefined) params.push(filter.limit);
 
-    // Ties are the normal case, not an edge: one probe run writes every one
-    // of its metrics with the same ts. Without a tiebreaker, a LIMIT landing
-    // inside that instant keeps whichever rows the planner happened to
-    // visit first, and a client paging by time window never sees the rest.
-    const rows = this.db
+    // The tiebreaker is part of the contract: one run writes every metric
+    // with the same ts, and a client pages by time window.
+    const rows = this.database
       .prepare(
         `SELECT * FROM metrics ${where}
          ORDER BY ts DESC, node ASC, metric ASC ${limit}`,
@@ -128,7 +121,7 @@ export class SqliteStorage implements Storage {
     const where = node !== undefined ? "WHERE node = ?" : "";
     if (node !== undefined) params.push(node);
 
-    const rows = this.db
+    const rows = this.database
       .prepare(
         `SELECT ts, node, metric, value, ok, meta FROM metrics_latest ${where}`,
       )
@@ -137,15 +130,9 @@ export class SqliteStorage implements Storage {
     return rows.map(rowToPoint);
   }
 
-  /**
-   * History only. `metrics_latest` is deliberately left alone: a node that
-   * stopped reporting must keep its last known value, with its real age, so
-   * the client can call it stale. Dropping the row instead would make the
-   * node disappear from `ephor status`, which reads as "not configured"
-   * rather than "not answering".
-   */
+  /** History only: `metrics_latest` keeps a silent node's last value, aged. */
   async prune(olderThanTs: number): Promise<number> {
-    const result = this.db
+    const result = this.database
       .prepare("DELETE FROM metrics WHERE ts < ?")
       .run(olderThanTs);
 
@@ -153,7 +140,7 @@ export class SqliteStorage implements Storage {
   }
 
   async close(): Promise<void> {
-    this.db.close();
+    this.database.close();
   }
 }
 

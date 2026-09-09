@@ -20,15 +20,3 @@ export class CommandTimeoutError extends Error {
     this.name = "CommandTimeoutError";
   }
 }
-
-export class CommandFailedError extends Error {
-  constructor(
-    readonly exitCode: number,
-    readonly stderr: string,
-  ) {
-    super(
-      `Command exited with code ${exitCode}: ${stderr.trim().slice(0, 200)}`,
-    );
-    this.name = "CommandFailedError";
-  }
-}

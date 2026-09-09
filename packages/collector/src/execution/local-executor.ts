@@ -3,7 +3,7 @@ import type { CommandExecutor, CommandResult, RunOptions } from "./types.js";
 
 export class LocalExecutor implements CommandExecutor {
   readonly kind = "local" as const;
-  readonly lable = "local";
+  readonly label = "local";
 
   constructor(private readonly defaultTimeoutMs: number) {}
 

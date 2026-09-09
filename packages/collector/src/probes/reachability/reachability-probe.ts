@@ -20,47 +20,31 @@ import {
 
 export const reachabilityProbeDescriptor: ProbeDescriptor = {
   name: "reachability",
-  /** Works without node access — that is the whole point. */
   requiresExecutor: false,
   enabledByDefault: true,
   defaults: {
     interval: 300,
     timeout: 60,
     retries: 1,
-    // A backstop, not a throttle. The load on the provider is set by the
-    // interval, not by this number: with the schedule spread out, the count
-    // in flight settles at arrival rate times duration on its own — a
-    // measured 4s per check puts 200 nodes at a five-minute interval near 3.
-    // The limit only matters when the provider slows down, and then a low
-    // one would build a queue rather than prevent anything.
+    // A backstop, not a throttle: measured ~3 in flight for 200 nodes.
     concurrency: 50,
   },
   settings: reachabilitySettingsShape,
 };
 
-/** Port used when the node declares no public TCP port of its own. */
-const FALLBACK_PORT = 443;
+/** When the node declares no public TCP port of its own. */
+const DEFAULT_PUBLIC_PORT = 443;
 
-export type ReachabilityProviderFactory = (
-  settings: ReachabilitySettings,
-) => ReachabilityProvider;
-
-export interface ReachabilityProbeOptions {
-  createProvider: ReachabilityProviderFactory;
-  /**
-   * Where the requests physically originate. A separate concern from which
-   * provider answers them, and configurable later per deployment.
-   */
+interface ReachabilityProbeOptions {
+  createProvider: (settings: ReachabilitySettings) => ReachabilityProvider;
+  /** Where the requests originate: a separate concern from who answers them. */
   requesterFor: (context: ProbeContext) => HttpRequester;
 }
 
 export class ReachabilityProbe implements Probe<ReachabilityResult> {
   readonly descriptor = reachabilityProbeDescriptor;
 
-  /**
-   * Created on first use and reused afterwards: the provider caches the
-   * vantage point list, and a fresh instance per run would refetch it.
-   */
+  /** Reused: the provider caches the vantage point list. */
   private provider?: ReachabilityProvider | undefined;
 
   constructor(private readonly options: ReachabilityProbeOptions) {}
@@ -69,8 +53,7 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
     const startedAt = Date.now();
 
     try {
-      // Already validated as part of the config; parsing again is how the
-      // probe gets its own settings typed without core knowing about them.
+      // Parsed again to type the settings without core knowing them.
       const settings = ReachabilitySettingsSchema.parse(context.settings);
 
       if (Object.keys(settings.regions).length === 0) {
@@ -100,7 +83,7 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
       const readings = await this.provider.probe({
         target: {
           host: context.host,
-          port: publicPortOf(context),
+          port: publicTcpPort(context),
           domain: context.domain,
         },
         vantages,
@@ -145,7 +128,6 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
       }
     }
 
-    // Numeric code so the verdict can be graphed and compared.
     points.push({
       ...base,
       metric: "reachability.verdict",
@@ -158,18 +140,12 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
   }
 }
 
-/**
- * Keeps "the service said no" apart from "we have a bug". They call for
- * different actions, and they are retried differently: a rate limit asked
- * again a second later is still a rate limit, while a network failure often
- * is not.
- */
+// "The service said no" is retried differently from a network failure.
 function toProbeError(cause: unknown): ProbeError {
   if (!(cause instanceof HttpRequestError)) {
     return { kind: "internal", cause };
   }
 
-  // No status means the request never got an answer at all.
   if (cause.status === undefined) {
     return { kind: "unreachable", detail: cause.message };
   }
@@ -177,15 +153,15 @@ function toProbeError(cause: unknown): ProbeError {
   return { kind: "bad_response", status: cause.status };
 }
 
-function publicPortOf(context: ProbeContext): number {
+function publicTcpPort(context: ProbeContext): number {
   return (
     context.ports.find(
       (port) => port.expose === "public" && port.proto === "tcp",
-    )?.port ?? FALLBACK_PORT
+    )?.port ?? DEFAULT_PUBLIC_PORT
   );
 }
 
-/** Ordered by severity so charts read naturally. */
+/** Ordered by severity, for charts. */
 const VERDICT_CODES = {
   ok: 0,
   partial: 1,

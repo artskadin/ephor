@@ -1,9 +1,6 @@
 import { HttpRequestError, type HttpRequester } from "@ephorate/core";
 
-/**
- * Issues the request from the collector itself. The default, and the only
- * origin that keeps working when a node is unreachable.
- */
+/** From the collector: the only origin that works when a node is down. */
 export class DirectHttpRequester implements HttpRequester {
   constructor(private readonly timeoutMs = 15_000) {}
 
@@ -16,7 +13,7 @@ export class DirectHttpRequester implements HttpRequester {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (cause) {
-      throw new HttpRequestError(url, undefined, describeFailure(cause), {
+      throw new HttpRequestError(url, undefined, failureMessage(cause), {
         cause,
       });
     }
@@ -41,9 +38,8 @@ export class DirectHttpRequester implements HttpRequester {
   }
 }
 
-function describeFailure(cause: unknown): string {
-  // AbortSignal.timeout rejects with a TimeoutError, which reads as a bare
-  // "The operation was aborted" without this.
+function failureMessage(cause: unknown): string {
+  // AbortSignal.timeout says only "The operation was aborted".
   if (cause instanceof Error && cause.name === "TimeoutError") {
     return "request timed out";
   }

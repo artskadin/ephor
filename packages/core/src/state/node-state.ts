@@ -4,44 +4,32 @@ import type { Threshold } from "../config/schema.js";
 import type { Verdict } from "../reachability/verdict.js";
 import type { MetricPoint } from "../types/metrics.js";
 
-/**
- * How a single value reads right now.
- *
- * `unknown` and `stale` are kept apart on purpose: a node added a minute ago
- * has no daily `speed` value yet and nothing is wrong, while a `speed` value
- * that stopped arriving is a problem. Collapsing them would make every new
- * node look broken for a day.
- */
+/** `unknown` (never arrived) and `stale` (stopped arriving) stay apart. */
 export type MetricStatus = "ok" | "warn" | "critical" | "stale" | "unknown";
 
-/** What a value says on its own; age is not its business, so never `stale`. */
+/** What a value says on its own, whatever its age. */
 export type MetricSeverity = Exclude<MetricStatus, "stale">;
 
-export type ThresholdLevel = "warn" | "critical";
+type ThresholdLevel = "warn" | "critical";
 
 export interface MetricView {
   metric: string;
-  /** The probe that emits it — the part of the id before the first dot. */
+  /** The part of the id before the first dot. */
   probe: string;
+  /** Folds the age in first: a stale value is `stale` here whatever it says. */
   status: MetricStatus;
   /**
-   * How the value read when it was measured, whatever its age: past a
-   * threshold, a `false`, the verdict's own severity. A per-region
-   * reachability reading is the exception: `ok` whatever it says, because
-   * the verdict has already weighed it (see `isDecidedByVerdict`). `status`
-   * folds the age in first, so a stale value is `stale` there and keeps
-   * its reading here — a table paints the value by this and the age by
-   * `status`, and a two-day-old `down` is drawn as `down`. It never drives
-   * the node's status: a reading too old to trust has no say in it.
+   * How the value read when measured: a threshold level, `false → warn`,
+   * the verdict's own. Never drives the node's status; a table paints the
+   * value by it and the age by `status`.
    */
   severity: MetricSeverity;
   value?: number | undefined;
   ok?: boolean | undefined;
   meta?: Record<string, unknown> | undefined;
-  /** Absent when the metric has never arrived. */
   ts?: number | undefined;
   ageSeconds?: number | undefined;
-  /** This probe's interval, so a client can say "expected every 30s". */
+  /** The probe's interval, for "expected every 30s". */
   expectedEverySeconds: number;
   breached?: ThresholdLevel | undefined;
 }
@@ -49,50 +37,34 @@ export interface MetricView {
 export interface NodeState {
   node: string;
   status: MetricStatus;
-  /** `null` when the reachability probe is switched off for this node. */
+  /** `null` when the probe is switched off for this node. */
   reachability: Verdict | null;
-  /**
-   * The probes enabled on this node, in registry order: what a table draws
-   * columns for. A probe absent here is switched off; one present with no
-   * metrics has not reported yet — `metrics` alone cannot tell the two apart.
-   */
+  /** Enabled probes in registry order; enabled but silent is still listed. */
   probes: string[];
   metrics: MetricView[];
-  /** Why the node is not `ok`, in words a person can act on. */
+  /** Why the node is not `ok`. */
   reasons: string[];
 }
 
-export interface NodeStateInput {
-  /** Already filtered to the nodes the user wants watched. */
+interface NodeStateInput {
   nodes: readonly ResolvedNode[];
   /** What `Storage.latest()` returned. */
   points: readonly MetricPoint[];
-  /** Unix seconds. Passed in so staleness is testable without waiting. */
+  /** Unix seconds, injected so staleness is testable. */
   now: number;
 }
 
-/**
- * The one metric id this module knows by name. Reachability is core's own
- * concept — `Verdict` and `summarize()` live in this package — so reading its
- * verdict is not the same thing as core learning about an arbitrary probe.
- */
+/** The one metric named here: reachability is core's own concept. */
 export const REACHABILITY_VERDICT_METRIC = "reachability.verdict";
 
 const REACHABILITY_PROBE = "reachability";
 
-/**
- * Written by the collector for every probe alike, success or failure, so that
- * "the probe failed" and "the probe never ran" stay distinguishable. Reading
- * it is a collector-wide convention rather than knowledge of any one probe.
- */
+/** Written for every probe, success or failure. */
 const PROBE_LIVENESS_SUFFIX = ".up";
 
-/** What each verdict means for "does this node need me now". */
 const VERDICT_SEVERITY: Readonly<Record<Verdict, MetricSeverity>> = {
   ok: "ok",
   partial: "warn",
-  // Both mean the same thing to a user — nobody can connect. Which of the two
-  // it is stays visible in the verdict itself, where it belongs.
   blocked: "critical",
   down: "critical",
   unknown: "unknown",
@@ -107,12 +79,8 @@ const VERDICT_REASON: Readonly<Record<Verdict, string | undefined>> = {
   unknown: "not enough regions answered to decide",
 };
 
-/**
- * Worst wins. `stale` outranks `warn` because a node we cannot see could be
- * in trouble right now, and blindness is worse than a disk at 86% we know
- * about; it stays below `critical` because a known emergency outranks an
- * unknown one.
- */
+// Worst wins. `stale` outranks `warn`: a node we cannot see may be in
+// trouble right now.
 const STATUS_RANK: Readonly<Record<MetricStatus, number>> = {
   ok: 0,
   unknown: 1,
@@ -121,12 +89,6 @@ const STATUS_RANK: Readonly<Record<MetricStatus, number>> = {
   critical: 4,
 };
 
-/**
- * Turns the latest metric rows into one summary per node.
- *
- * Deliberately free of I/O and of any knowledge of concrete probes: every
- * rule below is mechanical, so a probe added later needs no change here.
- */
 export function buildNodeState(input: NodeStateInput): NodeState[] {
   const byNode = new Map<string, MetricPoint[]>();
 
@@ -137,11 +99,11 @@ export function buildNodeState(input: NodeStateInput): NodeState[] {
   }
 
   return input.nodes.map((node) =>
-    stateFor(node, byNode.get(node.node.name) ?? [], input.now),
+    buildNodeStateFor(node, byNode.get(node.node.name) ?? [], input.now),
   );
 }
 
-function stateFor(
+function buildNodeStateFor(
   node: ResolvedNode,
   points: readonly MetricPoint[],
   now: number,
@@ -158,15 +120,15 @@ function stateFor(
     if (STATUS_RANK[candidate] > STATUS_RANK[status]) status = candidate;
   };
 
-  // A probe switched off for this node has no axis at all: its points are
-  // leftovers from before it was switched off, and showing them would warn
-  // about something the user turned off on purpose.
+  // Points of a probe switched off for this node are leftovers.
   const relevant = points.filter((point) =>
-    enabledProbes.has(probeOf(point.metric)),
+    enabledProbes.has(probeNameOf(point.metric)),
   );
 
   for (const [name, probe] of enabledProbes) {
-    const forProbe = relevant.filter((point) => probeOf(point.metric) === name);
+    const forProbe = relevant.filter(
+      (point) => probeNameOf(point.metric) === name,
+    );
 
     if (forProbe.length === 0) {
       worsenTo("unknown");
@@ -175,18 +137,12 @@ function stateFor(
     }
 
     const staleAges: number[] = [];
-    const lastData = lastDataAt(forProbe);
+    const lastMeasurement = lastMeasurementTs(forProbe);
 
     for (const point of forProbe) {
-      // Retired, not stale: the probe has been writing other metrics all
-      // along and stopped writing this one. Narrowing
-      // `probes.reachability.methods` from `[ping, tcp]` to `[tcp]` leaves
-      // the ping rows behind — `metrics_latest` is never pruned on purpose —
-      // and judging them against the wall clock alone held a healthy node at
-      // `stale` for as long as the database lived.
-      if (isRetired(point, lastData, probe.interval)) continue;
+      if (isRetired(point, lastMeasurement, probe.interval)) continue;
 
-      const view = viewOf(point, probe, node.thresholds, now);
+      const view = buildMetricView(point, probe, node.thresholds, now);
       metrics.push(view);
       worsenTo(view.status);
 
@@ -198,8 +154,7 @@ function stateFor(
       if (reason !== undefined) reasons.push(reason);
     }
 
-    // One line per probe rather than one per value: six stale numbers from
-    // one silent probe are one problem, not six.
+    // One line per silent probe, not one per value.
     if (staleAges.length > 0) {
       const oldest = Math.max(...staleAges);
       reasons.push(
@@ -209,27 +164,19 @@ function stateFor(
     }
   }
 
-  // `null` and `"unknown"` are different answers: the first is "we do not
-  // measure this node's reachability", the second is "we do and cannot tell".
+  // `null` is "not measured", `unknown` is "measured and cannot tell".
   const measured = enabledProbes.has(REACHABILITY_PROBE);
   const verdictView = metrics.find(
     (view) => view.metric === REACHABILITY_VERDICT_METRIC,
   );
-  const verdict = verdictOf(verdictView);
+  const verdict = verdictFromView(verdictView);
   const reachability = measured ? verdict : null;
 
   if (measured && verdictView !== undefined) {
     const severity = VERDICT_SEVERITY[verdict];
-
-    // The verdict metric carries the verdict's own severity rather than the
-    // plain `warn` any other false would get: `down` is not a nuance.
     verdictView.severity = severity;
 
-    // A verdict is folded in only while it is current. A four-day-old
-    // `blocked` describes what was true four days ago, and letting it drive
-    // today's status would be the same lie as a green disk from stale
-    // numbers; the value is still reported, with its age and its severity,
-    // for the client to show.
+    // A stale verdict is reported but does not drive today's status.
     if (verdictView.status !== "stale") {
       verdictView.status = severity;
       worsenTo(severity);
@@ -249,17 +196,10 @@ function stateFor(
   };
 }
 
-/**
- * When this probe last produced a measurement, as opposed to when it last
- * ran.
- *
- * `<probe>.up` is excluded deliberately: the collector writes it on failure
- * too, so counting it would say a probe with broken ssh is "producing data"
- * and retire the very values that should be shown, aged, while it is broken.
- * `-Infinity` when the probe has written nothing but `.up`, which retires
- * nothing.
- */
-function lastDataAt(points: readonly MetricPoint[]): number {
+// When the probe last measured, not when it last ran: `.up` is written on
+// failure too, and counting it would retire the values a broken probe
+// should keep showing.
+function lastMeasurementTs(points: readonly MetricPoint[]): number {
   const timestamps = points
     .filter((point) => !point.metric.endsWith(PROBE_LIVENESS_SUFFIX))
     .map((point) => point.ts);
@@ -269,45 +209,29 @@ function lastDataAt(points: readonly MetricPoint[]): number {
     : Number.NEGATIVE_INFINITY;
 }
 
-/**
- * How far behind the probe's own last measurement a metric may fall before it
- * is treated as gone rather than late.
- *
- * Deliberately much larger than the two intervals staleness uses, and the
- * gap between the two numbers is the point: below it the metric reads stale,
- * which is the signal that part of a measurement started failing; above it we
- * conclude the probe is no longer writing it at all. Sharing one threshold
- * would leave no window for the warning, and a method that quietly stopped
- * answering would vanish from the table instead of saying so.
- *
- * Ten is a judgement, not a measurement — nothing in the data separates
- * "missing for now" from "removed", only how long it has been missing. It is
- * short enough that a narrowed config clears within an hour at a five-minute
- * interval, long enough that a run of consecutive failures is still reported.
- * The guess disappears once probes declare the metrics they emit; see the
- * debt list.
- */
+// A metric this far behind the probe's own last measurement was dropped by
+// the probe (a narrowed config; `metrics_latest` is never pruned). Well
+// above the 2× staleness window: the gap is where a metric warns as stale
+// before it vanishes. Ten is a judgement, gone once probes declare metrics.
 const RETIREMENT_INTERVALS = 10;
 
 function isRetired(
   point: MetricPoint,
-  lastData: number,
+  lastMeasurement: number,
   intervalSeconds: number,
 ): boolean {
   if (point.metric.endsWith(PROBE_LIVENESS_SUFFIX)) return false;
 
-  return lastData - point.ts > intervalSeconds * RETIREMENT_INTERVALS;
+  return lastMeasurement - point.ts > intervalSeconds * RETIREMENT_INTERVALS;
 }
 
-function viewOf(
+function buildMetricView(
   point: MetricPoint,
   probe: ResolvedProbe,
   thresholds: ReadonlyMap<string, Threshold>,
   now: number,
 ): MetricView {
-  // A node whose clock runs ahead produces a point from the future. Negative
-  // age is not "very fresh" in any useful sense, and clamping keeps it from
-  // being printed as a nonsense duration.
+  // A clock running ahead gives a point from the future.
   const ageSeconds = Math.max(0, now - point.ts);
   const stale = ageSeconds > probe.interval * 2;
 
@@ -328,7 +252,7 @@ function viewOf(
   const threshold = thresholds.get(point.metric);
   const breached =
     point.value !== undefined && threshold !== undefined
-      ? breachOf(point.value, threshold)
+      ? exceededThresholdLevel(point.value, threshold)
       : undefined;
 
   if (breached !== undefined) {
@@ -337,16 +261,13 @@ function viewOf(
     point.ok === false &&
     !isDecidedByVerdict(point.metric, probe.name)
   ) {
-    // Everything else a `false` can mean is one probe's business, and probes
-    // do not describe their metrics yet, so all of them warn rather than
-    // some warning and some being an emergency.
+    // Probes do not describe their metrics yet, so every `false` is a warn.
     view.severity = "warn";
   }
 
+  // A value too old to trust decides nothing; what it read stays in
+  // `severity`.
   if (stale) {
-    // A value too old to trust decides nothing: reporting a seven-hour-old
-    // 12% as "ok" is the green-from-stale-numbers lie. What it read stays in
-    // `severity`, for a client to show beside the age that says how old.
     view.status = "stale";
     return view;
   }
@@ -357,24 +278,9 @@ function viewOf(
   return view;
 }
 
-/**
- * Whether `stateFor` settles this metric through the verdict instead.
- *
- * A per-region, per-method reading is an input the probe has already weighed:
- * `summarize()` applied the quorum and told the required regions from the
- * control group, and its answer is the verdict. Letting each failing reading
- * warn separately both double-counts the same fact and buries it — a node
- * unreachable everywhere produced one useful line and five saying "reports a
- * problem", which is how a reasons list stops being read. The verdict itself
- * is here for the same reason: it gets the verdict's own severity, because
- * `down` is not the same nuance as any other `false`.
- *
- * `reachability.up` is emphatically not one of those. The collector writes it
- * for every probe alike to record that the probe ran at all, and check-host
- * refusing requests — it documents no rate limit, so this is the expected way
- * it breaks — has to mark the node rather than pass unnoticed because of a
- * rule about region readings.
- */
+// Region readings and the verdict itself: the verdict already weighed them,
+// and each failing reading warning on its own would bury it. `.up` is not
+// one of those: check-host refusing requests must mark the node.
 function isDecidedByVerdict(metric: string, probe: string): boolean {
   return (
     probe === REACHABILITY_PROBE && !metric.endsWith(PROBE_LIVENESS_SUFFIX)
@@ -382,7 +288,7 @@ function isDecidedByVerdict(metric: string, probe: string): boolean {
 }
 
 /** Strictly past the bound: `warn: 85` leaves exactly 85 alone. */
-function breachOf(
+function exceededThresholdLevel(
   value: number,
   threshold: Threshold,
 ): ThresholdLevel | undefined {
@@ -411,8 +317,8 @@ function reasonFor(
   }
 
   if (view.metric.endsWith(PROBE_LIVENESS_SUFFIX) && view.ok === false) {
-    const kind = view.meta?.["errorKind"];
-    const detail = view.meta?.["detail"];
+    const kind = view.meta?.errorKind;
+    const detail = view.meta?.detail;
     const cause = typeof kind === "string" ? kind : "unknown error";
     const suffix = typeof detail === "string" ? ` (${detail})` : "";
 
@@ -426,8 +332,8 @@ function reasonFor(
   return undefined;
 }
 
-function verdictOf(view: MetricView | undefined): Verdict {
-  const verdict = view?.meta?.["verdict"];
+function verdictFromView(view: MetricView | undefined): Verdict {
+  const verdict = view?.meta?.verdict;
 
   return isVerdict(verdict) ? verdict : "unknown";
 }
@@ -436,7 +342,7 @@ function isVerdict(value: unknown): value is Verdict {
   return typeof value === "string" && Object.hasOwn(VERDICT_SEVERITY, value);
 }
 
-function probeOf(metric: string): string {
+function probeNameOf(metric: string): string {
   const dot = metric.indexOf(".");
 
   return dot === -1 ? metric : metric.slice(0, dot);

@@ -18,7 +18,7 @@ export class ConcurrencyLimiter {
     return this.waitingResolvers.length;
   }
 
-  /** The queue as it stands: what `/api/health` and the backlog detector read. */
+  /** What `/api/health` and the backlog detector read. */
   state(): QueueState {
     return {
       active: this.activeCount,

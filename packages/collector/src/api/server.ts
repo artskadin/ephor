@@ -18,18 +18,11 @@ import {
   postCheck,
 } from "./handlers.js";
 
-/**
- * The only file that knows Fastify exists.
- *
- * Everything above it works in plain values: `handlers.ts` builds the
- * answers, `core/api/types.ts` describes their shape. Replacing the framework
- * touches this file and nothing else, and no client can tell.
- */
+// The only file that knows Fastify exists.
 
-export interface ApiServerOptions {
+interface ApiServerOptions {
   deps: ApiDeps;
   settings: ApiSettings;
-  /** Shared secret every request must present. Never empty; see below. */
   token: string;
   logger: Logger;
 }
@@ -50,8 +43,7 @@ export class MissingTokenError extends Error {
 export function createApiServer(options: ApiServerOptions): FastifyInstance {
   if (options.token === "") throw new MissingTokenError();
 
-  // Fastify keeps its own logger; ours is the one the rest of the collector
-  // writes to, and two of them would interleave two formats on one stream.
+  // Two loggers would interleave two formats on one stream.
   const app = Fastify({ logger: false });
 
   app.addHook("onRequest", async (request, reply) => {
@@ -60,8 +52,7 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
     options.logger.warn("rejected an unauthenticated API request", {
       method: request.method,
       url: request.url,
-      // The address only, never the header: logging a wrong token still
-      // logs a secret, and the near-misses are the ones worth stealing.
+      // Never the header: a wrong token is still a secret.
       from: request.ip,
     });
 
@@ -82,8 +73,6 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
   );
 
   app.get("/api/metrics", async (request, reply) => {
-    // Parsed here, in the one file that knows about HTTP, so the handler
-    // receives typed values and the schema's messages reach the caller.
     const parsed = MetricsQuerySchema.safeParse(request.query);
 
     if (!parsed.success) {
@@ -93,11 +82,8 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
     return getMetrics(options.deps, parsed.data);
   });
 
-  // POST: neither safe nor idempotent — it opens ssh sessions, calls a
-  // third-party API and writes rows.
   app.post<{ Body: unknown }>("/api/check", async (request, reply) => {
-    // No body is the whole fleet: `curl -X POST` sends none, and making the
-    // common case type `{}` would be a tax on the command-line reader.
+    // No body is the whole fleet: `curl -X POST` sends none.
     const parsed = CheckRequestSchema.safeParse(request.body ?? {});
 
     if (!parsed.success) {
@@ -115,16 +101,10 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
   );
 
   app.setErrorHandler(async (error, request, reply) => {
-    // The one failure that is the caller's: it parsed, and it still cannot
-    // be answered as asked.
     if (error instanceof InvalidQueryError) {
       return sendError(reply, 400, error.message);
     }
 
-    // Fastify's own refusals — a body that is not JSON, one past the size
-    // limit — are the caller's too, and carry their status. Only Fastify's:
-    // any other error with a status on it is the collector's failure, logged
-    // below and never echoed.
     const refusal = fastifyRefusal(error);
     if (refusal) return sendError(reply, refusal.status, refusal.message);
 
@@ -134,19 +114,13 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
       cause: error,
     });
 
-    // Deliberately bare: the detail is in the collector's log, where the
-    // operator can read it, and not in a response the caller might publish.
+    // The detail stays in the log, not in a response the caller may publish.
     return sendError(reply, 500, "internal error");
   });
 
   return app;
 }
 
-/**
- * Every failure leaves through here, so every failure has the one shape.
- * `send()` hands back the reply itself, which is thenable, so callers may
- * `await` or `return` it alike.
- */
 function sendError(
   reply: FastifyReply,
   status: number,
@@ -157,12 +131,8 @@ function sendError(
   return reply.code(status).send(body);
 }
 
-/**
- * A 4xx Fastify raised itself. Its errors carry an `FST_ERR_` code beside
- * the status, which is what tells them apart from a downstream error that
- * merely has a `statusCode` — an HTTP client's, say — and whose message is
- * not the caller's to read.
- */
+// A 4xx Fastify raised itself (`FST_ERR_` code), whose message is the
+// caller's to read; a downstream error with a `statusCode` is not.
 function fastifyRefusal(
   error: unknown,
 ): { status: number; message: string } | undefined {
@@ -177,11 +147,7 @@ function fastifyRefusal(
   return { status: error.statusCode, message: error.message };
 }
 
-/**
- * Compared byte by byte in constant time. A plain `===` returns as soon as
- * two characters differ, and the time it took says how many were right —
- * enough, over many tries, to recover the token one character at a time.
- */
+/** Constant time: `===` returns at the first differing character. */
 function matchesToken(header: string | undefined, token: string): boolean {
   const prefix = "Bearer ";
 
@@ -190,9 +156,7 @@ function matchesToken(header: string | undefined, token: string): boolean {
   const offered = Buffer.from(header.slice(prefix.length));
   const expected = Buffer.from(token);
 
-  // timingSafeEqual throws on a length mismatch, which would leak the length
-  // through the error rather than the timing. Answering false is what the
-  // caller gets anyway.
+  // timingSafeEqual throws on a length mismatch.
   if (offered.length !== expected.length) return false;
 
   return timingSafeEqual(offered, expected);

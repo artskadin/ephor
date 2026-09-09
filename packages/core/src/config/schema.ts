@@ -2,15 +2,7 @@ import { z } from "zod";
 import type { ProbeDescriptor } from "../types/probe-contract.js";
 import { Duration } from "./duration.js";
 
-/* -------------------------------------------------------------------------
- * SSH target
- *
- * Two spellings for the same thing: `ssh: achilles` when the user keeps an
- * alias in ~/.ssh/config, and the full object when they do not. The alias is
- * a convenience, never a requirement — a config must be able to describe the
- * connection completely on its own.
- * ---------------------------------------------------------------------- */
-
+// `ssh: achilles` for an alias in ~/.ssh/config, the object form otherwise.
 const SshTargetSchema = z
   .object({
     alias: z.string().min(1).optional(),
@@ -21,7 +13,7 @@ const SshTargetSchema = z
   })
   .strict();
 
-export const SshSchema = z.union([
+const SshSchema = z.union([
   z
     .string()
     .min(1)
@@ -31,14 +23,8 @@ export const SshSchema = z.union([
 
 export type Ssh = z.infer<typeof SshTargetSchema>;
 
-/* -------------------------------------------------------------------------
- * Ports
- *
- * `443` for the common case, the object form when the port needs a label or
- * is not meant to be reachable from the outside.
- * ---------------------------------------------------------------------- */
-
-export const ExposeSchema = z.enum(["public", "local", "bastion"]);
+// `443` for the common case, the object form for a label or a private port.
+const ExposeSchema = z.enum(["public", "local", "bastion"]);
 
 const PortTargetSchema = z
   .object({
@@ -49,7 +35,7 @@ const PortTargetSchema = z
   })
   .strict();
 
-export const PortSchema = z.union([
+const PortSchema = z.union([
   z
     .number()
     .int()
@@ -61,15 +47,8 @@ export const PortSchema = z.union([
 
 export type Port = z.infer<typeof PortTargetSchema>;
 
-/* -------------------------------------------------------------------------
- * Probe settings
- *
- * The same four keys mean the same thing at both levels, so there is only
- * one word to learn. `concurrency` is global-only: it caps a shared resource
- * (a third-party API, bandwidth), which no single node owns. Ssh has its own
- * limits below the probes and is not what this number protects.
- * ---------------------------------------------------------------------- */
-
+// The same keys at both levels. `concurrency` is global-only: it caps a
+// resource shared by every node.
 const baseProbeShape = {
   enabled: z.boolean().optional(),
   interval: Duration.optional(),
@@ -77,10 +56,9 @@ const baseProbeShape = {
   retries: z.number().int().min(0).optional(),
 } satisfies z.ZodRawShape;
 
-export const NodeProbeConfigSchema = z.object(baseProbeShape).strict();
-export type NodeProbeConfig = z.infer<typeof NodeProbeConfigSchema>;
+const NodeProbeConfigSchema = z.object(baseProbeShape).strict();
 
-export const GlobalProbeConfigSchema = z
+const GlobalProbeConfigSchema = z
   .object({
     ...baseProbeShape,
     concurrency: z.number().int().min(1).optional(),
@@ -93,23 +71,11 @@ export const BASE_PROBE_KEYS: readonly string[] = Object.keys({
   concurrency: true,
 });
 
-/**
- * A probe's global settings: the shared keys plus whatever the probe itself
- * declares. Probe-specific values are read through `ProbeContext.settings`,
- * so they are deliberately not described here.
- */
-export type GlobalProbeConfig = z.infer<typeof GlobalProbeConfigSchema>;
+type GlobalProbeConfig = z.infer<typeof GlobalProbeConfigSchema>;
 
-/**
- * Settings applied to every probe, so that "three attempts everywhere" is
- * written once rather than once per probe.
- *
- * `interval` is deliberately not accepted here. One number cannot sensibly
- * mean both "read /proc" and "download for ten seconds", and a user who set
- * it globally would be surprised by the bandwidth bill rather than by an
- * error message.
- */
-export const ProbeDefaultsSchema = z
+// No `interval` here: one number cannot mean both "read /proc" and
+// "download for ten seconds".
+const ProbeDefaultsSchema = z
   .object({
     enabled: z.boolean().optional(),
     timeout: Duration.optional(),
@@ -122,23 +88,11 @@ export const ProbeDefaultsSchema = z
   })
   .strict();
 
-// Named apart from `ProbeDefaults` in the probe contract: that one is what a
-// probe declares in code, this one is what the user writes in YAML.
-export type ProbeDefaultsConfig = z.infer<typeof ProbeDefaultsSchema>;
-
-/* -------------------------------------------------------------------------
- * Storage
- * ---------------------------------------------------------------------- */
-
-export const StorageSchema = z
+const StorageSchema = z
   .object({
-    // Only sqlite exists today. The field is here so that adding a driver
-    // later is an addition to an enum rather than a change in shape.
     driver: z.enum(["sqlite"]).default("sqlite"),
-    // No default: a relative one silently follows the working directory,
-    // which in a container means the data volume is bypassed and history
-    // disappears on the next recreation without a word. The collector
-    // picks a platform-appropriate absolute path when this is absent.
+    // No default: a relative path follows the working directory, which in a
+    // container bypasses the data volume. The collector picks an absolute one.
     path: z.string().min(1).optional(),
     retention: Duration.default(7_776_000), // 90 days
     pruneAt: z
@@ -148,63 +102,28 @@ export const StorageSchema = z
   })
   .strict();
 
-export type StorageSettings = z.infer<typeof StorageSchema>;
-
-/* -------------------------------------------------------------------------
- * HTTP API
- *
- * Served from the collector's own process: `POST /api/check` forces a run and
- * waits for exactly those pairs, which needs the live scheduler rather than
- * the database. Clients reach it over an SSH tunnel when the collector is
- * remote.
- *
- * The token is deliberately not here. It belongs in `EPHOR_TOKEN`, because a
- * config file gets copied between machines, pasted into a bug report and
- * committed by accident.
- * ---------------------------------------------------------------------- */
-
-export const ApiSchema = z
+// The token is not here on purpose: a config file gets copied, pasted into
+// bug reports and committed. It lives in `EPHOR_TOKEN`.
+const ApiSchema = z
   .object({
     enabled: z.boolean().default(true),
-    // Configurable rather than fixed only because of containers: inside one,
-    // binding 127.0.0.1 makes the port unreachable from the host's mapping.
-    // On a plain host it should stay as it is — and see the gotcha about
-    // Docker writing nftables rules straight past ufw.
+    // Configurable only for containers, where 127.0.0.1 is unreachable from
+    // the host's port mapping.
     bind: z.string().min(1).default("127.0.0.1"),
-    // Unassigned at IANA, so it will not collide with whatever else the
-    // bastion runs — and below the ephemeral range the OS hands to outgoing
-    // connections (Linux 32768-60999, macOS 49152-65535). The first default,
-    // 53556, sat inside that range: any outgoing connection could hold it as
-    // its source port, and then `serve` failed to start with EADDRINUSE.
+    // Unassigned at IANA and below the ephemeral ranges (Linux 32768–60999,
+    // macOS 49152–65535): an outgoing connection took 53556 as a source port.
     port: z.number().int().min(1).max(65535).default(31556),
   })
   .strict();
 
 export type ApiSettings = z.infer<typeof ApiSchema>;
 
-/* -------------------------------------------------------------------------
- * Thresholds
- *
- * What counts as a problem is the user's to say, not ours: 85% of a disk is
- * routine on one machine and an emergency on another. Keyed by metric id —
- * the same name the user already types in `ephor history system.disk_percent`
- * — so `core` needs to know nothing about which probes exist, and a new probe
- * becomes thresholdable without touching this file.
- *
- * Numbers are in the metric's own unit: percent for `system.disk_percent`,
- * Mbit/s for `speed.download_mbps`, seconds for `time.drift_seconds`. There
- * is nothing to convert and no unit to declare.
- *
- * Thresholds are optional everywhere. A metric without one is displayed and
- * never coloured — which is the right default for a value whose normal range
- * the user does not know yet, and a wrong threshold is worse than none: it
- * paints the screen for no reason until people stop reading the colours.
- * ---------------------------------------------------------------------- */
+// Keyed by metric id, in the metric's own unit, optional everywhere: a
+// metric without a threshold is shown and never coloured.
+const WorseWhenSchema = z.enum(["above", "below"]);
+type WorseWhen = z.infer<typeof WorseWhenSchema>;
 
-export const WorseWhenSchema = z.enum(["above", "below"]);
-export type WorseWhen = z.infer<typeof WorseWhenSchema>;
-
-export const ThresholdSchema = z
+const ThresholdSchema = z
   .object({
     warn: z.number().optional(),
     critical: z.number().optional(),
@@ -212,11 +131,11 @@ export const ThresholdSchema = z
     worseWhen: WorseWhenSchema.optional(),
   })
   .strict()
-  .superRefine((threshold, ctx) => {
+  .superRefine((threshold, context) => {
     const { warn, critical, worseWhen } = threshold;
 
     if (warn === undefined && critical === undefined) {
-      ctx.addIssue({
+      context.addIssue({
         code: "custom",
         message: "a threshold needs warn, critical, or both",
       });
@@ -225,18 +144,17 @@ export const ThresholdSchema = z
 
     if (warn !== undefined && critical !== undefined) {
       if (warn === critical) {
-        ctx.addIssue({
+        context.addIssue({
           code: "custom",
           message: `warn and critical must differ; both are ${warn}`,
         });
         return;
       }
 
-      // Two bounds say the direction by themselves: 85 → 95 climbs towards
-      // trouble, 50 → 20 falls towards it.
+      // Two bounds say the direction: 85 → 95 climbs, 50 → 20 falls.
       const implied = critical > warn ? "above" : "below";
       if (worseWhen !== undefined && worseWhen !== implied) {
-        ctx.addIssue({
+        context.addIssue({
           code: "custom",
           message:
             `warn ${warn} and critical ${critical} mean the metric is worse ` +
@@ -247,11 +165,10 @@ export const ThresholdSchema = z
       return;
     }
 
-    // One bound cannot imply a direction, and guessing is how a monitor comes
-    // to report a fast server as slow: 50 Mbit/s is bad below, 50% of a disk
-    // is bad above, and the metric name says nothing to a schema.
+    // One bound cannot imply a direction: 50 Mbit/s is bad below, 50% of a
+    // disk is bad above.
     if (worseWhen === undefined) {
-      ctx.addIssue({
+      context.addIssue({
         code: "custom",
         message:
           "a single bound does not say which side is bad; add " +
@@ -267,7 +184,7 @@ export const ThresholdSchema = z
         ? critical > warn
           ? "above"
           : "below"
-        : // Present by the rule above; the fallback keeps the type honest.
+        : // Present by the rule above; the fallback satisfies the type.
           (threshold.worseWhen ?? "above");
 
     const resolved: { warn?: number; critical?: number; worseWhen: WorseWhen } =
@@ -281,22 +198,11 @@ export const ThresholdSchema = z
 
 export type Threshold = z.infer<typeof ThresholdSchema>;
 
-/**
- * `null` means "no threshold for this metric". Written globally it is the
- * same as leaving the metric out; written on a node it is the only way to
- * drop an inherited one — an archive box that lives at 92% disk on purpose
- * would otherwise need an invented number like `warn: 200`, which reads as a
- * mistake and hides a real problem the day the metric passes it.
- */
+// `null` on a node drops an inherited threshold; an invented `warn: 200`
+// would hide a real problem instead.
 const ThresholdsSchema = optionalSection(
   z.record(z.string().min(1), ThresholdSchema.nullable()).default({}),
 );
-
-export type Thresholds = z.infer<typeof ThresholdsSchema>;
-
-/* -------------------------------------------------------------------------
- * Nodes and the config as a whole
- * ---------------------------------------------------------------------- */
 
 const nodeShape = {
   name: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i, "letters, digits, - and _"),
@@ -313,17 +219,10 @@ const nodeShape = {
   thresholds: ThresholdsSchema,
 } satisfies z.ZodRawShape;
 
-export const NodeSchema = z.object(nodeShape).strict();
+const NodeSchema = z.object(nodeShape).strict();
 export type Node = z.infer<typeof NodeSchema>;
 
-/**
- * Builds the config schema for a given set of probes.
- *
- * The probe list is not baked into `core`: registering a probe is the only
- * thing needed to make its section valid, and an unregistered name is
- * reported with the list of names that do exist rather than a bare
- * "unrecognized key".
- */
+/** Not baked in: registering a probe is what makes its section valid. */
 export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
   const globalByName = new Map(
     descriptors.map((descriptor) => [
@@ -338,30 +237,27 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
     z
       .record(z.string(), z.unknown())
       .default({})
-      .transform((raw, ctx): Record<string, GlobalProbeConfig> => {
+      .transform((raw, context): Record<string, GlobalProbeConfig> => {
         for (const name of Object.keys(raw)) {
           if (globalByName.has(name)) continue;
-          ctx.addIssue(unknownProbeIssue(name, knownNames));
+          context.addIssue(unknownProbeIssue(name, knownNames));
         }
 
         const parsed: Record<string, GlobalProbeConfig> = {};
 
-        // Every registered probe gets an entry, whether or not the user
-        // wrote one. Otherwise a probe's own defaults exist only for users
-        // who happened to mention it, and `settings` reaches the probe
-        // empty — a difference nothing downstream could see or explain.
+        // Every registered probe gets an entry, so its defaults apply
+        // whether or not the user wrote its section.
         for (const [name, schema] of globalByName) {
           const result = schema.safeParse(raw[name] ?? {});
 
           if (!result.success) {
             for (const issue of result.error.issues) {
-              ctx.addIssue({ ...issue, path: [name, ...issue.path] });
+              context.addIssue({ ...issue, path: [name, ...issue.path] });
             }
             continue;
           }
 
-          // Safe by construction: the schema is the shared shape extended
-          // with the probe's own keys, so it is a superset of the base type.
+          // The schema extends the shared shape, so the data is a superset.
           parsed[name] = result.data as GlobalProbeConfig;
         }
 
@@ -369,16 +265,16 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
       }),
   );
 
-  const NodeWithKnownProbesSchema = NodeSchema.superRefine((node, ctx) => {
+  const NodeWithKnownProbesSchema = NodeSchema.superRefine((node, context) => {
     for (const name of Object.keys(node.probes)) {
       if (globalByName.has(name)) continue;
-      ctx.addIssue({
+      context.addIssue({
         ...unknownProbeIssue(name, knownNames),
         path: ["probes"],
       });
     }
 
-    checkThresholdKeys(node.thresholds, knownNames, ctx, ["thresholds"]);
+    checkThresholdKeys(node.thresholds, knownNames, context, ["thresholds"]);
   });
 
   return z
@@ -391,8 +287,10 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
       api: optionalSection(ApiSchema.prefault({})),
     })
     .strict()
-    .superRefine((config, ctx) => {
-      checkThresholdKeys(config.thresholds, knownNames, ctx, ["thresholds"]);
+    .superRefine((config, context) => {
+      checkThresholdKeys(config.thresholds, knownNames, context, [
+        "thresholds",
+      ]);
     })
     .refine(
       (config) =>
@@ -402,26 +300,19 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
     );
 }
 
-/**
- * A metric id starts with the name of the probe that emits it, so a threshold
- * naming a probe that does not exist is a typo worth refusing — the same
- * treatment `probes:` already gives an unknown section.
- *
- * The part after the dot is not checked, because no probe declares the
- * metrics it writes yet. Until that exists, `system.disk_percnet` still slips
- * through, and the user believes a threshold applies when it never will.
- */
+// Only the probe part of a metric id can be checked: no probe declares the
+// metrics it writes yet, so `system.disk_percnet` still slips through.
 function checkThresholdKeys(
   thresholds: Readonly<Record<string, unknown>>,
   knownNames: readonly string[],
-  ctx: z.RefinementCtx,
+  context: z.RefinementCtx,
   basePath: PropertyKey[],
 ): void {
   for (const metric of Object.keys(thresholds)) {
     const probe = metric.split(".")[0];
     if (probe !== undefined && knownNames.includes(probe)) continue;
 
-    ctx.addIssue({
+    context.addIssue({
       code: "custom",
       message:
         `Metric "${metric}" belongs to no known probe. A metric id starts ` +
@@ -433,13 +324,8 @@ function checkThresholdKeys(
 
 export type Config = z.infer<ReturnType<typeof buildConfigSchema>>;
 
-/**
- * A probe's own settings live alongside the shared ones, so a probe that
- * declares a key like `timeout` would silently shadow the shared meaning
- * and then be stripped out again as a shared key. Refusing at build time
- * turns a value that quietly does nothing into an error the probe author
- * sees on the first run.
- */
+// A probe setting named like a shared key would be stripped as a shared key
+// and quietly do nothing; refused at build time instead.
 function buildGlobalProbeSchema(descriptor: ProbeDescriptor) {
   const collisions = Object.keys(descriptor.settings ?? {}).filter((key) =>
     BASE_PROBE_KEYS.includes(key),
@@ -455,12 +341,8 @@ function buildGlobalProbeSchema(descriptor: ProbeDescriptor) {
   return GlobalProbeConfigSchema.extend(descriptor.settings ?? {}).strict();
 }
 
-/**
- * A section written with no body under it parses to `null`, and neither
- * `.default()` nor `.prefault()` covers that — both only fire on
- * `undefined`. Blanking a section while editing is as common as deleting
- * it and has to mean the same thing.
- */
+// A blanked YAML section is `null`, which neither `.default()` nor
+// `.prefault()` covers.
 function optionalSection<T extends z.ZodType>(schema: T) {
   return z.preprocess((value) => value ?? undefined, schema);
 }

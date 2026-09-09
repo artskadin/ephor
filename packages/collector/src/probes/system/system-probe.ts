@@ -16,16 +16,12 @@ export const systemProbeDescriptor: ProbeDescriptor = {
     interval: 60,
     timeout: 15,
     retries: 2,
-    // A backstop against unbounded growth rather than a throttle: the
-    // spread schedule keeps the count in flight far below this. What ssh
-    // itself can bear — processes on the collector host, logins into one
-    // sshd — is bounded below the probes, in `SshGates`, for every probe
-    // that runs ssh at once.
+    // A backstop, not a throttle; ssh has its own limits in `SshGates`.
     concurrency: 50,
   },
 };
 
-export interface SystemSnapshot {
+interface SystemSnapshot {
   hostName: string;
   load1: number;
   load5: number;
@@ -86,8 +82,7 @@ export class SystemProbe implements Probe<SystemSnapshot> {
   toMetrics(snapshot: SystemSnapshot, context: ProbeContext): MetricPoint[] {
     const base = { ts: context.startedAt, node: context.nodeName };
 
-    // Normalised to percent: raw load and byte counts are not
-    // comparable between machines with different cores and disks.
+    // Percent: raw load and bytes are not comparable between machines.
     const loadPercent = (snapshot.load1 / snapshot.cpuCount) * 100;
     const memUsedPercent =
       ((snapshot.memTotalKb - snapshot.memAvailableKb) / snapshot.memTotalKb) *
@@ -96,9 +91,21 @@ export class SystemProbe implements Probe<SystemSnapshot> {
       (snapshot.diskUsedBytes / snapshot.diskTotalBytes) * 100;
 
     return [
-      { ...base, metric: "system.load_percent", value: round(loadPercent) },
-      { ...base, metric: "system.mem_percent", value: round(memUsedPercent) },
-      { ...base, metric: "system.disk_percent", value: round(diskUsedPercent) },
+      {
+        ...base,
+        metric: "system.load_percent",
+        value: roundToTenth(loadPercent),
+      },
+      {
+        ...base,
+        metric: "system.mem_percent",
+        value: roundToTenth(memUsedPercent),
+      },
+      {
+        ...base,
+        metric: "system.disk_percent",
+        value: roundToTenth(diskUsedPercent),
+      },
       {
         ...base,
         metric: "system.uptime_seconds",
@@ -133,18 +140,12 @@ function toProbeError(cause: unknown): ProbeError {
   return { kind: "internal", cause };
 }
 
-function round(value: number): number {
+function roundToTenth(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-/**
- * Compares what is actually listening against what the config
- * declares.
- *
- * An undeclared port is either something installed and forgotten,
- * or something that should not be there at all. A declared port
- * that stopped listening means the service is down.
- */
+// An undeclared port is something forgotten or something that should not
+// be there; a declared port not listening is a service down.
 function comparePorts(
   listeningCsv: string,
   context: ProbeContext,
@@ -163,8 +164,7 @@ function comparePorts(
       port.label ? `${port.label}:${port.port}` : `${port.port}`,
     );
 
-  // Nothing declared means nothing to compare against; reporting
-  // every open port as a problem would be noise.
+  // Nothing declared, nothing to compare against.
   const hasExpectations = context.ports.length > 0;
 
   return {

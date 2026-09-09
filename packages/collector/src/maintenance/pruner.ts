@@ -1,19 +1,16 @@
 import type { Storage } from "@ephorate/core";
 import type { Clock } from "../scheduling/clock.js";
 
-export interface PrunerOptions {
+interface PrunerOptions {
   storage: Storage;
   clock: Clock;
-  /** Seconds of history to keep. */
   retentionSeconds: number;
-  /** Local time of day to run, as 'HH:MM'. */
+  /** Local time of day, `HH:MM`. */
   runAt: string;
   onPruned?: ((removed: number) => void) | undefined;
 }
 
-/**
- * Deletes old metrics once a day.
- */
+/** Deletes old metrics once a day. */
 export class Pruner {
   private timer?: NodeJS.Timeout | undefined;
   private lastRunDay = "";
@@ -22,8 +19,7 @@ export class Pruner {
 
   start(): void {
     if (this.timer) return;
-    // Checking every minute is precise enough for a daily job and
-    // survives clock drift better than a single long timeout.
+    // A minute is precise enough for a daily job and survives clock drift.
     this.timer = setInterval(() => void this.tick(), 60_000);
   }
 
@@ -44,7 +40,6 @@ export class Pruner {
     await this.runOnce();
   }
 
-  /** Exposed for manual runs and tests. */
   async runOnce(): Promise<number> {
     const cutoff =
       Math.floor(this.options.clock.now() / 1000) -

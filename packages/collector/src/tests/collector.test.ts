@@ -91,16 +91,16 @@ describe("Collector.runNow", () => {
   });
 });
 
-describe("Collector.queueOf", () => {
+describe("Collector.queueState", () => {
   it("answers for a registered probe and refuses an unknown one", async () => {
     const collector = await collectorOf();
 
-    expect(collector.queueOf("fast")).toEqual({
+    expect(collector.queueState("fast")).toEqual({
       active: 0,
       queued: 0,
       limit: 2,
     });
-    expect(() => collector.queueOf("ghost")).toThrow(/no concurrency limit/);
+    expect(() => collector.queueState("ghost")).toThrow(/no concurrency limit/);
   });
 });
 

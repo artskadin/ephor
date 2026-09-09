@@ -22,15 +22,7 @@ export interface ReachabilityTarget {
   domain?: string | undefined;
 }
 
-/**
- * One HTTP GET returning JSON.
- *
- * Separated from the providers so that *where the request originates* stays
- * a deployment choice rather than a property of the provider: from the
- * collector by default, optionally through a node so the source IP is spread
- * across the fleet. A provider that speaks something other than HTTP simply
- * ignores it.
- */
+/** Injected: where a request originates is not the provider's business. */
 export interface HttpRequester {
   getJson<T>(url: string): Promise<T>;
 }
@@ -55,12 +47,7 @@ export interface ReachabilityRequest {
   requester: HttpRequester;
 }
 
-/**
- * A source of reachability measurements: check-host today, another public
- * service or a fleet of own agents later. Several may coexist — `summarize`
- * takes a flat list of readings, so results from two providers merge without
- * the verdict logic knowing.
- */
+/** check-host today; readings from several providers merge in `summarize`. */
 export interface ReachabilityProvider {
   readonly id: string;
 

@@ -4,12 +4,7 @@ import { ReachabilityProbe } from "./reachability/reachability-probe.js";
 import { ProbeRegistry } from "./registry.js";
 import { SystemProbe } from "./system/system-probe.js";
 
-/**
- * Every probe the collector ships, wired to the real world. One function
- * for the daemon and for a check without one: the config schema is
- * generated from what is registered, so two registries could accept two
- * different configs.
- */
+/** One registry for daemon and no-daemon check: the schema comes from it. */
 export function createRegistry(): ProbeRegistry {
   const registry = new ProbeRegistry();
 
@@ -24,8 +19,7 @@ export function createRegistry(): ProbeRegistry {
           regions: settings.regions,
           vantageTtlMs: settings.vantageRefresh * 1000,
         }),
-      // Always from the collector for now; `requestFrom: nodes` will make
-      // this a choice without the provider noticing.
+      // From the collector until `requestFrom: nodes` exists.
       requesterFor: () => requester,
     }),
   );
