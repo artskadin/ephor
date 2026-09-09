@@ -1,8 +1,25 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { StateResponse } from "@ephorate/core";
+import type { CheckResponse, StateResponse } from "@ephorate/core";
 
 export const TOKEN = "0123456789abcdef";
+
+/** What `POST /api/check` answers: a result, or a refusal with its text. */
+type CheckAnswer = CheckResponse | { status: 400 | 404; error: string };
+
+interface CollectorBehaviour {
+  check?: CheckAnswer | undefined;
+  /** Answers to `/api/state` in order, the given state once they run out. */
+  statesInOrder?: StateResponse[] | undefined;
+}
+
+/** A recorded request, its body read in full. */
+export interface RecordedRequest {
+  method: string | undefined;
+  url: string | undefined;
+  authorization: string | undefined;
+  body: string;
+}
 
 /**
  * A stand-in for the collector's API on a free loopback port. It answers
@@ -11,30 +28,57 @@ export const TOKEN = "0123456789abcdef";
  * the state it was given. Requests are recorded so a test can prove what
  * the client sent.
  */
-export async function collectorOf(state: StateResponse): Promise<{
+export async function collectorOf(
+  state: StateResponse,
+  behaviour: CollectorBehaviour = {},
+): Promise<{
   url: string;
-  requests: IncomingMessage[];
+  requests: RecordedRequest[];
   close: () => Promise<void>;
 }> {
-  const requests: IncomingMessage[] = [];
+  const requests: RecordedRequest[] = [];
+  const states = [...(behaviour.statesInOrder ?? [])];
 
   const server = createServer((request, response) => {
-    requests.push(request);
+    void bodyOf(request).then((body) => {
+      requests.push({
+        method: request.method,
+        url: request.url,
+        authorization: request.headers.authorization,
+        body,
+      });
 
-    if (request.headers.authorization !== `Bearer ${TOKEN}`) {
-      response.writeHead(401, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: "unauthorized" }));
-      return;
-    }
+      if (request.headers.authorization !== `Bearer ${TOKEN}`) {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
 
-    if (request.url === "/api/state") {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(state));
-      return;
-    }
+      if (request.url === "/api/state") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(states.shift() ?? state));
+        return;
+      }
 
-    response.writeHead(404, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: "not found" }));
+      const { check } = behaviour;
+
+      if (request.url === "/api/check" && request.method === "POST" && check) {
+        if ("status" in check) {
+          response.writeHead(check.status, {
+            "content-type": "application/json",
+          });
+          response.end(JSON.stringify({ error: check.error }));
+          return;
+        }
+
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(check));
+        return;
+      }
+
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "not found" }));
+    });
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -45,6 +89,15 @@ export async function collectorOf(state: StateResponse): Promise<{
     requests,
     close: () => closed(server),
   };
+}
+
+function bodyOf(request: IncomingMessage): Promise<string> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => resolve(Buffer.concat(chunks).toString()));
+    request.on("error", () => resolve(Buffer.concat(chunks).toString()));
+  });
 }
 
 /**

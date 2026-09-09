@@ -1,6 +1,13 @@
-import type { StateResponse } from "@ephorate/core";
+import {
+  CHECK_MAX_WAIT_SECONDS,
+  type CheckRequest,
+  type CheckResponse,
+  type StateResponse,
+} from "@ephorate/core";
 
+/** `refused` alone means "is `ephor serve` running there?". */
 type ApiFailure =
+  | "refused"
   | "unreachable"
   | "timeout"
   | "unauthorized"
@@ -27,12 +34,19 @@ interface ApiClientOptions {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** Above `CHECK_MAX_WAIT_SECONDS`: the daemon answers first, or never. */
+const CHECK_TIMEOUT_MS = (CHECK_MAX_WAIT_SECONDS + 10) * 1000;
+
 /** Every failure is an `ApiError` naming the collector and what to do. */
 export class ApiClient {
-  constructor(private readonly options: ApiClientOptions) {}
+  readonly apiUrl: string;
+
+  constructor(private readonly options: ApiClientOptions) {
+    this.apiUrl = options.apiUrl;
+  }
 
   async state(): Promise<StateResponse> {
-    const answer = await this.get("/api/state");
+    const answer = await this.request("GET", "/api/state");
 
     if (!isStateResponse(answer)) {
       throw this.badAnswer("/api/state", "is not a state");
@@ -41,14 +55,39 @@ export class ApiClient {
     return answer;
   }
 
-  private async get(path: string): Promise<unknown> {
+  /** Blocks while the daemon waits for the run, up to its 240 s cap. */
+  async check(request: CheckRequest): Promise<CheckResponse> {
+    const answer = await this.request(
+      "POST",
+      "/api/check",
+      request,
+      Math.max(CHECK_TIMEOUT_MS, this.options.timeoutMs ?? 0),
+    );
+
+    if (!isCheckResponse(answer)) {
+      throw this.badAnswer("/api/check", "is not a check result");
+    }
+
+    return answer;
+  }
+
+  private async request(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  ): Promise<unknown> {
     const { apiUrl, token } = this.options;
-    const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let response: Response;
 
     try {
       response = await fetch(`${apiUrl}${path}`, {
-        headers: { authorization: `Bearer ${token}` },
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (cause) {
@@ -92,14 +131,18 @@ export class ApiClient {
       );
     }
 
-    // Only a refused connection means "is it running?".
-    const hint = refusedConnection(cause)
-      ? " Is `ephor serve` running there?"
-      : "";
+    if (refusedConnection(cause)) {
+      return new ApiError(
+        "refused",
+        `cannot reach the collector at ${apiUrl}: ${failureText(cause)}. ` +
+          "Is `ephor serve` running there?",
+        { cause },
+      );
+    }
 
     return new ApiError(
       "unreachable",
-      `cannot reach the collector at ${apiUrl}: ${failureText(cause)}.${hint}`,
+      `cannot reach the collector at ${apiUrl}: ${failureText(cause)}.`,
       { cause },
     );
   }
@@ -121,6 +164,18 @@ function isStateResponse(value: unknown): value is StateResponse {
     value !== null &&
     typeof (value as { now?: unknown }).now === "number" &&
     Array.isArray((value as { nodes?: unknown }).nodes)
+  );
+}
+
+function isCheckResponse(value: unknown): value is CheckResponse {
+  if (!isStateResponse(value)) return false;
+
+  const candidate = value as Partial<CheckResponse>;
+
+  return (
+    typeof candidate.startedAt === "number" &&
+    typeof candidate.complete === "boolean" &&
+    Array.isArray(candidate.pending)
   );
 }
 

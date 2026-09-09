@@ -6,6 +6,7 @@ import {
   closed,
   closedPortUrl,
   collectorOf,
+  NOW,
   stateOf,
   TOKEN,
 } from "./test-server.js";
@@ -68,9 +69,37 @@ describe("ApiClient.state", () => {
     expect(collector.requests.map((request) => request.url)).toEqual([
       "/api/state",
     ]);
-    expect(collector.requests[0]?.headers.authorization).toBe(
-      `Bearer ${TOKEN}`,
-    );
+    expect(collector.requests[0]?.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("posts a check and hands back the daemon's result", async () => {
+    const state = stateOf({ name: "achilles", status: "ok" });
+    const check = { ...state, startedAt: NOW - 5, complete: true, pending: [] };
+    const collector = await collectorOf(state, { check });
+    cleanups.push(collector.close);
+
+    const client = new ApiClient({ apiUrl: collector.url, token: TOKEN });
+
+    await expect(client.check({ node: "achilles" })).resolves.toEqual(check);
+    expect(collector.requests).toMatchObject([
+      { method: "POST", url: "/api/check", body: '{"node":"achilles"}' },
+    ]);
+  });
+
+  it("passes on the daemon's own words for a node or probe it refuses", async () => {
+    const collector = await collectorOf(stateOf(), {
+      check: { status: 404, error: 'unknown node "hector"' },
+    });
+    cleanups.push(collector.close);
+
+    const client = new ApiClient({ apiUrl: collector.url, token: TOKEN });
+    const failure = await client
+      .check({ node: "hector" })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).failure).toBe("rejected");
+    expect((failure as ApiError).message).toContain('unknown node "hector"');
   });
 
   it("says whose token it needs when the collector rejects it", async () => {
@@ -140,7 +169,7 @@ describe("ApiClient.state", () => {
       new ApiClient({ apiUrl: url, token: TOKEN }),
     );
 
-    expect(failure.failure).toBe("unreachable");
+    expect(failure.failure).toBe("refused");
     expect(failure.message).toContain(`cannot reach the collector at ${url}`);
     expect(failure.message).toMatch(/Is `ephor serve` running there\?/);
     expect(failure.message).toMatch(/ECONNREFUSED/);
@@ -156,7 +185,7 @@ describe("ApiClient.state", () => {
       new ApiClient({ apiUrl: url, token: TOKEN }),
     );
 
-    expect(failure.failure).toBe("unreachable");
+    expect(failure.failure).toBe("refused");
     expect(failure.message).toMatch(/ECONNREFUSED/);
     expect(failure.message).toMatch(/Is `ephor serve` running there\?/);
   });

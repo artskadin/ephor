@@ -46,7 +46,9 @@ program
 
 program
   .command("check")
-  .description("Run the probes once, here, and print what they found")
+  .description(
+    "Run the probes once, through `ephor serve` when it is up, else here",
+  )
   .argument("[node]", "one node instead of every node")
   .option("--probe <name>", "one probe instead of every probe")
   .option(...CONFIG_OPTION)
@@ -71,6 +73,10 @@ program
       await runCheck({
         configPath: resolveConfigPath({ flag: options.config }),
         request,
+        // No token means no daemon was set up: the probes run here.
+        client: process.env.EPHOR_TOKEN
+          ? new ApiClient(clientConfigFrom(process.env))
+          : undefined,
         ...outputFrom(options),
         logger: loggerFromEnvironment(),
         note: (line) => void process.stderr.write(`${line}\n`),
