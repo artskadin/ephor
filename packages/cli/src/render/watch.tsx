@@ -1,87 +1,41 @@
-import type { StateResponse } from "@ephorate/core";
-import { Box, Text, useApp, useInput } from "ink";
-import { type ReactElement, useEffect, useState } from "react";
+import { Box, Text, useInput } from "ink";
+import { type ReactElement, useSyncExternalStore } from "react";
 import { StatusTable } from "./status-table";
-
-/** What `watch` needs of `ApiClient`; a test stands in a fake. */
-export interface WatchSource {
-  apiUrl: string;
-  state(): Promise<StateResponse>;
-}
+import type { WatchStore } from "./watch-store";
 
 interface WatchProps {
-  source: WatchSource;
-  /** Fetched before the first frame: a failure there is the command's. */
-  initial: StateResponse;
-  intervalMs: number;
+  store: WatchStore;
+  apiUrl: string;
   colour: boolean;
-  /** Epoch milliseconds, for the footer. */
-  now: () => number;
+  /** `q` and Ctrl-C: the command owns the screen, so it owns the exit. */
+  onQuit: () => void;
 }
 
-interface Outage {
-  sinceMs: number;
-  message: string;
-}
-
-/**
- * The status table, refetched on an interval. A poll that fails keeps the
- * last table and says so underneath: stale data is the message, not a
- * reason to leave.
- */
+/** The status table over a `WatchStore`, with a footer saying how fresh. */
 export function Watch(props: WatchProps): ReactElement {
-  const { source, intervalMs, now } = props;
-  const { exit } = useApp();
-  const [state, setState] = useState(props.initial);
-  const [updatedMs, setUpdatedMs] = useState(now());
-  const [outage, setOutage] = useState<Outage | undefined>(undefined);
+  const { store, apiUrl } = props;
+  const { state, updatedMs, outage } = useSyncExternalStore(
+    store.subscribe,
+    store.read,
+  );
 
-  useInput((input) => {
-    if (input === "q") exit();
+  useInput((input, key) => {
+    if (input === "q" || (key.ctrl && input === "c")) props.onQuit();
   });
 
-  useEffect(() => {
-    let stopped = false;
-    let timer: NodeJS.Timeout | undefined;
-
-    const poll = async (): Promise<void> => {
-      try {
-        const next = await source.state();
-        if (stopped) return;
-
-        setState(next);
-        setUpdatedMs(now());
-        setOutage(undefined);
-      } catch (error) {
-        if (stopped) return;
-
-        setOutage(
-          (current) => current ?? { sinceMs: now(), message: describe(error) },
-        );
-      }
-
-      timer = setTimeout(() => void poll(), intervalMs);
-    };
-
-    timer = setTimeout(() => void poll(), intervalMs);
-
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [source, intervalMs, now]);
-
-  // Truncated: an outage line names the address and the error, and a
-  // wrapped footer re-flows the whole frame on every redraw.
+  // Wrapped by ink, so its height is known and the frame is erased whole.
   return (
     <Box flexDirection="column">
       <StatusTable state={state} colour={props.colour} />
-      <Text dimColor={props.colour} wrap="truncate">
-        {outage
-          ? `unreachable since ${clock(outage.sinceMs)}, ` +
-            `last update ${clock(updatedMs)}: ${outage.message}`
-          : `${source.apiUrl} · updated ${clock(updatedMs)} · q to quit`}
-      </Text>
+      <Box marginTop={1}>
+        <Text dimColor={props.colour}>
+          {outage
+            ? `collector at ${apiUrl} unreachable since ` +
+              `${clock(outage.sinceMs)}, last update ${clock(updatedMs)}: ` +
+              outage.message
+            : `collector at ${apiUrl} · updated ${clock(updatedMs)} · q to quit`}
+        </Text>
+      </Box>
     </Box>
   );
 }
@@ -97,8 +51,4 @@ const CLOCK = new Intl.DateTimeFormat("en-GB", {
 
 function clock(ms: number): string {
   return CLOCK.format(new Date(ms));
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

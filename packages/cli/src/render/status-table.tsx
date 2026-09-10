@@ -78,8 +78,10 @@ export function StatusTable({ state, colour }: StatusTableProps): ReactElement {
   const tint = (status: MetricStatus): Tint | undefined =>
     colour ? TINT_BY_STATUS[status] : undefined;
 
+  // Clipped at the window's edge: a line the terminal wrapped would be one
+  // line to ink and two on screen, and the next frame erases too little.
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" overflowX="hidden">
       <Line
         cells={[
           { text: "NODE" },
@@ -177,7 +179,9 @@ interface PaintedCell {
   tint?: Tint | undefined;
 }
 
-/** The last cell is not padded, so no line ends in spaces. */
+// The last cell is not padded, so no line ends in spaces. Cells never
+// shrink or wrap: in a window narrower than the table, `watch` cuts the
+// right columns off instead of stacking every cell letter by letter.
 function Line({
   cells,
   widths,
@@ -191,11 +195,16 @@ function Line({
     <Box flexDirection="row">
       {cells.map((cell, index) =>
         index === cells.length - 1 ? (
-          <Box key={keys[index]}>
+          <Box key={keys[index]} flexShrink={0}>
             <PaintedText {...cell} />
           </Box>
         ) : (
-          <Box key={keys[index]} width={widths[index] ?? 0} marginRight={GAP}>
+          <Box
+            key={keys[index]}
+            width={widths[index] ?? 0}
+            marginRight={GAP}
+            flexShrink={0}
+          >
             <PaintedText {...cell} />
           </Box>
         ),
@@ -205,10 +214,20 @@ function Line({
 }
 
 function PaintedText({ text, tint }: PaintedCell): ReactElement {
-  if (tint === undefined) return <Text>{text}</Text>;
-  if (tint === "dim") return <Text dimColor>{text}</Text>;
+  if (tint === undefined) return <Text wrap="truncate">{text}</Text>;
+  if (tint === "dim") {
+    return (
+      <Text dimColor wrap="truncate">
+        {text}
+      </Text>
+    );
+  }
 
-  return <Text color={tint}>{text}</Text>;
+  return (
+    <Text color={tint} wrap="truncate">
+      {text}
+    </Text>
+  );
 }
 
 interface Row {

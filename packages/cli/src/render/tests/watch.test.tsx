@@ -1,12 +1,16 @@
 import type { StateResponse } from "@ephorate/core";
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, describe, expect, it } from "vitest";
-import { Watch, type WatchSource } from "../watch";
-
-// Unmounted after each test, or its poll chain runs on into the next.
-afterEach(cleanup);
+import { Watch } from "../watch";
+import { type WatchSource, WatchStore } from "../watch-store";
 
 const NOW_MS = 1_800_000_000_000;
+const stores: WatchStore[] = [];
+
+afterEach(() => {
+  cleanup();
+  for (const store of stores.splice(0)) store.stop();
+});
 
 function stateOf(status: "ok" | "warn"): StateResponse {
   return {
@@ -25,15 +29,14 @@ function stateOf(status: "ok" | "warn"): StateResponse {
 }
 
 /** Answers in order; the last answer repeats. A rejection is an outage. */
-function sourceOf(...answers: (StateResponse | Error)[]): WatchSource & {
-  calls: number;
-} {
-  const source = {
+function sourceOf(...answers: (StateResponse | Error)[]): WatchSource {
+  let calls = 0;
+
+  return {
     apiUrl: "http://127.0.0.1:31556",
-    calls: 0,
     state(): Promise<StateResponse> {
-      const answer = answers[Math.min(source.calls, answers.length - 1)];
-      source.calls += 1;
+      const answer = answers[Math.min(calls, answers.length - 1)];
+      calls += 1;
 
       if (answer === undefined) throw new Error("no answers given");
 
@@ -42,8 +45,29 @@ function sourceOf(...answers: (StateResponse | Error)[]): WatchSource & {
         : Promise.resolve(answer);
     },
   };
+}
 
-  return source;
+function watching(
+  source: WatchSource,
+  onQuit: () => void = () => undefined,
+): ReturnType<typeof render> {
+  const store = new WatchStore({
+    source,
+    initial: stateOf("ok"),
+    intervalMs: 10,
+    now: () => NOW_MS,
+  });
+  stores.push(store);
+  store.start();
+
+  return render(
+    <Watch
+      store={store}
+      apiUrl={source.apiUrl}
+      colour={false}
+      onQuit={onQuit}
+    />,
+  );
 }
 
 async function until(condition: () => boolean): Promise<void> {
@@ -56,87 +80,47 @@ async function until(condition: () => boolean): Promise<void> {
 }
 
 describe("Watch", () => {
-  it("draws the initial state with the footer, then the next answer", async () => {
-    const source = sourceOf(stateOf("warn"));
-    const { lastFrame } = render(
-      <Watch
-        source={source}
-        initial={stateOf("ok")}
-        intervalMs={10}
-        colour={false}
-        now={() => NOW_MS}
-      />,
-    );
+  it("draws the store's state with the footer, and follows its updates", async () => {
+    const { lastFrame } = watching(sourceOf(stateOf("warn")));
 
     expect(lastFrame()).toContain("achilles");
     expect(lastFrame()).not.toContain("! achilles");
     expect(lastFrame()).toMatch(
-      /http:\/\/127\.0\.0\.1:31556 · updated \d\d:\d\d:\d\d · q to quit/,
+      /collector at http:\/\/127\.0\.0\.1:31556 · updated \d\d:\d\d:\d\d · q to quit/,
     );
 
     await until(() => lastFrame()?.includes("! achilles") ?? false);
     expect(lastFrame()).toContain("achilles is warn");
   });
 
-  it("keeps the last table through an outage and says since when", async () => {
-    const source = sourceOf(
-      stateOf("warn"),
-      new Error("cannot reach the collector"),
-    );
-    const { lastFrame } = render(
-      <Watch
-        source={source}
-        initial={stateOf("ok")}
-        intervalMs={10}
-        colour={false}
-        now={() => NOW_MS}
-      />,
-    );
-
-    await until(() => source.calls >= 3);
-
-    expect(lastFrame()).toContain("! achilles");
-    expect(lastFrame()).toMatch(
-      /^unreachable since \d\d:\d\d:\d\d, last update \d\d:\d\d:\d\d: cannot reach the collector$/m,
-    );
-  });
-
-  it("recovers after an outage and keeps polling", async () => {
-    const source = sourceOf(new Error("gone"), stateOf("warn"));
-    const { lastFrame } = render(
-      <Watch
-        source={source}
-        initial={stateOf("ok")}
-        intervalMs={10}
-        colour={false}
-        now={() => NOW_MS}
-      />,
+  it("says since when the collector is unreachable, a blank line below the table", async () => {
+    const { lastFrame } = watching(
+      sourceOf(stateOf("warn"), new Error("cannot reach the collector")),
     );
 
     await until(() => lastFrame()?.includes("unreachable") ?? false);
-    await until(() => lastFrame()?.includes("! achilles") ?? false);
 
-    expect(lastFrame()).not.toContain("unreachable");
-    expect(lastFrame()).toContain("q to quit");
+    expect(lastFrame()).toContain("! achilles");
+    expect(lastFrame()).toMatch(/achilles is warn\n\ncollector at/);
+    // ink wraps the footer at the window's width: joined back for the match.
+    const footer = lastFrame()?.split("\n\n")[1]?.replace(/\s+/g, " ");
+    expect(footer).toMatch(
+      /^collector at http:\/\/127\.0\.0\.1:31556 unreachable since \d\d:\d\d:\d\d, last update \d\d:\d\d:\d\d: cannot reach the collector$/,
+    );
   });
 
-  it("stops polling once unmounted", async () => {
-    const source = sourceOf(stateOf("ok"));
-    const { unmount } = render(
-      <Watch
-        source={source}
-        initial={stateOf("ok")}
-        intervalMs={10}
-        colour={false}
-        now={() => NOW_MS}
-      />,
-    );
+  it.each([
+    ["q", "q"],
+    ["Ctrl-C", "\u0003"],
+  ])("asks to quit on %s", async (_name, key) => {
+    let quits = 0;
+    const { stdin } = watching(sourceOf(stateOf("ok")), () => {
+      quits += 1;
+    });
 
-    await until(() => source.calls >= 2);
-    unmount();
-    const callsAtUnmount = source.calls;
-    await new Promise((resolve) => setTimeout(resolve, 60));
-
-    expect(source.calls).toBe(callsAtUnmount);
+    // ink attaches its key listener after the first render.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write(key);
+    await until(() => quits === 1);
   });
 });

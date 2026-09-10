@@ -392,3 +392,24 @@ describe("StatusTable", () => {
     await expect(frameOf(<Broken />, 80)).rejects.toThrow("a bug in the table");
   });
 });
+
+describe("StatusTable in a window narrower than the table", () => {
+  // `watch` draws at the window's width: cells must neither shrink nor
+  // wrap, or the header stacks letter by letter; the right edge is cut.
+  it("keeps every line on one row, cut at the window's edge", async () => {
+    const state = stateOf(FLEET, FLEET_POINTS);
+    const wide = frame(state, false).split("\n");
+    const narrow = (
+      await frameOf(<StatusTable state={state} colour={false} />, 40)
+    ).split("\n");
+
+    expect(statusTableWidth(state)).toBeGreaterThan(40);
+    // Table lines are the wide ones cut at 40, no ellipsis, none added;
+    // reasons wrap, so only the lines before the first reason compare.
+    const tableLines = wide.findIndex((line) => line.startsWith("  "));
+    expect(narrow.slice(0, tableLines)).toEqual(
+      wide.slice(0, tableLines).map((line) => line.slice(0, 40).trimEnd()),
+    );
+    for (const line of narrow) expect(line.length).toBeLessThanOrEqual(40);
+  });
+});
