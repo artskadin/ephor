@@ -1,4 +1,4 @@
-import { EXIT_OK } from "./exit-code.js";
+import { EXIT_OK } from "./exit-code";
 
 /**
  * `ephor status --json | head -c 1`: the reader closes the pipe, the next

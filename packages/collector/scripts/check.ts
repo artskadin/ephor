@@ -7,8 +7,8 @@
  *     ../../examples/config.local.yaml [node] [probe]
  */
 import { type CheckRequest, createLogger, loadConfig } from "@ephorate/core";
-import { checkWithoutDaemon } from "../src/check.js";
-import { createRegistry } from "../src/probes/create-registry.js";
+import { checkWithoutDaemon } from "../src/check";
+import { createRegistry } from "../src/probes/create-registry";
 
 const configPath = process.argv[2] ?? "../../examples/config.local.yaml";
 const node = process.argv[3];

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProbeDescriptor } from "../../../types/probe-contract.js";
+import type { ProbeDescriptor } from "../../../types/probe-contract";
 
 /**
  * Stand-ins for the real probes. Every default is a distinct number so a

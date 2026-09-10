@@ -1,9 +1,9 @@
 import { createLogger } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { deferred } from "../../scheduling/tests/deferred.js";
-import { SshExecutor } from "../ssh-executor.js";
-import { SshGates } from "../ssh-gates.js";
-import type { CommandResult } from "../types.js";
+import { deferred } from "../../scheduling/tests/deferred";
+import { SshExecutor } from "../ssh-executor";
+import { SshGates } from "../ssh-gates";
+import type { CommandResult } from "../types";
 
 const DIRECT = "hostname 203.0.113.10\nport 22\ncontrolmaster false\n";
 

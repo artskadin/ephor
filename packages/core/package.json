@@ -2,17 +2,13 @@
   "name": "@ephorate/core",
   "version": "0.0.0",
   "description": "",
-  "main": "./dist/index.js",
-  "scripts": {
-    "build": "tsc --build"
-  },
+  "main": "./src/index.ts",
   "keywords": [],
   "author": "",
   "license": "MIT",
   "type": "module",
-  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./src/index.ts"
   },
   "private": true,
   "dependencies": {

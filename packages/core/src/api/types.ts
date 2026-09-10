@@ -1,5 +1,5 @@
-import type { NodeState } from "../state/node-state.js";
-import type { MetricPoint } from "../types/metrics.js";
+import type { NodeState } from "../state/node-state";
+import type { MetricPoint } from "../types/metrics";
 
 // The wire shapes live in core so the collector that writes them and the
 // client that reads them cannot drift apart.

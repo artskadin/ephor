@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createLogger, type Logger } from "@ephorate/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyMigrations, MIGRATIONS, type Migration } from "../migrations.js";
+import { applyMigrations, MIGRATIONS, type Migration } from "../migrations";
 
 interface CapturedLog {
   logger: Logger;

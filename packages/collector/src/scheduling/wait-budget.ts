@@ -1,6 +1,6 @@
 import type { QueueState } from "@ephorate/core";
-import { longestRunMs } from "../probes/with-retry.js";
-import type { ForcedRun, Task } from "./scheduler.js";
+import { longestRunMs } from "../probes/with-retry";
+import type { ForcedRun, Task } from "./scheduler";
 
 // Per probe, the slowest run its settings allow times the waves its queue
 // needs; the slowest probe wins. An estimate that does not see the ssh

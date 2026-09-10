@@ -1,5 +1,5 @@
 import type { Probe, ProbeContext, ProbeOutcome } from "@ephorate/core";
-import { sleep } from "../scheduling/clock.js";
+import { sleep } from "../scheduling/clock";
 
 /** Auth and configuration errors fail the same way again; only these retry. */
 const TRANSIENT_KINDS = new Set(["timeout", "unreachable", "internal"]);

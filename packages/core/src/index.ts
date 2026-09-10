@@ -2,13 +2,13 @@ export {
   CHECK_MAX_WAIT_SECONDS,
   type CheckRequest,
   CheckRequestSchema,
-} from "./api/check-request.js";
+} from "./api/check-request";
 export {
   METRICS_QUERY_DEFAULT_LIMIT,
   METRICS_QUERY_DEFAULT_WINDOW_SECONDS,
   type MetricsQuery,
   MetricsQuerySchema,
-} from "./api/metrics-query.js";
+} from "./api/metrics-query";
 export type {
   CheckResponse,
   ErrorResponse,
@@ -18,19 +18,19 @@ export type {
   QueueState,
   SshQueues,
   StateResponse,
-} from "./api/types.js";
-export { Duration, formatDuration } from "./config/duration.js";
+} from "./api/types";
+export { Duration, formatDuration } from "./config/duration";
 export {
   ConfigError,
   describeIssues,
   loadConfig,
   parseConfig,
-} from "./config/load.js";
-export type { ResolvedNode, ResolvedProbe } from "./config/resolve.js";
-export { resolveConcurrency, resolveConfig } from "./config/resolve.js";
-export type { ApiSettings, Config, Node, Ssh } from "./config/schema.js";
-export type { LogFields, Logger, LogLevel } from "./logging/logger.js";
-export { createLogger } from "./logging/logger.js";
+} from "./config/load";
+export type { ResolvedNode, ResolvedProbe } from "./config/resolve";
+export { resolveConcurrency, resolveConfig } from "./config/resolve";
+export type { ApiSettings, Config, Node, Ssh } from "./config/schema";
+export type { LogFields, Logger, LogLevel } from "./logging/logger";
+export { createLogger } from "./logging/logger";
 export type {
   HttpRequester,
   ProbeReading,
@@ -39,25 +39,25 @@ export type {
   ReachabilityRequest,
   ReachabilityTarget,
   Vantage,
-} from "./reachability/types.js";
-export { HttpRequestError } from "./reachability/types.js";
-export type { ReachabilityResult } from "./reachability/verdict.js";
-export { summarize } from "./reachability/verdict.js";
+} from "./reachability/types";
+export { HttpRequestError } from "./reachability/types";
+export type { ReachabilityResult } from "./reachability/verdict";
+export { summarize } from "./reachability/verdict";
 export type {
   MetricSeverity,
   MetricStatus,
   MetricView,
   NodeState,
-} from "./state/node-state.js";
+} from "./state/node-state";
 export {
   buildNodeState,
   REACHABILITY_VERDICT_METRIC,
-} from "./state/node-state.js";
-export type { QueryFilter, Storage } from "./storage/types.js";
-export type { MetricPoint } from "./types/metrics.js";
-export type { ProbeError, ProbeOutcome } from "./types/probe.js";
+} from "./state/node-state";
+export type { QueryFilter, Storage } from "./storage/types";
+export type { MetricPoint } from "./types/metrics";
+export type { ProbeError, ProbeOutcome } from "./types/probe";
 export type {
   Probe,
   ProbeContext,
   ProbeDescriptor,
-} from "./types/probe-contract.js";
+} from "./types/probe-contract";

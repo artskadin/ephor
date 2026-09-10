@@ -1,8 +1,8 @@
 import type { Ssh } from "@ephorate/core";
-import { spawnProcess } from "./spawn-process.js";
-import { buildSshArgs, sshTargetArgs } from "./ssh-args.js";
-import type { SshGates } from "./ssh-gates.js";
-import type { CommandExecutor, CommandResult, RunOptions } from "./types.js";
+import { spawnProcess } from "./spawn-process";
+import { buildSshArgs, sshTargetArgs } from "./ssh-args";
+import type { SshGates } from "./ssh-gates";
+import type { CommandExecutor, CommandResult, RunOptions } from "./types";
 
 interface SshExecutorDeps {
   gates: SshGates;

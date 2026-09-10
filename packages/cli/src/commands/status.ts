@@ -1,5 +1,5 @@
-import type { ApiClient } from "../api-client.js";
-import { stateText } from "../render/state-text.js";
+import type { ApiClient } from "../api-client";
+import { stateText } from "../render/state-text";
 
 interface StatusOptions {
   client: ApiClient;

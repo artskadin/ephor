@@ -1,7 +1,7 @@
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { ApiClient, ApiError } from "../api-client.js";
+import { ApiClient, ApiError } from "../api-client";
 import {
   closed,
   closedPortUrl,
@@ -9,7 +9,7 @@ import {
   NOW,
   stateOf,
   TOKEN,
-} from "./test-server.js";
+} from "./test-server";
 
 const cleanups: (() => Promise<void>)[] = [];
 

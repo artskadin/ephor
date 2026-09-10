@@ -1,8 +1,8 @@
 import { createLogger, type Logger, type ResolvedNode } from "@ephorate/core";
 import { describe, expect, it, vi } from "vitest";
-import type { Task } from "../scheduler.js";
-import { TaskExecutor } from "../task-executor.js";
-import { deferred } from "./deferred.js";
+import type { Task } from "../scheduler";
+import { TaskExecutor } from "../task-executor";
+import { deferred } from "./deferred";
 
 const NODE: ResolvedNode = {
   node: {

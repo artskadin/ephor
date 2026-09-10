@@ -1,4 +1,4 @@
-import { UsageError } from "./exit-code.js";
+import { UsageError } from "./exit-code";
 
 export const DEFAULT_API_URL = "http://127.0.0.1:31556";
 

@@ -16,7 +16,7 @@ import {
   ReachabilitySettingsSchema,
   reachabilitySettingsShape,
   requiredRegionsOf,
-} from "../../reachability/settings.js";
+} from "../../reachability/settings";
 
 export const reachabilityProbeDescriptor: ProbeDescriptor = {
   name: "reachability",

@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
-// `@ephorate/*` are never published: bundled in from their `dist`, so this
-// runs after `tsc --build`. `dependencies` stay external.
+// `@ephorate/*` are never published: bundled in from their sources.
+// `dependencies` stay external.
 export default defineConfig({
   entry: ["src/index.ts"],
   outDir: "build",

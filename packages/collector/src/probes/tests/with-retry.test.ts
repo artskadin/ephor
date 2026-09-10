@@ -1,7 +1,7 @@
 import type { Probe, ProbeContext, ProbeDescriptor } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { sleep } from "../../scheduling/clock.js";
-import { longestRunMs, RETRY_DELAY_MS, runWithRetry } from "../with-retry.js";
+import { sleep } from "../../scheduling/clock";
+import { longestRunMs, RETRY_DELAY_MS, runWithRetry } from "../with-retry";
 
 const DESCRIPTOR: ProbeDescriptor = {
   name: "flaky",

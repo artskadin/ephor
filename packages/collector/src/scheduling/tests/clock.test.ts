@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sleep, systemClock } from "../clock.js";
+import { sleep, systemClock } from "../clock";
 
 describe("systemClock", () => {
   it("reads the wall clock in milliseconds", () => {

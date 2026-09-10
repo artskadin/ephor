@@ -1,6 +1,6 @@
 import type { StateResponse } from "@ephorate/core";
-import { frameOf } from "./frame.js";
-import { StatusTable, statusTableWidth } from "./status-table.js";
+import { frameOf } from "./frame";
+import { StatusTable, statusTableWidth } from "./status-table";
 
 interface StateTextOptions {
   json: boolean;

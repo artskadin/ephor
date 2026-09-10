@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { ProbeDescriptor } from "../types/probe-contract.js";
-import { Duration } from "./duration.js";
+import type { ProbeDescriptor } from "../types/probe-contract";
+import { Duration } from "./duration";
 
 // `ssh: achilles` for an alias in ~/.ssh/config, the object form otherwise.
 const SshTargetSchema = z

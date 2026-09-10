@@ -1,4 +1,4 @@
-import type { ProbeReading, ReachabilityMethod, Vantage } from "./types.js";
+import type { ProbeReading, ReachabilityMethod, Vantage } from "./types";
 
 /** Methods kept apart: ping ok with tcp failing is filtering, not an outage. */
 interface RegionSummary {

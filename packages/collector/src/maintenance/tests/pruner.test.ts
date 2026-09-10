@@ -1,7 +1,7 @@
 import type { MetricPoint, QueryFilter, Storage } from "@ephorate/core";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FakeClock } from "../../scheduling/clock.js";
-import { Pruner } from "../pruner.js";
+import { FakeClock } from "../../scheduling/clock";
+import { Pruner } from "../pruner";
 
 /** Records what prune() was called with, ignores everything else. */
 class FakeStorage implements Storage {

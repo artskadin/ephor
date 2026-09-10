@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ConfigError, parseConfig } from "../load.js";
-import { buildConfigSchema } from "../schema.js";
-import { TEST_PROBES } from "./fixtures/probes.js";
+import { ConfigError, parseConfig } from "../load";
+import { buildConfigSchema } from "../schema";
+import { TEST_PROBES } from "./fixtures/probes";
 
 const schema = buildConfigSchema(TEST_PROBES);
 

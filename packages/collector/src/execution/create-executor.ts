@@ -1,8 +1,8 @@
 import type { Node } from "@ephorate/core";
-import { LocalExecutor } from "./local-executor.js";
-import { SshExecutor } from "./ssh-executor.js";
-import type { SshGates } from "./ssh-gates.js";
-import type { CommandExecutor } from "./types.js";
+import { LocalExecutor } from "./local-executor";
+import { SshExecutor } from "./ssh-executor";
+import type { SshGates } from "./ssh-gates";
+import type { CommandExecutor } from "./types";
 
 export function createExecutor(
   node: Node,

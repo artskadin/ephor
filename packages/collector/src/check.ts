@@ -7,9 +7,9 @@ import {
   type ResolvedNode,
   type Storage,
 } from "@ephorate/core";
-import { type CheckRun, Collector } from "./collector.js";
-import type { ProbeRegistry } from "./probes/registry.js";
-import { SqliteStorage } from "./storage/sqlite-storage.js";
+import { type CheckRun, Collector } from "./collector";
+import type { ProbeRegistry } from "./probes/registry";
+import { SqliteStorage } from "./storage/sqlite-storage";
 
 /** Shared by `POST /api/check` and `ephor check` without a daemon. */
 export interface CheckDeps {

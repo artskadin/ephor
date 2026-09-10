@@ -16,7 +16,7 @@ import {
   getState,
   InvalidQueryError,
   postCheck,
-} from "./handlers.js";
+} from "./handlers";
 
 // The only file that knows Fastify exists.
 

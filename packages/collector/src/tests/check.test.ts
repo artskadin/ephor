@@ -14,14 +14,14 @@ import {
   schedulerOf,
   storageOf,
   TEST_PROBES,
-} from "../api/tests/fixtures.js";
+} from "../api/tests/fixtures";
 import {
   type CheckDeps,
   type CheckOutcome,
   checkOnce,
   checkWithoutDaemon,
-} from "../check.js";
-import { ProbeRegistry } from "../probes/registry.js";
+} from "../check";
+import { ProbeRegistry } from "../probes/registry";
 
 /** One node with ssh and one without, so `system` cannot run on the second. */
 const FLEET = {

@@ -9,8 +9,8 @@ import {
 import { cleanup, render } from "ink-testing-library";
 import type { ReactElement } from "react";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { frameOf } from "../frame.js";
-import { StatusTable, statusTableWidth } from "../status-table.js";
+import { frameOf } from "../frame";
+import { StatusTable, statusTableWidth } from "../status-table";
 
 // Ink paints through chalk, which decides at import whether the process
 // may use colour; under a test runner it may not. Forced on before ink is

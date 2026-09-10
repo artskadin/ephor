@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseConfig } from "../../config/load.js";
-import { resolveConfig } from "../../config/resolve.js";
-import { TEST_PROBES } from "../../config/tests/fixtures/probes.js";
-import type { MetricPoint } from "../../types/metrics.js";
-import { buildNodeState, type NodeState } from "../node-state.js";
+import { parseConfig } from "../../config/load";
+import { resolveConfig } from "../../config/resolve";
+import { TEST_PROBES } from "../../config/tests/fixtures/probes";
+import type { MetricPoint } from "../../types/metrics";
+import { buildNodeState, type NodeState } from "../node-state";
 
 const NOW = 1_800_000_000;
 

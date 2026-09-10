@@ -9,9 +9,9 @@ import {
   type NodeState,
   type StateResponse,
 } from "@ephorate/core";
-import { ApiError } from "../api-client.js";
-import { UsageError } from "../exit-code.js";
-import { stateText } from "../render/state-text.js";
+import { ApiError } from "../api-client";
+import { UsageError } from "../exit-code";
+import { stateText } from "../render/state-text";
 
 /** What `ApiClient` offers; an interface so a test can stand one in. */
 export interface CollectorClient {

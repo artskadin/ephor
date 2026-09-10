@@ -1,7 +1,7 @@
 import type { Logger, QueueState } from "@ephorate/core";
-import { BacklogDetector } from "./backlog-detector.js";
-import { ConcurrencyLimiter } from "./concurrency-limiter.js";
-import type { Task } from "./scheduler.js";
+import { BacklogDetector } from "./backlog-detector";
+import { ConcurrencyLimiter } from "./concurrency-limiter";
+import type { Task } from "./scheduler";
 
 interface TaskExecutorOptions {
   concurrencyByProbe: ReadonlyMap<string, number>;

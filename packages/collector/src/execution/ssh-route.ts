@@ -1,4 +1,4 @@
-import { spawnProcess } from "./spawn-process.js";
+import { spawnProcess } from "./spawn-process";
 
 /** Which sshd a node's sessions log into: a jump host's, shared, or its own. */
 export interface SshRoute {

@@ -1,8 +1,8 @@
-import { formatDuration } from "../config/duration.js";
-import type { ResolvedNode, ResolvedProbe } from "../config/resolve.js";
-import type { Threshold } from "../config/schema.js";
-import type { Verdict } from "../reachability/verdict.js";
-import type { MetricPoint } from "../types/metrics.js";
+import { formatDuration } from "../config/duration";
+import type { ResolvedNode, ResolvedProbe } from "../config/resolve";
+import type { Threshold } from "../config/schema";
+import type { Verdict } from "../reachability/verdict";
+import type { MetricPoint } from "../types/metrics";
 
 /** `unknown` (never arrived) and `stale` (stopped arriving) stay apart. */
 export type MetricStatus = "ok" | "warn" | "critical" | "stale" | "unknown";

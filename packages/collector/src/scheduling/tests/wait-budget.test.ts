@@ -5,11 +5,11 @@ import {
   resolveConfig,
 } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe.js";
-import { systemProbeDescriptor } from "../../probes/system/system-probe.js";
-import { longestRunMs } from "../../probes/with-retry.js";
-import type { ForcedRun, Task } from "../scheduler.js";
-import { waitBudgetMs } from "../wait-budget.js";
+import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe";
+import { systemProbeDescriptor } from "../../probes/system/system-probe";
+import { longestRunMs } from "../../probes/with-retry";
+import type { ForcedRun, Task } from "../scheduler";
+import { waitBudgetMs } from "../wait-budget";
 
 /** The shipped descriptors: the budget is judged against real settings. */
 const PROBES = [systemProbeDescriptor, reachabilityProbeDescriptor];

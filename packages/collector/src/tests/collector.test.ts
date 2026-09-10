@@ -5,11 +5,11 @@ import {
   parseConfig,
 } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { Collector } from "../collector.js";
-import { SSH_TOTAL_LIMIT } from "../execution/ssh-gates.js";
-import { ProbeRegistry } from "../probes/registry.js";
-import { longestRunMs } from "../probes/with-retry.js";
-import { SqliteStorage } from "../storage/sqlite-storage.js";
+import { Collector } from "../collector";
+import { SSH_TOTAL_LIMIT } from "../execution/ssh-gates";
+import { ProbeRegistry } from "../probes/registry";
+import { longestRunMs } from "../probes/with-retry";
+import { SqliteStorage } from "../storage/sqlite-storage";
 
 /**
  * The real pipeline — scheduler, executor, retry, storage — around a probe

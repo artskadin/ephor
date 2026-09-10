@@ -1,8 +1,8 @@
 import { createLogger, type Logger } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { deferred } from "../../scheduling/tests/deferred.js";
-import { SSH_PER_DOOR_LIMIT, SSH_TOTAL_LIMIT, SshGates } from "../ssh-gates.js";
-import type { SshInspector } from "../ssh-route.js";
+import { deferred } from "../../scheduling/tests/deferred";
+import { SSH_PER_DOOR_LIMIT, SSH_TOTAL_LIMIT, SshGates } from "../ssh-gates";
+import type { SshInspector } from "../ssh-route";
 
 /** Excerpts of real `ssh -G` output, addresses anonymised; see ssh-route.test.ts. */
 const VIA_BASTION = (host: string) =>

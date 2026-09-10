@@ -1,8 +1,8 @@
-import { CheckHostProvider } from "../reachability/check-host-provider.js";
-import { DirectHttpRequester } from "../reachability/direct-http-requester.js";
-import { ReachabilityProbe } from "./reachability/reachability-probe.js";
-import { ProbeRegistry } from "./registry.js";
-import { SystemProbe } from "./system/system-probe.js";
+import { CheckHostProvider } from "../reachability/check-host-provider";
+import { DirectHttpRequester } from "../reachability/direct-http-requester";
+import { ReachabilityProbe } from "./reachability/reachability-probe";
+import { ProbeRegistry } from "./registry";
+import { SystemProbe } from "./system/system-probe";
 
 /** One registry for daemon and no-daemon check: the schema comes from it. */
 export function createRegistry(): ProbeRegistry {

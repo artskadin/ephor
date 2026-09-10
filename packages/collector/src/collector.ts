@@ -11,20 +11,16 @@ import {
   type SshQueues,
   type Storage,
 } from "@ephorate/core";
-import { createExecutor } from "./execution/create-executor.js";
-import { SshGates } from "./execution/ssh-gates.js";
-import { inspectSshOptions } from "./execution/ssh-route.js";
-import { Pruner } from "./maintenance/pruner.js";
-import type { ProbeRegistry } from "./probes/registry.js";
-import { runWithRetry } from "./probes/with-retry.js";
-import { systemClock } from "./scheduling/clock.js";
-import {
-  type ForcedRun,
-  Scheduler,
-  type Task,
-} from "./scheduling/scheduler.js";
-import { TaskExecutor } from "./scheduling/task-executor.js";
-import { waitBudgetMs } from "./scheduling/wait-budget.js";
+import { createExecutor } from "./execution/create-executor";
+import { SshGates } from "./execution/ssh-gates";
+import { inspectSshOptions } from "./execution/ssh-route";
+import { Pruner } from "./maintenance/pruner";
+import type { ProbeRegistry } from "./probes/registry";
+import { runWithRetry } from "./probes/with-retry";
+import { systemClock } from "./scheduling/clock";
+import { type ForcedRun, Scheduler, type Task } from "./scheduling/scheduler";
+import { TaskExecutor } from "./scheduling/task-executor";
+import { waitBudgetMs } from "./scheduling/wait-budget";
 
 interface CollectorOptions {
   config: Config;

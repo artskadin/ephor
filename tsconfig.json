@@ -1,8 +1,29 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/collector" },
-    { "path": "./packages/cli" }
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // Type-checked only: tsdown bundles the client, vitest and tsx read the
+  // sources. The two config files are listed because they are not under src.
+  "include": [
+    "packages/*/src/**/*",
+    "packages/collector/scripts/**/*",
+    "packages/cli/tsdown.config.ts",
+    "vitest.config.ts"
   ]
 }

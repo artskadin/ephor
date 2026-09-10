@@ -1,11 +1,11 @@
 import { type Logger, loadConfig } from "@ephorate/core";
 import type { FastifyInstance } from "fastify";
-import { createApiServer } from "./api/server.js";
-import { Collector } from "./collector.js";
-import { createRegistry } from "./probes/create-registry.js";
-import { sleep } from "./scheduling/clock.js";
-import { resolveDatabasePath } from "./storage/database-path.js";
-import { SqliteStorage } from "./storage/sqlite-storage.js";
+import { createApiServer } from "./api/server";
+import { Collector } from "./collector";
+import { createRegistry } from "./probes/create-registry";
+import { sleep } from "./scheduling/clock";
+import { resolveDatabasePath } from "./storage/database-path";
+import { SqliteStorage } from "./storage/sqlite-storage";
 
 interface ServeOptions {
   configPath: string;

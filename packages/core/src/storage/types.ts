@@ -1,4 +1,4 @@
-import type { MetricPoint } from "../types/metrics.js";
+import type { MetricPoint } from "../types/metrics";
 
 export interface QueryFilter {
   node?: string | undefined;

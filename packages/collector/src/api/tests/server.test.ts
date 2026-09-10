@@ -1,9 +1,9 @@
 import { type ApiSettings, createLogger, type Logger } from "@ephorate/core";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ApiDeps } from "../handlers.js";
-import { createApiServer, MissingTokenError } from "../server.js";
-import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures.js";
+import type { ApiDeps } from "../handlers";
+import { createApiServer, MissingTokenError } from "../server";
+import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures";
 
 const TOKEN = "0123456789abcdef";
 

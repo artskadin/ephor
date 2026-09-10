@@ -1,5 +1,5 @@
 import type { Storage } from "@ephorate/core";
-import type { Clock } from "../scheduling/clock.js";
+import type { Clock } from "../scheduling/clock";
 
 interface PrunerOptions {
   storage: Storage;

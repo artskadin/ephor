@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { type CommandResult, CommandTimeoutError } from "./types.js";
+import { type CommandResult, CommandTimeoutError } from "./types";
 
 export async function spawnProcess(
   command: string,

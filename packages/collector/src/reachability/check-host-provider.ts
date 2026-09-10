@@ -7,8 +7,8 @@ import type {
   ReachabilityTarget,
   Vantage,
 } from "@ephorate/core";
-import { sleep } from "../scheduling/clock.js";
-import type { Region } from "./settings.js";
+import { sleep } from "../scheduling/clock";
+import type { Region } from "./settings";
 
 const API_BASE = "https://check-host.net";
 

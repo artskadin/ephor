@@ -1,7 +1,7 @@
 import { createLogger } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { ApiError } from "../api-client.js";
-import { type CollectorClient, runCheck } from "../commands/check.js";
+import { ApiError } from "../api-client";
+import { type CollectorClient, runCheck } from "../commands/check";
 
 /**
  * The one decision the binary tests cannot reach without a network: a

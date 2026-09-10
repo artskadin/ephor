@@ -1,7 +1,7 @@
 import type { z } from "zod";
-import type { Port } from "../config/schema.js";
-import type { MetricPoint } from "./metrics.js";
-import type { ProbeOutcome } from "./probe.js";
+import type { Port } from "../config/schema";
+import type { MetricPoint } from "./metrics";
+import type { ProbeOutcome } from "./probe";
 
 export interface ProbeContext {
   nodeName: string;

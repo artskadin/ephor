@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { BINARY, ephor } from "./run-binary.js";
-import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server.js";
+import { BINARY, ephor } from "./run-binary";
+import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server";
 
 const cleanups: (() => Promise<void>)[] = [];
 

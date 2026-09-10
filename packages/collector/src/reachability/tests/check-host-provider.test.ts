@@ -1,7 +1,7 @@
 import type { HttpRequester, ProbeReading, Vantage } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { CheckHostProvider } from "../check-host-provider.js";
-import type { Region } from "../settings.js";
+import { CheckHostProvider } from "../check-host-provider";
+import type { Region } from "../settings";
 
 /**
  * Answers from a script of canned responses, recording what was asked. Time

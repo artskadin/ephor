@@ -13,7 +13,7 @@ import {
   type SshQueues,
   type StateResponse,
 } from "@ephorate/core";
-import { type CheckDeps, checkOnce } from "../check.js";
+import { type CheckDeps, checkOnce } from "../check";
 
 // Handlers know nothing about HTTP; Fastify lives in `server.ts` alone.
 

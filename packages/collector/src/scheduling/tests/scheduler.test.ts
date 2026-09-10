@@ -4,8 +4,8 @@ import {
   resolveConfig,
 } from "@ephorate/core";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FakeClock, sleep } from "../clock.js";
-import { Scheduler, type Task } from "../scheduler.js";
+import { FakeClock, sleep } from "../clock";
+import { Scheduler, type Task } from "../scheduler";
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;

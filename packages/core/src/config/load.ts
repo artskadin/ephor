@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 import type { z } from "zod";
-import type { ProbeDescriptor } from "../types/probe-contract.js";
-import { buildConfigSchema, type Config } from "./schema.js";
+import type { ProbeDescriptor } from "../types/probe-contract";
+import { buildConfigSchema, type Config } from "./schema";
 
 export class ConfigError extends Error {
   constructor(

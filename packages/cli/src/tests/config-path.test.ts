@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveConfigPath } from "../config-path.js";
+import { resolveConfigPath } from "../config-path";
 
 const posix = {
   platform: "linux" as const,

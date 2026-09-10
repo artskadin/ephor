@@ -5,9 +5,9 @@ import {
   resolveConfig,
 } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import type { Task } from "../../scheduling/scheduler.js";
-import { postCheck } from "../handlers.js";
-import { depsOf, NOW, schedulerOf, TEST_PROBES } from "./fixtures.js";
+import type { Task } from "../../scheduling/scheduler";
+import { postCheck } from "../handlers";
+import { depsOf, NOW, schedulerOf, TEST_PROBES } from "./fixtures";
 
 /** Two reachable nodes and one with no ssh, so `system` cannot run there. */
 const FLEET = {

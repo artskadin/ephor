@@ -1,4 +1,4 @@
-export { MissingTokenError } from "./api/server.js";
-export { checkWithoutDaemon } from "./check.js";
-export { createRegistry } from "./probes/create-registry.js";
-export { serve } from "./serve.js";
+export { MissingTokenError } from "./api/server";
+export { checkWithoutDaemon } from "./check";
+export { createRegistry } from "./probes/create-registry";
+export { serve } from "./serve";

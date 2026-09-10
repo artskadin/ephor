@@ -4,7 +4,7 @@ import {
   parseSshOptions,
   resolveSshRoute,
   type SshInspector,
-} from "../ssh-route.js";
+} from "../ssh-route";
 
 /**
  * Excerpts of real `ssh -G` output from a machine whose ~/.ssh/config

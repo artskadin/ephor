@@ -1,10 +1,10 @@
-import type { ProbeDescriptor } from "../types/probe-contract.js";
+import type { ProbeDescriptor } from "../types/probe-contract";
 import {
   BASE_PROBE_KEYS,
   type Config,
   type Node,
   type Threshold,
-} from "./schema.js";
+} from "./schema";
 
 /** `no-executor`: needs commands on the node and has no way in. */
 type ProbeDisabledReason = "no-executor" | "config";

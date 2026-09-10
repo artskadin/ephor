@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigError, createLogger } from "@ephorate/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MissingTokenError } from "../api/server.js";
-import { type Daemon, serve } from "../serve.js";
+import { MissingTokenError } from "../api/server";
+import { type Daemon, serve } from "../serve";
 
 /**
  * The real entry point: a config file on disk, a database file, the API

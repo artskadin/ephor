@@ -3,7 +3,7 @@ import {
   ClientConfigError,
   clientConfigFrom,
   DEFAULT_API_URL,
-} from "../client-config.js";
+} from "../client-config";
 
 describe("clientConfigFrom", () => {
   it("needs only the token, and then talks to the daemon on this machine", () => {

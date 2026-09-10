@@ -1,6 +1,6 @@
 import { MissingTokenError, serve } from "@ephorate/collector";
 import { ConfigError, type Logger } from "@ephorate/core";
-import { EXIT_OK, UsageError } from "../exit-code.js";
+import { EXIT_OK, UsageError } from "../exit-code";
 
 interface ServeOptions {
   configPath: string;

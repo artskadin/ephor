@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CheckResponse, NodeState, StateResponse } from "@ephorate/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ephor, type Run } from "./run-binary.js";
-import { closedPortUrl, collectorOf, NOW, TOKEN } from "./test-server.js";
+import { ephor, type Run } from "./run-binary";
+import { closedPortUrl, collectorOf, NOW, TOKEN } from "./test-server";
 
 /**
  * `ephor check` as a process, without a daemon. The nodes' ssh targets do

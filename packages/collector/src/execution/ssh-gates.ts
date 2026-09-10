@@ -1,11 +1,7 @@
 import type { LogFields, Logger, QueueState, SshQueues } from "@ephorate/core";
-import { BacklogDetector } from "../scheduling/backlog-detector.js";
-import { ConcurrencyLimiter } from "../scheduling/concurrency-limiter.js";
-import {
-  resolveSshRoute,
-  type SshInspector,
-  type SshRoute,
-} from "./ssh-route.js";
+import { BacklogDetector } from "../scheduling/backlog-detector";
+import { ConcurrencyLimiter } from "../scheduling/concurrency-limiter";
+import { resolveSshRoute, type SshInspector, type SshRoute } from "./ssh-route";
 
 // Ssh processes on the collector host at once: ~4 MB and three descriptors
 // each, so 50 keeps a 1 GB host and a default `ulimit -n` of 1024 fine.

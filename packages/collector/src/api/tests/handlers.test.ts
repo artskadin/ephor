@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SqliteStorage } from "../../storage/sqlite-storage.js";
+import { SqliteStorage } from "../../storage/sqlite-storage";
 import {
   type ApiDeps,
   getHealth,
@@ -7,8 +7,8 @@ import {
   getNode,
   getState,
   InvalidQueryError,
-} from "../handlers.js";
-import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures.js";
+} from "../handlers";
+import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures";
 
 describe("getState", () => {
   it("reports the collector's own clock", async () => {

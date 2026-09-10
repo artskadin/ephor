@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colourEnabled } from "../colour-mode.js";
+import { colourEnabled } from "../colour-mode";
 
 describe("colourEnabled", () => {
   it("colours a terminal that has not asked for none", () => {

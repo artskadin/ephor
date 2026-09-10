@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "tsc --build && tsc --noEmit -p packages/collector/tsconfig.scripts.json && pnpm --filter ephorate exec tsdown",
+    "build": "tsc && pnpm --filter ephorate exec tsdown",
     "test": "vitest run",
     "lint": "biome check ."
   },

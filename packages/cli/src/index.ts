@@ -1,13 +1,13 @@
 import { createRequire } from "node:module";
 import { type CheckRequest, createLogger, type Logger } from "@ephorate/core";
 import { Command, CommanderError } from "commander";
-import { ApiClient, ApiError } from "./api-client.js";
-import { ClientConfigError, clientConfigFrom } from "./client-config.js";
-import { exitQuietlyOnClosedPipe } from "./closed-pipe.js";
-import { runStatus } from "./commands/status.js";
-import { resolveConfigPath } from "./config-path.js";
-import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code.js";
-import { colourEnabled } from "./render/colour-mode.js";
+import { ApiClient, ApiError } from "./api-client";
+import { ClientConfigError, clientConfigFrom } from "./client-config";
+import { exitQuietlyOnClosedPipe } from "./closed-pipe";
+import { runStatus } from "./commands/status";
+import { resolveConfigPath } from "./config-path";
+import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code";
+import { colourEnabled } from "./render/colour-mode";
 
 const { version } = createRequire(import.meta.url)("../package.json") as {
   version: string;
@@ -37,7 +37,7 @@ program
     // Imported on demand: loading the collector (fastify, node:sqlite)
     // takes 60 ms, and no other command needs it. `ephor --version` is
     // 160 ms in total.
-    const { runServe } = await import("./commands/serve.js");
+    const { runServe } = await import("./commands/serve");
 
     await runServe({
       configPath: resolveConfigPath({ flag: options.config }),
@@ -67,7 +67,7 @@ program
         plain?: boolean;
       },
     ) => {
-      const { runCheck } = await import("./commands/check.js");
+      const { runCheck } = await import("./commands/check");
 
       const request: CheckRequest = {};
       if (node !== undefined) request.node = node;

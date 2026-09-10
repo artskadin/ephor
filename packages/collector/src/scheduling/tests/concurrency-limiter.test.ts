@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ConcurrencyLimiter } from "../concurrency-limiter.js";
-import { deferred } from "./deferred.js";
+import { ConcurrencyLimiter } from "../concurrency-limiter";
+import { deferred } from "./deferred";
 
 describe("ConcurrencyLimiter", () => {
   it("runs up to the limit immediately", async () => {

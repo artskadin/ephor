@@ -7,10 +7,10 @@
  *     reachability achilles ../../examples/config.local.yaml
  */
 import { createLogger, loadConfig, resolveConfig } from "@ephorate/core";
-import { createExecutor } from "../src/execution/create-executor.js";
-import { SshGates } from "../src/execution/ssh-gates.js";
-import { inspectSshOptions } from "../src/execution/ssh-route.js";
-import { createRegistry } from "../src/probes/create-registry.js";
+import { createExecutor } from "../src/execution/create-executor";
+import { SshGates } from "../src/execution/ssh-gates";
+import { inspectSshOptions } from "../src/execution/ssh-route";
+import { createRegistry } from "../src/probes/create-registry";
 
 const probeName = process.argv[2] ?? "reachability";
 const nodeName = process.argv[3];

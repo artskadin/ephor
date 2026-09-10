@@ -6,7 +6,7 @@ import type {
   ProbeError,
   ProbeOutcome,
 } from "@ephorate/core";
-import { SYSTEM_COLLECT_SCRIPT } from "./collect-script.js";
+import { SYSTEM_COLLECT_SCRIPT } from "./collect-script";
 
 export const systemProbeDescriptor: ProbeDescriptor = {
   name: "system",

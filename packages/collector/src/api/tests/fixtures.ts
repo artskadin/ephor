@@ -6,11 +6,11 @@ import {
   resolveConfig,
   type Storage,
 } from "@ephorate/core";
-import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe.js";
-import { systemProbeDescriptor } from "../../probes/system/system-probe.js";
-import { FakeClock } from "../../scheduling/clock.js";
-import { Scheduler, type Task } from "../../scheduling/scheduler.js";
-import type { ApiDeps } from "../handlers.js";
+import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe";
+import { systemProbeDescriptor } from "../../probes/system/system-probe";
+import { FakeClock } from "../../scheduling/clock";
+import { Scheduler, type Task } from "../../scheduling/scheduler";
+import type { ApiDeps } from "../handlers";
 
 /**
  * Shared by the handler and server suites, so the two test the same world.

@@ -1,6 +1,6 @@
 import { HttpRequestError, type HttpRequester } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { ReachabilityProbe } from "../reachability-probe.js";
+import { ReachabilityProbe } from "../reachability-probe";
 
 const SETTINGS = {
   provider: "check-host.net",

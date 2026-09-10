@@ -5,7 +5,7 @@ import {
   type Logger,
   type LoggerOptions,
   parseLogLevel,
-} from "../logger.js";
+} from "../logger";
 
 /** A fixed instant so every assertion can name the exact timestamp. */
 const AT = Date.parse("2026-08-29T04:00:00.031Z");

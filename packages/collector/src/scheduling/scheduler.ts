@@ -1,6 +1,6 @@
 import type { ResolvedNode, ResolvedProbe } from "@ephorate/core";
-import type { Clock } from "./clock.js";
-import { intervalSlotAt } from "./jitter.js";
+import type { Clock } from "./clock";
+import { intervalSlotAt } from "./jitter";
 
 export interface Task {
   node: ResolvedNode;

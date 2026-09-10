@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseConfig } from "../load.js";
-import { resolveConcurrency, resolveConfig, resolveNode } from "../resolve.js";
-import type { Config } from "../schema.js";
-import { TEST_PROBES } from "./fixtures/probes.js";
+import { parseConfig } from "../load";
+import { resolveConcurrency, resolveConfig, resolveNode } from "../resolve";
+import type { Config } from "../schema";
+import { TEST_PROBES } from "./fixtures/probes";
 
 function configOf(data: Record<string, unknown>): Config {
   return parseConfig(data, TEST_PROBES);

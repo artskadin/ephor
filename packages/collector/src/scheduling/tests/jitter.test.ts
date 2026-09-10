@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fnv1aHash, intervalSlotAt, scheduleOffsetMs } from "../jitter.js";
+import { fnv1aHash, intervalSlotAt, scheduleOffsetMs } from "../jitter";
 
 const MINUTE = 60_000;
 
