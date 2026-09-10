@@ -98,6 +98,32 @@ program
     await runStatus({ client, ...outputFrom(options) });
   });
 
+program
+  .command("watch")
+  .description("The status table, redrawn as the collector reports")
+  .option(
+    "--interval <seconds>",
+    "how often to ask the collector (default: 5)",
+    "5",
+  )
+  .option("--plain", "no colour, whatever the terminal")
+  .action(async (options: { interval: string; plain?: boolean }) => {
+    const { runWatch } = await import("./commands/watch");
+
+    await runWatch({
+      source: new ApiClient(clientConfigFrom(process.env)),
+      intervalMs: intervalFrom(options.interval) * 1000,
+      colour: colourEnabled({
+        plain: options.plain ?? false,
+        isTerminal: Boolean(process.stdout.isTTY),
+        environment: process.env,
+      }),
+      stdout: process.stdout,
+      stdin: process.stdin,
+      isTerminal: Boolean(process.stdout.isTTY && process.stdin.isTTY),
+    });
+  });
+
 try {
   await program.parseAsync(process.argv);
   process.exitCode = EXIT_OK;
@@ -120,6 +146,18 @@ function outputFrom(options: { json?: boolean; plain?: boolean }): {
     }),
     print: (line) => void process.stdout.write(`${line}\n`),
   };
+}
+
+// Whole seconds, 1 to a day: `/api/state` answers in a millisecond, and
+// past ~24 days `setTimeout` overflows into firing at once.
+function intervalFrom(text: string): number {
+  if (!/^[1-9]\d*$/.test(text) || Number(text) > 86_400) {
+    throw new UsageError(
+      `--interval must be whole seconds, 1 to 86400, got "${text}"`,
+    );
+  }
+
+  return Number(text);
 }
 
 /** A bad `EPHOR_LOG_LEVEL` is the operator's mistake, not a bug. */

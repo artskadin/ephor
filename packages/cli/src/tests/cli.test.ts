@@ -144,6 +144,31 @@ describe("ephor", () => {
   });
 });
 
+describe("ephor watch", () => {
+  it("exits 2 when stdout is not a terminal, and names status instead", async () => {
+    const run = await ephor(["watch"], {
+      EPHOR_API_URL: "http://127.0.0.1:1",
+      EPHOR_TOKEN: TOKEN,
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain("ephor status");
+  });
+
+  it.each(["0.5", "0", "86401"])(
+    "exits 2 on --interval %s, saying what it takes",
+    async (interval) => {
+      const run = await ephor(["watch", "--interval", interval], {
+        EPHOR_TOKEN: TOKEN,
+      });
+
+      expect(run.code).toBe(2);
+      expect(run.stderr).toContain("--interval must be whole seconds");
+    },
+  );
+});
+
 describe("ephor with a reader that stops early", () => {
   // The pipe holds 64 KB and the first read takes 64 KB more: an answer
   // under 128 KB can be written in full before the reader leaves, and no
