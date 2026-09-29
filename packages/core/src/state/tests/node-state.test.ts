@@ -3,7 +3,7 @@ import { parseConfig } from "../../config/load";
 import { resolveConfig } from "../../config/resolve";
 import { TEST_PROBES } from "../../config/tests/fixtures/probes";
 import type { MetricPoint } from "../../types/metrics";
-import { buildNodeState, type NodeState } from "../node-state";
+import { buildNodeState, isMetricStatus, type NodeState } from "../node-state";
 
 const NOW = 1_800_000_000;
 
@@ -884,6 +884,8 @@ describe("acknowledgements", () => {
       node: "german",
       note: "waiting for a new IP",
       since: NOW - 3600,
+      status: "critical" as const,
+      untilOk: false,
     };
     const [achilles, german] = buildNodeState({
       nodes: resolveConfig(parseConfig(twoNodes, TEST_PROBES), TEST_PROBES),
@@ -903,5 +905,16 @@ describe("acknowledgements", () => {
     expect(german?.acknowledged).toEqual(acknowledgement);
     expect(german?.status).toBe("critical");
     expect(achilles).not.toHaveProperty("acknowledged");
+  });
+});
+
+describe("isMetricStatus", () => {
+  it("knows the five statuses and nothing else", () => {
+    for (const status of ["ok", "warn", "critical", "stale", "unknown"]) {
+      expect(isMetricStatus(status)).toBe(true);
+    }
+    for (const other of ["partial", "OK", "", "toString", undefined, 1]) {
+      expect(isMetricStatus(other)).toBe(false);
+    }
   });
 });

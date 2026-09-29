@@ -349,6 +349,8 @@ describe("createApiServer", () => {
         note: "waiting for a new IP",
         since: NOW,
         until: NOW + 3 * 86_400,
+        status: "unknown",
+        untilOk: false,
       };
       expect(put.json()).toEqual({ acknowledgement: stored });
 
@@ -360,8 +362,51 @@ describe("createApiServer", () => {
       expect(state.json().nodes[0].acknowledged).toEqual(stored);
     });
 
-    it("stores one until the node is back to ok when nothing is given", async () => {
+    it("stores the status it acknowledged, and the sticky kind when asked", async () => {
       const server = await ackServer();
+      await storage?.write([
+        { ts: NOW, node: "achilles", metric: "system.up", ok: false },
+      ]);
+
+      const plain = await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+      });
+      const sticky = await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+        payload: { untilOk: true },
+      });
+
+      expect(plain.json()).toEqual({
+        acknowledgement: {
+          node: "achilles",
+          since: NOW,
+          status: "warn",
+          untilOk: false,
+        },
+      });
+      expect(sticky.json().acknowledgement).toMatchObject({
+        status: "warn",
+        untilOk: true,
+      });
+    });
+
+    it("refuses a node that is ok: there is nothing to acknowledge", async () => {
+      const server = await ackServer();
+      await storage?.write([
+        { ts: NOW, node: "achilles", metric: "system.up", ok: true },
+        { ts: NOW, node: "achilles", metric: "reachability.up", ok: true },
+        {
+          ts: NOW,
+          node: "achilles",
+          metric: "reachability.verdict",
+          ok: true,
+          meta: { verdict: "ok" },
+        },
+      ]);
 
       const put = await server.inject({
         method: "PUT",
@@ -369,10 +414,11 @@ describe("createApiServer", () => {
         headers: authorized,
       });
 
-      expect(put.statusCode).toBe(200);
+      expect(put.statusCode).toBe(409);
       expect(put.json()).toEqual({
-        acknowledgement: { node: "achilles", since: NOW },
+        error: "achilles is ok: nothing to acknowledge",
       });
+      expect(await storage?.acknowledgements(NOW)).toEqual([]);
     });
 
     it.each([
@@ -383,6 +429,7 @@ describe("createApiServer", () => {
       [{ note: "two\nlines" }, "note must be one line of plain text"],
       [{ note: "wipe \u001b[2J" }, "note must be one line of plain text"],
       [{ until: 5 }, "until"],
+      [{ untilOk: "yes" }, "untilOk"],
     ])("refuses %j with a 400 that says why", async (payload, words) => {
       const server = await ackServer();
 
@@ -433,7 +480,13 @@ describe("createApiServer", () => {
       });
 
       expect(first.json()).toEqual({
-        acknowledgement: { node: "achilles", note: "known", since: NOW },
+        acknowledgement: {
+          node: "achilles",
+          note: "known",
+          since: NOW,
+          status: "unknown",
+          untilOk: false,
+        },
       });
       expect(second.statusCode).toBe(404);
       expect(second.json()).toEqual({

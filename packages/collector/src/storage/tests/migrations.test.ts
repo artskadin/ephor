@@ -532,4 +532,23 @@ describe("the shipped migrations", () => {
       expect(quiet.lines.some((line) => line.level === "warn")).toBe(false);
     });
   });
+
+  // Version 3 had one kind, "until the node is ok"; its rows must not wake
+  // up as the other kind, which the first measurement would end.
+  it("keeps an acknowledgement written by version 3 sticky", () => {
+    const database = new DatabaseSync(":memory:");
+    applyMigrations(database, MIGRATIONS.slice(0, 3));
+    database
+      .prepare("INSERT INTO acknowledgements (node, since) VALUES (?, ?)")
+      .run("achilles", 1_790_700_000);
+
+    applyMigrations(database, MIGRATIONS);
+
+    expect(
+      database
+        .prepare("SELECT node, status, until_ok FROM acknowledgements")
+        .all(),
+    ).toEqual([{ node: "achilles", status: "unknown", until_ok: 1 }]);
+    database.close();
+  });
 });

@@ -106,6 +106,22 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    name: "acknowledgement-kinds",
+    apply(database) {
+      database.exec(`
+        ALTER TABLE acknowledgements
+        ADD COLUMN status TEXT NOT NULL DEFAULT 'unknown'
+      `);
+      database.exec(`
+        ALTER TABLE acknowledgements
+        ADD COLUMN until_ok INTEGER NOT NULL DEFAULT 0
+      `);
+      // Version 3 had one kind, "until the node is ok": its rows keep it.
+      database.exec("UPDATE acknowledgements SET until_ok = 1");
+    },
+  },
 ];
 
 /** An explicit level never parses `EPHOR_LOG_LEVEL`; safe at import. */

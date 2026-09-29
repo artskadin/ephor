@@ -1,3 +1,4 @@
+import type { MetricStatus } from "../state/node-state";
 import type { MetricPoint } from "../types/metrics";
 
 export interface QueryFilter {
@@ -14,8 +15,15 @@ export interface Acknowledgement {
   note?: string | undefined;
   /** Unix seconds. */
   since: number;
-  /** Unix seconds; without it, until the node is back to ok. */
+  /** Unix seconds: gone at this moment, whatever the node does. */
   until?: number | undefined;
+  /** What was acknowledged: the node's status at `since`. */
+  status: MetricStatus;
+  /**
+   * Nagios's two kinds: `false` lasts while the node keeps `status`, any
+   * change is news again; `true` ("sticky") lasts until the node is ok.
+   */
+  untilOk: boolean;
 }
 
 export interface Storage {

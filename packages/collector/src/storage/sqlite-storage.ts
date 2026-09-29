@@ -1,12 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type {
-  Acknowledgement,
-  Logger,
-  MetricPoint,
-  QueryFilter,
-  Storage,
+import {
+  type Acknowledgement,
+  isMetricStatus,
+  type Logger,
+  type MetricPoint,
+  type QueryFilter,
+  type Storage,
 } from "@ephorate/core";
 import { applyMigrations, MIGRATIONS, SILENT_LOGGER } from "./migrations";
 
@@ -15,6 +16,8 @@ interface AcknowledgementRow {
   note: string | null;
   since: number;
   until: number | null;
+  status: string;
+  until_ok: number;
 }
 
 interface MetricRow {
@@ -155,18 +158,23 @@ export class SqliteStorage implements Storage {
   async acknowledge(acknowledgement: Acknowledgement): Promise<void> {
     this.database
       .prepare(
-        `INSERT INTO acknowledgements (node, note, since, until)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO acknowledgements
+           (node, note, since, until, status, until_ok)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (node) DO UPDATE SET
-           note  = excluded.note,
-           since = excluded.since,
-           until = excluded.until`,
+           note     = excluded.note,
+           since    = excluded.since,
+           until    = excluded.until,
+           status   = excluded.status,
+           until_ok = excluded.until_ok`,
       )
       .run(
         acknowledgement.node,
         acknowledgement.note ?? null,
         acknowledgement.since,
         acknowledgement.until ?? null,
+        acknowledgement.status,
+        acknowledgement.untilOk ? 1 : 0,
       );
   }
 
@@ -181,7 +189,8 @@ export class SqliteStorage implements Storage {
   async acknowledgements(now: number): Promise<Acknowledgement[]> {
     const rows = this.database
       .prepare(
-        `SELECT node, note, since, until FROM acknowledgements
+        `SELECT node, note, since, until, status, until_ok
+         FROM acknowledgements
          WHERE until IS NULL OR until > ?
          ORDER BY node`,
       )
@@ -207,6 +216,8 @@ function rowToAcknowledgement(row: AcknowledgementRow): Acknowledgement {
   const acknowledgement: Acknowledgement = {
     node: row.node,
     since: row.since,
+    status: isMetricStatus(row.status) ? row.status : "unknown",
+    untilOk: row.until_ok === 1,
   };
 
   if (row.note !== null) acknowledgement.note = row.note;

@@ -15,7 +15,9 @@ export const AcknowledgeRequestSchema = z
       .max(200)
       .regex(/^\P{Cc}*$/u, "note must be one line of plain text")
       .optional(),
-    /** Without it, until the node is back to ok. `3d`, `12h` or seconds. */
+    /** `true`: until the node is ok; otherwise until its status changes. */
+    untilOk: z.boolean().optional(),
+    /** An end whatever the node does. `3d`, `12h` or seconds. */
     duration: Duration.refine(
       (seconds) => seconds > 0 && seconds <= LONGEST_SECONDS,
       "duration must be between 1 second and 365 days",

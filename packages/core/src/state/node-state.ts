@@ -8,6 +8,21 @@ import type { MetricPoint } from "../types/metrics";
 /** `unknown` (never arrived) and `stale` (stopped arriving) stay apart. */
 export type MetricStatus = "ok" | "warn" | "critical" | "stale" | "unknown";
 
+// A record, not a list: adding a status breaks the build here, not a
+// stored row somewhere that silently reads as `unknown`.
+const METRIC_STATUSES: Readonly<Record<MetricStatus, true>> = {
+  ok: true,
+  warn: true,
+  critical: true,
+  stale: true,
+  unknown: true,
+};
+
+/** For what comes back from storage or the wire as a plain string. */
+export function isMetricStatus(value: unknown): value is MetricStatus {
+  return typeof value === "string" && Object.hasOwn(METRIC_STATUSES, value);
+}
+
 /** What a value says on its own, whatever its age. */
 export type MetricSeverity = Exclude<MetricStatus, "stale">;
 

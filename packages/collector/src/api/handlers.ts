@@ -74,18 +74,40 @@ export async function getNode(
   return { now, node: state };
 }
 
-/** `undefined` for a node nobody configured: the route's 404. */
+type Acknowledged =
+  | { kind: "unknown-node" }
+  | { kind: "nothing-wrong" }
+  | { kind: "stored"; acknowledgement: Acknowledgement };
+
+// What is acknowledged is the status the operator sees now: the default
+// kind ends the moment it changes. An ok node has nothing to own.
 export async function putAcknowledgement(
   deps: ApiDeps,
   name: string,
   request: AcknowledgeRequest,
-): Promise<Acknowledgement | undefined> {
-  if (!deps.nodes.some((candidate) => candidate.node.name === name)) {
-    return undefined;
-  }
+): Promise<Acknowledged> {
+  const node = deps.nodes.find((candidate) => candidate.node.name === name);
+  if (!node) return { kind: "unknown-node" };
 
   const since = deps.now();
-  const acknowledgement: Acknowledgement = { node: name, since };
+  const [state] = buildNodeState({
+    nodes: [node],
+    points: await deps.storage.latest(name),
+    now: since,
+  });
+  if (!state) {
+    throw new Error(`buildNodeState returned nothing for node "${name}"`);
+  }
+
+  const { status } = state;
+  if (status === "ok") return { kind: "nothing-wrong" };
+
+  const acknowledgement: Acknowledgement = {
+    node: name,
+    since,
+    status,
+    untilOk: request.untilOk ?? false,
+  };
   if (request.note !== undefined) acknowledgement.note = request.note;
   if (request.duration !== undefined) {
     acknowledgement.until = since + request.duration;
@@ -93,7 +115,7 @@ export async function putAcknowledgement(
 
   await deps.storage.acknowledge(acknowledgement);
 
-  return acknowledgement;
+  return { kind: "stored", acknowledgement };
 }
 
 type Unacknowledged =

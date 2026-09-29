@@ -56,6 +56,7 @@ export type {
 } from "./state/node-state";
 export {
   buildNodeState,
+  isMetricStatus,
   REACHABILITY_VERDICT_METRIC,
 } from "./state/node-state";
 export type {

@@ -384,8 +384,15 @@ export function describeStorageContract(
           note: "waiting for a new IP",
           since: 1000,
           until: 5000,
+          status: "critical",
+          untilOk: false,
         });
-        await storage.acknowledge({ node: "german", since: 2000 });
+        await storage.acknowledge({
+          node: "german",
+          since: 2000,
+          status: "critical",
+          untilOk: false,
+        });
 
         expect(await storage.acknowledgements(1500)).toEqual([
           {
@@ -393,8 +400,10 @@ export function describeStorageContract(
             note: "waiting for a new IP",
             since: 1000,
             until: 5000,
+            status: "critical",
+            untilOk: false,
           },
-          { node: "german", since: 2000 },
+          { node: "german", since: 2000, status: "critical", untilOk: false },
         ]);
       });
 
@@ -403,16 +412,27 @@ export function describeStorageContract(
           node: "achilles",
           note: "old",
           since: 1000,
+          status: "critical",
+          untilOk: false,
         });
         await storage.acknowledge({
           node: "achilles",
           note: "new",
           since: 2000,
           until: 9000,
+          status: "critical",
+          untilOk: false,
         });
 
         expect(await storage.acknowledgements(2000)).toEqual([
-          { node: "achilles", note: "new", since: 2000, until: 9000 },
+          {
+            node: "achilles",
+            note: "new",
+            since: 2000,
+            until: 9000,
+            status: "critical",
+            untilOk: false,
+          },
         ]);
       });
 
@@ -423,24 +443,55 @@ export function describeStorageContract(
           note: "old",
           since: 1000,
           until: 9000,
+          status: "critical",
+          untilOk: false,
         });
-        await storage.acknowledge({ node: "achilles", since: 2000 });
+        await storage.acknowledge({
+          node: "achilles",
+          since: 2000,
+          status: "critical",
+          untilOk: false,
+        });
 
         expect(await storage.acknowledgements(2000)).toStrictEqual([
-          { node: "achilles", since: 2000 },
+          { node: "achilles", since: 2000, status: "critical", untilOk: false },
+        ]);
+      });
+
+      it("keeps what was acknowledged and which kind it is", async () => {
+        await storage.acknowledge({
+          node: "achilles",
+          since: 0,
+          status: "warn",
+          untilOk: true,
+        });
+
+        expect(await storage.acknowledgements(0)).toEqual([
+          { node: "achilles", since: 0, status: "warn", untilOk: true },
         ]);
       });
 
       // An end is the moment it stops, not the last moment it holds.
       it("leaves out those whose end has come", async () => {
-        await storage.acknowledge({ node: "achilles", since: 0, until: 100 });
+        await storage.acknowledge({
+          node: "achilles",
+          since: 0,
+          until: 100,
+          status: "critical",
+          untilOk: false,
+        });
 
         expect(await storage.acknowledgements(99)).toHaveLength(1);
         expect(await storage.acknowledgements(100)).toEqual([]);
       });
 
       it("says whether there was one to remove", async () => {
-        await storage.acknowledge({ node: "achilles", since: 0 });
+        await storage.acknowledge({
+          node: "achilles",
+          since: 0,
+          status: "critical",
+          untilOk: false,
+        });
 
         expect(await storage.unacknowledge("achilles")).toBe(true);
         expect(await storage.unacknowledge("achilles")).toBe(false);
@@ -448,9 +499,26 @@ export function describeStorageContract(
       });
 
       it("expires only those whose end has come, and counts them", async () => {
-        await storage.acknowledge({ node: "achilles", since: 0, until: 100 });
-        await storage.acknowledge({ node: "antilochus", since: 0, until: 500 });
-        await storage.acknowledge({ node: "german", since: 0 });
+        await storage.acknowledge({
+          node: "achilles",
+          since: 0,
+          until: 100,
+          status: "critical",
+          untilOk: false,
+        });
+        await storage.acknowledge({
+          node: "antilochus",
+          since: 0,
+          until: 500,
+          status: "critical",
+          untilOk: false,
+        });
+        await storage.acknowledge({
+          node: "german",
+          since: 0,
+          status: "critical",
+          untilOk: false,
+        });
 
         expect(await storage.expireAcknowledgements(100)).toBe(1);
         expect(
@@ -459,7 +527,12 @@ export function describeStorageContract(
       });
 
       it("is untouched by pruning the history", async () => {
-        await storage.acknowledge({ node: "achilles", since: 0 });
+        await storage.acknowledge({
+          node: "achilles",
+          since: 0,
+          status: "critical",
+          untilOk: false,
+        });
 
         await storage.prune(1_000_000);
 

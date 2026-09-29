@@ -111,18 +111,24 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
       }
 
       const { name } = request.params;
-      const acknowledgement = await putAcknowledgement(
-        options.deps,
-        name,
-        parsed.data,
-      );
+      const result = await putAcknowledgement(options.deps, name, parsed.data);
 
-      if (!acknowledgement) {
-        return sendError(reply, 404, `unknown node "${name}"`);
+      switch (result.kind) {
+        case "unknown-node":
+          return sendError(reply, 404, `unknown node "${name}"`);
+        case "nothing-wrong":
+          return sendError(reply, 409, `${name} is ok: nothing to acknowledge`);
+        case "stored": {
+          const body: AcknowledgementResponse = {
+            acknowledgement: result.acknowledgement,
+          };
+          return body;
+        }
+        default: {
+          const unhandled: never = result;
+          throw new Error(`unhandled outcome ${JSON.stringify(unhandled)}`);
+        }
       }
-
-      const body: AcknowledgementResponse = { acknowledgement };
-      return body;
     },
   );
 
