@@ -1,5 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { type ReactElement, useSyncExternalStore } from "react";
+import type { NotifyLevel } from "../notify/transitions";
+import { clock } from "./clock";
 import { StatusTable } from "./status-table";
 import type { WatchStore } from "./watch-store";
 
@@ -7,6 +9,8 @@ interface WatchProps {
   store: WatchStore;
   apiUrl: string;
   colour: boolean;
+  /** Said in the footer unless it is the default, so silence is explained. */
+  notifyOn: NotifyLevel | undefined;
   /** `q` and Ctrl-C: the command owns the screen, so it owns the exit. */
   onQuit: () => void;
 }
@@ -32,6 +36,9 @@ export function Watch(props: WatchProps): ReactElement {
               `${clock(outage.sinceMs)}, last update ${clock(updatedMs)}: ` +
               outage.message
             : `collector at ${apiUrl} · updated ${clock(updatedMs)} · q to quit`}
+          {props.notifyOn === "critical"
+            ? " · notify: critical and stale only"
+            : ""}
           {notificationsFailed === undefined
             ? ""
             : ` · notifications off: ${notificationsFailed}`}
@@ -39,17 +46,4 @@ export function Watch(props: WatchProps): ReactElement {
       </Box>
     </Box>
   );
-}
-
-// A fixed locale: the user's own gives `7:05:03`, `7.05.03` or wide
-// glyphs, and the table measures UTF-16 units.
-const CLOCK = new Intl.DateTimeFormat("en-GB", {
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-
-function clock(ms: number): string {
-  return CLOCK.format(new Date(ms));
 }

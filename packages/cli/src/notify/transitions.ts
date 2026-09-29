@@ -1,5 +1,10 @@
 import type { MetricStatus, StateResponse } from "@ephorate/core";
 
+/** `warn`: every change. `critical`: into or out of critical or stale. */
+export type NotifyLevel = "warn" | "critical";
+
+export const NOTIFY_LEVELS: readonly NotifyLevel[] = ["warn", "critical"];
+
 /** A node's status between two answers; `absent` when it is not listed. */
 export interface Transition {
   node: string;
@@ -32,6 +37,19 @@ export function transitionsBetween(
   }
 
   return transitions;
+}
+
+// Stale is here on purpose: a node nobody measures any more may be in the
+// worst trouble of all, and the operator must know they are blind.
+const SERIOUS: ReadonlySet<Transition["from"]> = new Set(["critical", "stale"]);
+
+export function isWorthNotifying(
+  transition: Transition,
+  level: NotifyLevel,
+): boolean {
+  if (level === "warn") return true;
+
+  return SERIOUS.has(transition.from) || SERIOUS.has(transition.to);
 }
 
 /** One line each: `ephor: german` / `stale → critical · not reachable …`. */

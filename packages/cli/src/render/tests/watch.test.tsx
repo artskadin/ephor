@@ -50,6 +50,7 @@ function sourceOf(...answers: (StateResponse | Error)[]): WatchSource {
 function watching(
   source: WatchSource,
   onQuit: () => void = () => undefined,
+  notifyOn: "warn" | "critical" | undefined = "warn",
 ): ReturnType<typeof render> {
   const store = new WatchStore({
     source,
@@ -65,6 +66,7 @@ function watching(
       store={store}
       apiUrl={source.apiUrl}
       colour={false}
+      notifyOn={notifyOn}
       onQuit={onQuit}
     />,
   );
@@ -122,5 +124,15 @@ describe("Watch", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     stdin.write(key);
     await until(() => quits === 1);
+  });
+
+  it("says in the footer when only critical and stale changes notify", () => {
+    const quiet = watching(sourceOf(stateOf("ok")));
+    const critical = watching(sourceOf(stateOf("ok")), undefined, "critical");
+
+    expect(quiet.lastFrame()).not.toContain("notify:");
+    expect(critical.lastFrame()?.replace(/\s+/g, " ")).toContain(
+      "notify: critical and stale only",
+    );
   });
 });

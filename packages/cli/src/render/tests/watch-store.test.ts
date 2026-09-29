@@ -1,4 +1,4 @@
-import type { StateResponse } from "@ephorate/core";
+import type { NodeState, StateResponse } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { type WatchSource, WatchStore } from "../watch-store";
 
@@ -57,6 +57,7 @@ function storeOf(
   source: WatchSource,
   tick = () => NOW_MS,
   notify?: (title: string, body: string) => Promise<void>,
+  notifyOn: "warn" | "critical" = "warn",
 ): WatchStore {
   const store = new WatchStore({
     source,
@@ -64,6 +65,7 @@ function storeOf(
     intervalMs: 10,
     now: tick,
     notify,
+    notifyOn,
   });
   stores.push(store);
   store.start();
@@ -164,5 +166,91 @@ describe("WatchStore", () => {
 
     expect(attempts).toBe(1);
     expect(store.read().notificationsFailed).toBe("spawn notify-send ENOENT");
+  });
+
+  it("at critical, keeps quiet about ok → warn", async () => {
+    const sent: string[] = [];
+    const source = sourceOf(stateOf("warn"));
+    storeOf(
+      source,
+      () => NOW_MS,
+      async (title) => {
+        sent.push(title);
+      },
+      "critical",
+    );
+
+    await until(() => source.calls >= 4);
+
+    expect(sent).toEqual([]);
+  });
+
+  // With the collector gone no node can turn stale in `watch`: the loss
+  // and the return are news of their own, at any level.
+  it("says when the collector goes silent and when it answers again", async () => {
+    const sent: [string, string][] = [];
+    const source = sourceOf(
+      new Error("cannot reach the collector at http://127.0.0.1:31556"),
+      new Error("still gone"),
+      stateOf("ok"),
+    );
+    storeOf(
+      source,
+      () => NOW_MS,
+      async (title, body) => {
+        sent.push([title, body]);
+      },
+      "critical",
+    );
+
+    await until(() => sent.length >= 2);
+
+    expect(sent[0]).toEqual([
+      "ephor: collector unreachable",
+      "cannot reach the collector at http://127.0.0.1:31556",
+    ]);
+    expect(sent[1]?.[0]).toBe("ephor: collector back");
+    expect(sent[1]?.[1]).toMatch(
+      /^http:\/\/127\.0\.0\.1:31556 answers again, silent since \d\d:\d\d:\d\d$/,
+    );
+    expect(sent).toHaveLength(2);
+  });
+
+  // Eight nodes change, two of them into critical: at `critical` that is
+  // two notifications of their own, not "8 nodes changed".
+  it("counts the summary after the level's filter", async () => {
+    const sent: string[] = [];
+    const node = stateOf("ok").nodes[0] as NodeState;
+    const initial: StateResponse = {
+      ...stateOf("ok"),
+      nodes: Array.from({ length: 8 }, (_, index) => ({
+        ...node,
+        node: `node-${index}`,
+      })),
+    };
+    const next: StateResponse = {
+      ...initial,
+      nodes: initial.nodes.map((each, index) => ({
+        ...each,
+        status: index < 2 ? "critical" : "warn",
+      })),
+    };
+    const source = sourceOf(next);
+    const store = new WatchStore({
+      source,
+      initial,
+      intervalMs: 10,
+      now: () => NOW_MS,
+      notify: async (title) => {
+        sent.push(title);
+      },
+      notifyOn: "critical",
+    });
+    stores.push(store);
+    store.start();
+
+    await until(() => source.calls >= 3);
+
+    expect(sent).toEqual(["ephor: node-0", "ephor: node-1"]);
   });
 });

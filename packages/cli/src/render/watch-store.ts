@@ -2,10 +2,13 @@ import type { StateResponse } from "@ephorate/core";
 import type { Notify } from "../notify/desktop-notifier";
 import {
   describeTransition,
+  isWorthNotifying,
+  type NotifyLevel,
   SUMMARY_FROM,
   summarizeTransitions,
   transitionsBetween,
 } from "../notify/transitions";
+import { clock } from "./clock";
 
 /** What `watch` needs of `ApiClient`; a test stands in a fake. */
 export interface WatchSource {
@@ -36,6 +39,8 @@ interface WatchStoreOptions {
   now: () => number;
   /** A desktop notification per node whose status changed; off if unset. */
   notify?: Notify | undefined;
+  /** Which changes notify; the collector going and coming back always do. */
+  notifyOn?: NotifyLevel | undefined;
 }
 
 /**
@@ -84,25 +89,40 @@ export class WatchStore {
       if (this.stopped) return;
 
       const previous = this.snapshot.state;
+      const outage = this.snapshot.outage;
       this.publish({
         ...this.snapshot,
         state,
         updatedMs: now(),
         outage: undefined,
       });
-      void this.announce(previous, state);
+
+      const messages = transitionMessages(
+        previous,
+        state,
+        this.options.notifyOn ?? "warn",
+      );
+      if (outage !== undefined) {
+        messages.unshift({
+          title: "ephor: collector back",
+          body: `${source.apiUrl} answers again, silent since ${clock(outage.sinceMs)}`,
+        });
+      }
+      void this.announce(messages);
     } catch (error) {
       if (this.stopped) return;
 
-      // Dated from the first failure; later ones change nothing.
+      // Dated from the first failure; later ones change nothing. Without
+      // answers no node can turn stale here, so the loss is its own news.
       if (this.snapshot.outage === undefined) {
+        const message = error instanceof Error ? error.message : String(error);
         this.publish({
           ...this.snapshot,
-          outage: {
-            sinceMs: now(),
-            message: error instanceof Error ? error.message : String(error),
-          },
+          outage: { sinceMs: now(), message },
         });
+        void this.announce([
+          { title: "ephor: collector unreachable", body: firstLine(message) },
+        ]);
       }
     }
 
@@ -111,19 +131,10 @@ export class WatchStore {
 
   // One at a time, and the first failure switches notifications off: a
   // missing `notify-send` must not fail once per node, and the footer
-  // says why once. A burst (200 nodes after a restart) is one summary.
-  private async announce(
-    previous: StateResponse,
-    next: StateResponse,
-  ): Promise<void> {
+  // says why once.
+  private async announce(messages: readonly Message[]): Promise<void> {
     const { notify } = this.options;
     if (notify === undefined) return;
-
-    const transitions = transitionsBetween(previous, next);
-    const messages =
-      transitions.length >= SUMMARY_FROM
-        ? [summarizeTransitions(transitions)]
-        : transitions.map(describeTransition);
 
     for (const { title, body } of messages) {
       if (this.stopped || this.snapshot.notificationsFailed !== undefined) {
@@ -154,4 +165,25 @@ function firstLine(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
   return (message.split("\n")[0] ?? message).slice(0, 80);
+}
+
+interface Message {
+  title: string;
+  body: string;
+}
+
+// A burst (200 nodes after a restart) is one summary, counted after the
+// level's filter: forty nodes into warn under `critical` say nothing.
+function transitionMessages(
+  previous: StateResponse,
+  next: StateResponse,
+  level: NotifyLevel,
+): Message[] {
+  const transitions = transitionsBetween(previous, next).filter((transition) =>
+    isWorthNotifying(transition, level),
+  );
+
+  return transitions.length >= SUMMARY_FROM
+    ? [summarizeTransitions(transitions)]
+    : transitions.map(describeTransition);
 }

@@ -2,8 +2,10 @@ import type { MetricStatus, NodeState, StateResponse } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import {
   describeTransition,
+  isWorthNotifying,
   SUMMARY_FROM,
   summarizeTransitions,
+  type Transition,
   transitionsBetween,
 } from "../transitions";
 
@@ -128,5 +130,33 @@ describe("summarizeTransitions", () => {
       title: "ephor: 12 nodes changed",
       body: "3 critical, 7 ok, 2 gone",
     });
+  });
+});
+
+describe("isWorthNotifying", () => {
+  const change = (
+    from: Transition["from"],
+    to: Transition["to"],
+  ): Transition => ({ node: "achilles", from, to, reason: undefined });
+
+  it("lets every change through at warn", () => {
+    expect(isWorthNotifying(change("ok", "warn"), "warn")).toBe(true);
+    expect(isWorthNotifying(change("absent", "ok"), "warn")).toBe(true);
+  });
+
+  it.each<[Transition["from"], Transition["to"], boolean]>([
+    ["ok", "critical", true],
+    ["critical", "warn", true],
+    ["critical", "ok", true],
+    ["ok", "stale", true],
+    ["stale", "ok", true],
+    ["warn", "stale", true],
+    ["ok", "warn", false],
+    ["warn", "ok", false],
+    ["unknown", "warn", false],
+    ["absent", "ok", false],
+    ["ok", "absent", false],
+  ])("at critical, %s → %s notifies: %s", (from, to, expected) => {
+    expect(isWorthNotifying(change(from, to), "critical")).toBe(expected);
   });
 });

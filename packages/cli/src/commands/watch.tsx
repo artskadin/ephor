@@ -1,6 +1,7 @@
 import { render } from "ink";
 import { UsageError } from "../exit-code";
 import type { Notify } from "../notify/desktop-notifier";
+import type { NotifyLevel } from "../notify/transitions";
 import { Watch } from "../render/watch";
 import { type WatchSource, WatchStore } from "../render/watch-store";
 
@@ -13,6 +14,7 @@ interface WatchOptions {
   /** Both streams: ink's key handling puts stdin into raw mode. */
   isTerminal: boolean;
   notify: Notify | undefined;
+  notifyOn: NotifyLevel;
 }
 
 // The alternate screen, as `htop` uses it: nothing lands in the
@@ -46,6 +48,7 @@ export async function runWatch(options: WatchOptions): Promise<void> {
     intervalMs: options.intervalMs,
     now: Date.now,
     notify: options.notify,
+    notifyOn: options.notifyOn,
   });
 
   const { promise: quitted, resolve: quit } = Promise.withResolvers<void>();
@@ -57,6 +60,7 @@ export async function runWatch(options: WatchOptions): Promise<void> {
         store={store}
         apiUrl={options.source.apiUrl}
         colour={options.colour}
+        notifyOn={options.notify ? options.notifyOn : undefined}
         onQuit={quit}
       />,
       {

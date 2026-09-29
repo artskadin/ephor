@@ -21,6 +21,7 @@ function refusing(isTerminal: boolean, apiUrl: string) {
     stdin: process.stdin,
     isTerminal,
     notify: undefined,
+    notifyOn: "warn" as const,
   };
 }
 
@@ -92,6 +93,7 @@ describe("runWatch", () => {
       stdin: terminal.stdin,
       isTerminal: true,
       notify: undefined,
+      notifyOn: "warn",
     });
     await until(() => terminal.output().includes("q to quit"));
 

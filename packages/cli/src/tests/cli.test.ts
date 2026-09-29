@@ -156,6 +156,17 @@ describe("ephor watch", () => {
     expect(run.stderr).toContain("ephor status");
   });
 
+  it("exits 2 on a --notify-on it does not know, listing the levels", async () => {
+    const run = await ephor(["watch", "--notify-on", "loud"], {
+      EPHOR_TOKEN: TOKEN,
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain(
+      '--notify-on must be one of warn, critical, got "loud"',
+    );
+  });
+
   it.each(["0.5", "0", "86401"])(
     "exits 2 on --interval %s, saying what it takes",
     async (interval) => {

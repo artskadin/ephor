@@ -108,10 +108,30 @@ program
   )
   .option("--plain", "no colour, whatever the terminal")
   .option("--no-notify", "no desktop notification when a node's status changes")
+  .option(
+    "--notify-on <level>",
+    "warn: every change; critical: into or out of critical or stale",
+    "warn",
+  )
   .action(
-    async (options: { interval: string; plain?: boolean; notify: boolean }) => {
+    async (options: {
+      interval: string;
+      plain?: boolean;
+      notify: boolean;
+      notifyOn: string;
+    }) => {
       const { runWatch } = await import("./commands/watch");
       const { desktopNotifier } = await import("./notify/desktop-notifier");
+      const { NOTIFY_LEVELS } = await import("./notify/transitions");
+      const notifyOn = NOTIFY_LEVELS.find(
+        (level) => level === options.notifyOn,
+      );
+
+      if (notifyOn === undefined) {
+        throw new UsageError(
+          `--notify-on must be one of ${NOTIFY_LEVELS.join(", ")}, got "${options.notifyOn}"`,
+        );
+      }
 
       await runWatch({
         source: new ApiClient(clientConfigFrom(process.env)),
@@ -125,6 +145,7 @@ program
         stdin: process.stdin,
         isTerminal: Boolean(process.stdout.isTTY && process.stdin.isTTY),
         notify: options.notify ? desktopNotifier(process.platform) : undefined,
+        notifyOn,
       });
     },
   );
