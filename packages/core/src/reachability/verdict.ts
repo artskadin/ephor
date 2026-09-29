@@ -4,9 +4,23 @@ import type { ProbeReading, ReachabilityMethod, Vantage } from "./types";
 interface RegionSummary {
   region: string;
   network: Vantage["network"];
-  byMethod: Record<ReachabilityMethod, MethodSummary>;
-  /** The decisive method met the quorum. */
-  ok: boolean;
+  byMethod: Partial<Record<ReachabilityMethod, MethodSummary>>;
+  /** How many vantage points passed the decisive method. */
+  reach: Reach;
+  decisive: DecisiveCount;
+}
+
+/** A point that did not answer counts as one that failed. */
+type Reach = "all" | "some" | "none";
+
+/** Written beside the verdict, so a reason can say how bad: `ru 2/3 tcp`. */
+export interface DecisiveCount {
+  region: string;
+  /** `false` for the control group. */
+  required: boolean;
+  method: ReachabilityMethod;
+  passed: number;
+  total: number;
 }
 
 interface MethodSummary {
@@ -27,12 +41,10 @@ interface VerdictInput {
   readings: readonly ProbeReading[];
   /** The other regions are the control group. */
   requiredRegions: readonly string[];
-  /** Share of vantage points that must succeed, 0 to 1. */
-  quorum: number;
 }
 
 export function summarize(input: VerdictInput): ReachabilityResult {
-  const regions = groupIntoRegions(input.readings, input.quorum);
+  const regions = groupIntoRegions(input.readings, input.requiredRegions);
 
   return {
     regions,
@@ -42,7 +54,7 @@ export function summarize(input: VerdictInput): ReachabilityResult {
 
 function groupIntoRegions(
   readings: readonly ProbeReading[],
-  quorum: number,
+  requiredRegions: readonly string[],
 ): RegionSummary[] {
   const buckets = new Map<string, ProbeReading[]>();
 
@@ -56,26 +68,42 @@ function groupIntoRegions(
   return [...buckets].map(([region, group]) => {
     const byMethod = summarizeMethods(group);
 
-    // TCP decides: ping can pass while the port is filtered.
-    const decisive = byMethod.tcp ?? byMethod.http ?? byMethod.ping;
-    const ok =
-      decisive !== undefined &&
-      decisive.total > 0 &&
-      decisive.passed / decisive.total >= quorum;
+    // TCP decides: ping can pass while the port is filtered. Every reading
+    // has one of the three methods, so one is always found.
+    const method =
+      (["tcp", "http", "ping"] as const).find(
+        (candidate) => byMethod[candidate] !== undefined,
+      ) ?? "ping";
+    const counts = byMethod[method] ?? { passed: 0, total: 0 };
 
     return {
       region,
       network: group[0]?.vantage.network ?? "datacenter",
       byMethod,
-      ok,
+      reach: reachOf(counts),
+      decisive: {
+        region,
+        required: requiredRegions.includes(region),
+        method,
+        passed: counts.passed,
+        total: counts.total,
+      },
     };
   });
 }
 
+// One point that cannot reach the node is a problem to look at: some of
+// the users behind that network are cut off.
+function reachOf(counts: MethodSummary): Reach {
+  if (counts.passed === 0) return "none";
+
+  return counts.passed === counts.total ? "all" : "some";
+}
+
 function summarizeMethods(
   readings: readonly ProbeReading[],
-): Record<ReachabilityMethod, MethodSummary> {
-  const result = {} as Record<ReachabilityMethod, MethodSummary>;
+): Partial<Record<ReachabilityMethod, MethodSummary>> {
+  const result: Partial<Record<ReachabilityMethod, MethodSummary>> = {};
 
   for (const method of ["ping", "tcp", "http"] as const) {
     const forMethod = readings.filter((reading) => reading.method === method);
@@ -112,13 +140,10 @@ function decideVerdict(
 
   if (required.length === 0) return "unknown";
 
-  const allRequiredOk = required.every((region) => region.ok);
-  const noRequiredOk = required.every((region) => !region.ok);
+  if (required.every((region) => region.reach === "all")) return "ok";
 
-  if (allRequiredOk) return "ok";
-
-  if (noRequiredOk) {
-    if (control.length > 0 && control.some((region) => region.ok)) {
+  if (required.every((region) => region.reach === "none")) {
+    if (control.some((region) => region.reach !== "none")) {
       return "blocked";
     }
     if (control.length > 0) return "down";

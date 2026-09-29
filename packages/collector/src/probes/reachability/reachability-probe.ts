@@ -94,7 +94,6 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
       const result = summarize({
         readings,
         requiredRegions: requiredRegionsOf(settings),
-        quorum: settings.quorum,
       });
 
       return { ok: true, data: result, durationMs: Date.now() - startedAt };
@@ -133,7 +132,11 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
       metric: "reachability.verdict",
       value: VERDICT_CODES[result.verdict],
       ok: result.verdict === "ok",
-      meta: { verdict: result.verdict },
+      // The counts behind the verdict, for a reason that says how bad.
+      meta: {
+        verdict: result.verdict,
+        regions: result.regions.map((region) => region.decisive),
+      },
     });
 
     return points;

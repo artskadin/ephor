@@ -44,8 +44,9 @@ probes:
     # that exact pattern is what a blocked node looks like.
     methods: [ping, tcp]
 
-    # Share of a region's vantage points that must answer for it to pass.
-    quorum: 0.5
+    # A required region is ok when every vantage point reaches the node,
+    # partial (warn) when some do, failed when none do: one ISP cutting
+    # the node off already leaves part of its users without the service.
 
     # Regions have no default: where your users live is not something this
     # tool can guess. Without them the probe reports "not configured".

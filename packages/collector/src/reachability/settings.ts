@@ -22,8 +22,16 @@ export const reachabilitySettingsShape = {
     .array(z.enum(["ping", "tcp", "http"]))
     .min(1)
     .default(["ping", "tcp"]),
-  /** Share of a region's vantage points that must succeed. */
-  quorum: z.number().min(0).max(1).default(0.5),
+  // Removed 2026-09-29: a node is ok only when every vantage point reaches
+  // it. Said out loud, since `.strict()` would only call the key unknown.
+  quorum: z
+    .never({
+      error:
+        "quorum was removed: a region is ok only when every vantage point " +
+        "reaches the node, and some but not all reads as partial. Delete " +
+        "the line.",
+    })
+    .optional(),
   vantageRefresh: Duration.default(86_400),
   regions: z.record(z.string(), RegionSchema).default({}),
 } satisfies z.ZodRawShape;

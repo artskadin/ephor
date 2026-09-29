@@ -648,7 +648,7 @@ describe("buildNodeState", () => {
       );
     });
 
-    // The probe already weighed these readings against the quorum and the
+    // The probe already weighed these readings against each other and the
     // control group; its answer is the verdict. Repeating them would bury the
     // one line that says what happened under five that say nothing.
     it("lets the verdict speak for the readings behind it", () => {
@@ -662,6 +662,50 @@ describe("buildNodeState", () => {
         "not reachable from any region, the control group included",
       ]);
       expect(viewOf(state, "reachability.ru.tcp").value).toBe(0);
+    });
+
+    it("says how bad a partial verdict is, region by region", () => {
+      const state = firstOf(soloConfig(), [
+        point("system.up", { ok: true }),
+        point("reachability.up", { ok: true }),
+        point("speed.up", { ok: true }),
+        point("reachability.verdict", {
+          ok: false,
+          meta: {
+            verdict: "partial",
+            regions: [
+              {
+                region: "ru",
+                required: true,
+                method: "tcp",
+                passed: 2,
+                total: 3,
+              },
+              {
+                region: "eu",
+                required: false,
+                method: "tcp",
+                passed: 3,
+                total: 3,
+              },
+            ],
+          },
+        }),
+      ]);
+
+      expect(state.status).toBe("warn");
+      expect(state.reasons).toEqual([
+        "reachable from some vantage points only: ru 2/3 tcp, control eu 3/3 tcp",
+      ]);
+    });
+
+    // Verdicts stored before the counts were written stay readable.
+    it("gives the bare reason for a verdict without counts", () => {
+      const state = firstOf(soloConfig(), withVerdict("partial"));
+
+      expect(state.reasons).toEqual([
+        "reachable from some vantage points only",
+      ]);
     });
 
     // check-host documents no rate limit, so it refusing requests is the

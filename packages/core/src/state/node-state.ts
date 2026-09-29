@@ -1,7 +1,7 @@
 import { formatDuration } from "../config/duration";
 import type { ResolvedNode, ResolvedProbe } from "../config/resolve";
 import type { Threshold } from "../config/schema";
-import type { Verdict } from "../reachability/verdict";
+import type { DecisiveCount, Verdict } from "../reachability/verdict";
 import type { MetricPoint } from "../types/metrics";
 
 /** `unknown` (never arrived) and `stale` (stopped arriving) stay apart. */
@@ -72,7 +72,7 @@ const VERDICT_SEVERITY: Readonly<Record<Verdict, MetricSeverity>> = {
 
 const VERDICT_REASON: Readonly<Record<Verdict, string | undefined>> = {
   ok: undefined,
-  partial: "reachable from only part of the required regions",
+  partial: "reachable from some vantage points only",
   blocked:
     "not reachable from the required regions while the control group answers",
   down: "not reachable from any region, the control group included",
@@ -182,7 +182,10 @@ function buildNodeStateFor(
       worsenTo(severity);
 
       const reason = VERDICT_REASON[verdict];
-      if (reason !== undefined) reasons.push(reason);
+      if (reason !== undefined) {
+        const counts = countsText(verdictView.meta?.regions);
+        reasons.push(counts === "" ? reason : `${reason}: ${counts}`);
+      }
     }
   }
 
@@ -330,6 +333,35 @@ function reasonFor(
   }
 
   return undefined;
+}
+
+// `ru 2/3 tcp, control eu 3/3 tcp`. Verdicts written before the counts
+// were stored have none, and read as the bare reason.
+function countsText(regions: unknown): string {
+  if (!Array.isArray(regions)) return "";
+
+  return regions
+    .filter(isDecisiveCount)
+    .map(
+      (count) =>
+        `${count.required ? "" : "control "}${count.region} ` +
+        `${count.passed}/${count.total} ${count.method}`,
+    )
+    .join(", ");
+}
+
+function isDecisiveCount(value: unknown): value is DecisiveCount {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Record<string, unknown>;
+
+  return (
+    typeof candidate.region === "string" &&
+    typeof candidate.required === "boolean" &&
+    typeof candidate.method === "string" &&
+    typeof candidate.passed === "number" &&
+    typeof candidate.total === "number"
+  );
 }
 
 function verdictFromView(view: MetricView | undefined): Verdict {
