@@ -53,7 +53,11 @@ export {
   buildNodeState,
   REACHABILITY_VERDICT_METRIC,
 } from "./state/node-state";
-export type { QueryFilter, Storage } from "./storage/types";
+export type {
+  Acknowledgement,
+  QueryFilter,
+  Storage,
+} from "./storage/types";
 export type { MetricPoint } from "./types/metrics";
 export type { ProbeError, ProbeOutcome } from "./types/probe";
 export type {

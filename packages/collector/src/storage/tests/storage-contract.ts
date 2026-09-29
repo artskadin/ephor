@@ -376,6 +376,96 @@ export function describeStorageContract(
         expect(await storage.query({})).toEqual([]);
       });
     });
+
+    describe("acknowledgements", () => {
+      it("round-trips one with a note and an end, and one with neither", async () => {
+        await storage.acknowledge({
+          node: "achilles",
+          note: "waiting for a new IP",
+          since: 1000,
+          until: 5000,
+        });
+        await storage.acknowledge({ node: "german", since: 2000 });
+
+        expect(await storage.acknowledgements(1500)).toEqual([
+          {
+            node: "achilles",
+            note: "waiting for a new IP",
+            since: 1000,
+            until: 5000,
+          },
+          { node: "german", since: 2000 },
+        ]);
+      });
+
+      it("keeps one per node: a second replaces the first", async () => {
+        await storage.acknowledge({
+          node: "achilles",
+          note: "old",
+          since: 1000,
+        });
+        await storage.acknowledge({
+          node: "achilles",
+          note: "new",
+          since: 2000,
+          until: 9000,
+        });
+
+        expect(await storage.acknowledgements(2000)).toEqual([
+          { node: "achilles", note: "new", since: 2000, until: 9000 },
+        ]);
+      });
+
+      // A replacement is whole: what the second one leaves out is gone.
+      it("drops the note and the end a replacement does not give", async () => {
+        await storage.acknowledge({
+          node: "achilles",
+          note: "old",
+          since: 1000,
+          until: 9000,
+        });
+        await storage.acknowledge({ node: "achilles", since: 2000 });
+
+        expect(await storage.acknowledgements(2000)).toStrictEqual([
+          { node: "achilles", since: 2000 },
+        ]);
+      });
+
+      // An end is the moment it stops, not the last moment it holds.
+      it("leaves out those whose end has come", async () => {
+        await storage.acknowledge({ node: "achilles", since: 0, until: 100 });
+
+        expect(await storage.acknowledgements(99)).toHaveLength(1);
+        expect(await storage.acknowledgements(100)).toEqual([]);
+      });
+
+      it("says whether there was one to remove", async () => {
+        await storage.acknowledge({ node: "achilles", since: 0 });
+
+        expect(await storage.unacknowledge("achilles")).toBe(true);
+        expect(await storage.unacknowledge("achilles")).toBe(false);
+        expect(await storage.acknowledgements(0)).toEqual([]);
+      });
+
+      it("expires only those whose end has come, and counts them", async () => {
+        await storage.acknowledge({ node: "achilles", since: 0, until: 100 });
+        await storage.acknowledge({ node: "antilochus", since: 0, until: 500 });
+        await storage.acknowledge({ node: "german", since: 0 });
+
+        expect(await storage.expireAcknowledgements(100)).toBe(1);
+        expect(
+          (await storage.acknowledgements(0)).map((each) => each.node),
+        ).toEqual(["antilochus", "german"]);
+      });
+
+      it("is untouched by pruning the history", async () => {
+        await storage.acknowledge({ node: "achilles", since: 0 });
+
+        await storage.prune(1_000_000);
+
+        expect(await storage.acknowledgements(0)).toHaveLength(1);
+      });
+    });
   });
 }
 

@@ -92,6 +92,20 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    name: "acknowledgements",
+    apply(database) {
+      database.exec(`
+        CREATE TABLE acknowledgements (
+          node  TEXT    PRIMARY KEY,
+          note  TEXT,
+          since INTEGER NOT NULL,
+          until INTEGER
+        )
+      `);
+    },
+  },
 ];
 
 /** An explicit level never parses `EPHOR_LOG_LEVEL`; safe at import. */

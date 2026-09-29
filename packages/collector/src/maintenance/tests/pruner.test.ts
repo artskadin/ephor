@@ -1,4 +1,9 @@
-import type { MetricPoint, QueryFilter, Storage } from "@ephorate/core";
+import type {
+  Acknowledgement,
+  MetricPoint,
+  QueryFilter,
+  Storage,
+} from "@ephorate/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeClock } from "../../scheduling/clock";
 import { Pruner } from "../pruner";
@@ -17,6 +22,16 @@ class FakeStorage implements Storage {
     return [];
   }
   async close(): Promise<void> {}
+  async acknowledge(): Promise<void> {}
+  async unacknowledge(): Promise<boolean> {
+    return false;
+  }
+  async acknowledgements(): Promise<Acknowledgement[]> {
+    return [];
+  }
+  async expireAcknowledgements(): Promise<number> {
+    return 0;
+  }
 
   async prune(olderThanTs: number): Promise<number> {
     this.pruneCalls.push(olderThanTs);

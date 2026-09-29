@@ -49,6 +49,10 @@ export function storageOf(points: readonly MetricPoint[]): Storage & {
       );
     },
     prune: async () => 0,
+    acknowledge: async () => {},
+    unacknowledge: async () => false,
+    acknowledgements: async () => [],
+    expireAcknowledgements: async () => 0,
     close: async () => {},
   };
 }

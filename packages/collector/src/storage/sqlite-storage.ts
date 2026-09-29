@@ -1,8 +1,21 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Logger, MetricPoint, QueryFilter, Storage } from "@ephorate/core";
+import type {
+  Acknowledgement,
+  Logger,
+  MetricPoint,
+  QueryFilter,
+  Storage,
+} from "@ephorate/core";
 import { applyMigrations, MIGRATIONS, SILENT_LOGGER } from "./migrations";
+
+interface AcknowledgementRow {
+  node: string;
+  note: string | null;
+  since: number;
+  until: number | null;
+}
 
 interface MetricRow {
   ts: number;
@@ -139,9 +152,67 @@ export class SqliteStorage implements Storage {
     return Number(result.changes);
   }
 
+  async acknowledge(acknowledgement: Acknowledgement): Promise<void> {
+    this.database
+      .prepare(
+        `INSERT INTO acknowledgements (node, note, since, until)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (node) DO UPDATE SET
+           note  = excluded.note,
+           since = excluded.since,
+           until = excluded.until`,
+      )
+      .run(
+        acknowledgement.node,
+        acknowledgement.note ?? null,
+        acknowledgement.since,
+        acknowledgement.until ?? null,
+      );
+  }
+
+  async unacknowledge(node: string): Promise<boolean> {
+    const result = this.database
+      .prepare("DELETE FROM acknowledgements WHERE node = ?")
+      .run(node);
+
+    return Number(result.changes) > 0;
+  }
+
+  async acknowledgements(now: number): Promise<Acknowledgement[]> {
+    const rows = this.database
+      .prepare(
+        `SELECT node, note, since, until FROM acknowledgements
+         WHERE until IS NULL OR until > ?
+         ORDER BY node`,
+      )
+      .all(now) as unknown as AcknowledgementRow[];
+
+    return rows.map(rowToAcknowledgement);
+  }
+
+  async expireAcknowledgements(now: number): Promise<number> {
+    const result = this.database
+      .prepare("DELETE FROM acknowledgements WHERE until <= ?")
+      .run(now);
+
+    return Number(result.changes);
+  }
+
   async close(): Promise<void> {
     this.database.close();
   }
+}
+
+function rowToAcknowledgement(row: AcknowledgementRow): Acknowledgement {
+  const acknowledgement: Acknowledgement = {
+    node: row.node,
+    since: row.since,
+  };
+
+  if (row.note !== null) acknowledgement.note = row.note;
+  if (row.until !== null) acknowledgement.until = row.until;
+
+  return acknowledgement;
 }
 
 function rowToPoint(row: MetricRow): MetricPoint {
