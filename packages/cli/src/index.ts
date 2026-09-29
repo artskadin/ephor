@@ -107,22 +107,27 @@ program
     "5",
   )
   .option("--plain", "no colour, whatever the terminal")
-  .action(async (options: { interval: string; plain?: boolean }) => {
-    const { runWatch } = await import("./commands/watch");
+  .option("--no-notify", "no desktop notification when a node's status changes")
+  .action(
+    async (options: { interval: string; plain?: boolean; notify: boolean }) => {
+      const { runWatch } = await import("./commands/watch");
+      const { desktopNotifier } = await import("./notify/desktop-notifier");
 
-    await runWatch({
-      source: new ApiClient(clientConfigFrom(process.env)),
-      intervalMs: intervalFrom(options.interval) * 1000,
-      colour: colourEnabled({
-        plain: options.plain ?? false,
-        isTerminal: Boolean(process.stdout.isTTY),
-        environment: process.env,
-      }),
-      stdout: process.stdout,
-      stdin: process.stdin,
-      isTerminal: Boolean(process.stdout.isTTY && process.stdin.isTTY),
-    });
-  });
+      await runWatch({
+        source: new ApiClient(clientConfigFrom(process.env)),
+        intervalMs: intervalFrom(options.interval) * 1000,
+        colour: colourEnabled({
+          plain: options.plain ?? false,
+          isTerminal: Boolean(process.stdout.isTTY),
+          environment: process.env,
+        }),
+        stdout: process.stdout,
+        stdin: process.stdin,
+        isTerminal: Boolean(process.stdout.isTTY && process.stdin.isTTY),
+        notify: options.notify ? desktopNotifier(process.platform) : undefined,
+      });
+    },
+  );
 
 try {
   await program.parseAsync(process.argv);

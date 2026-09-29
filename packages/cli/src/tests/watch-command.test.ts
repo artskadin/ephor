@@ -20,6 +20,7 @@ function refusing(isTerminal: boolean, apiUrl: string) {
     stdout: process.stdout,
     stdin: process.stdin,
     isTerminal,
+    notify: undefined,
   };
 }
 
@@ -90,6 +91,7 @@ describe("runWatch", () => {
       stdout: terminal.stdout,
       stdin: terminal.stdin,
       isTerminal: true,
+      notify: undefined,
     });
     await until(() => terminal.output().includes("q to quit"));
 

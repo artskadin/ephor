@@ -66,10 +66,11 @@ describe("ephor check", () => {
       status: "warn",
       probes: ["system"],
     });
-    // The real ssh failed, not a missing ssh binary.
-    expect(response.nodes[0]?.reasons.join("\n")).toContain(
-      "Could not resolve hostname",
-    );
+    // The real ssh ran and failed (a slow resolver turns NXDOMAIN into the
+    // probe's timeout), as opposed to a missing ssh binary.
+    const reason = response.nodes[0]?.reasons.join("\n") ?? "";
+    expect(reason).toMatch(/Could not resolve hostname|timeout/);
+    expect(reason).not.toContain("ENOENT");
   });
 
   it("draws only the node asked for; JSON keeps every node", async () => {

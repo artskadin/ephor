@@ -14,10 +14,8 @@ interface WatchProps {
 /** The status table over a `WatchStore`, with a footer saying how fresh. */
 export function Watch(props: WatchProps): ReactElement {
   const { store, apiUrl } = props;
-  const { state, updatedMs, outage } = useSyncExternalStore(
-    store.subscribe,
-    store.read,
-  );
+  const { state, updatedMs, outage, notificationsFailed } =
+    useSyncExternalStore(store.subscribe, store.read);
 
   useInput((input, key) => {
     if (input === "q" || (key.ctrl && input === "c")) props.onQuit();
@@ -34,6 +32,9 @@ export function Watch(props: WatchProps): ReactElement {
               `${clock(outage.sinceMs)}, last update ${clock(updatedMs)}: ` +
               outage.message
             : `collector at ${apiUrl} · updated ${clock(updatedMs)} · q to quit`}
+          {notificationsFailed === undefined
+            ? ""
+            : ` · notifications off: ${notificationsFailed}`}
         </Text>
       </Box>
     </Box>

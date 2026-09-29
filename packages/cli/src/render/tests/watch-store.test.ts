@@ -53,12 +53,17 @@ async function until(condition: () => boolean): Promise<void> {
 
 const stores: WatchStore[] = [];
 
-function storeOf(source: WatchSource, tick = () => NOW_MS): WatchStore {
+function storeOf(
+  source: WatchSource,
+  tick = () => NOW_MS,
+  notify?: (title: string, body: string) => Promise<void>,
+): WatchStore {
   const store = new WatchStore({
     source,
     initial: stateOf("ok"),
     intervalMs: 10,
     now: tick,
+    notify,
   });
   stores.push(store);
   store.start();
@@ -123,5 +128,41 @@ describe("WatchStore", () => {
 
     expect(source.calls).toBe(callsAtStop);
     expect(notified).toBe(notifiedAtStop);
+  });
+
+  it("sends one notification per status change, none for a repeat", async () => {
+    const sent: [string, string][] = [];
+    const source = sourceOf(stateOf("warn"));
+    const store = storeOf(
+      source,
+      () => NOW_MS,
+      async (title, body) => {
+        sent.push([title, body]);
+      },
+    );
+
+    await until(() => source.calls >= 4);
+
+    expect(sent).toEqual([["ephor: achilles", "ok → warn · achilles is warn"]]);
+    expect(store.read().notificationsFailed).toBeUndefined();
+  });
+
+  it("switches notifications off after the first failure, saying why", async () => {
+    let attempts = 0;
+    const source = sourceOf(stateOf("warn"), stateOf("ok"), stateOf("warn"));
+    const store = storeOf(
+      source,
+      () => NOW_MS,
+      async () => {
+        attempts += 1;
+        throw new Error("spawn notify-send ENOENT");
+      },
+    );
+
+    await until(() => store.read().notificationsFailed !== undefined);
+    await until(() => source.calls >= 5);
+
+    expect(attempts).toBe(1);
+    expect(store.read().notificationsFailed).toBe("spawn notify-send ENOENT");
   });
 });

@@ -1,5 +1,6 @@
 import { render } from "ink";
 import { UsageError } from "../exit-code";
+import type { Notify } from "../notify/desktop-notifier";
 import { Watch } from "../render/watch";
 import { type WatchSource, WatchStore } from "../render/watch-store";
 
@@ -11,6 +12,7 @@ interface WatchOptions {
   stdin: NodeJS.ReadStream;
   /** Both streams: ink's key handling puts stdin into raw mode. */
   isTerminal: boolean;
+  notify: Notify | undefined;
 }
 
 // The alternate screen, as `htop` uses it: nothing lands in the
@@ -43,6 +45,7 @@ export async function runWatch(options: WatchOptions): Promise<void> {
     initial: await options.source.state(),
     intervalMs: options.intervalMs,
     now: Date.now,
+    notify: options.notify,
   });
 
   const { promise: quitted, resolve: quit } = Promise.withResolvers<void>();
