@@ -1,4 +1,8 @@
 export {
+  type AcknowledgeRequest,
+  AcknowledgeRequestSchema,
+} from "./api/acknowledge-request";
+export {
   CHECK_MAX_WAIT_SECONDS,
   type CheckRequest,
   CheckRequestSchema,
@@ -10,6 +14,7 @@ export {
   MetricsQuerySchema,
 } from "./api/metrics-query";
 export type {
+  AcknowledgementResponse,
   CheckResponse,
   ErrorResponse,
   HealthResponse,

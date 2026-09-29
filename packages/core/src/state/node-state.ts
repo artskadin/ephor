@@ -2,6 +2,7 @@ import { formatDuration } from "../config/duration";
 import type { ResolvedNode, ResolvedProbe } from "../config/resolve";
 import type { Threshold } from "../config/schema";
 import type { DecisiveCount, Verdict } from "../reachability/verdict";
+import type { Acknowledgement } from "../storage/types";
 import type { MetricPoint } from "../types/metrics";
 
 /** `unknown` (never arrived) and `stale` (stopped arriving) stay apart. */
@@ -44,6 +45,8 @@ export interface NodeState {
   metrics: MetricView[];
   /** Why the node is not `ok`. */
   reasons: string[];
+  /** Its problem is known and owned; the status stays what it is. */
+  acknowledged?: Acknowledgement | undefined;
 }
 
 interface NodeStateInput {
@@ -52,6 +55,8 @@ interface NodeStateInput {
   points: readonly MetricPoint[];
   /** Unix seconds, injected so staleness is testable. */
   now: number;
+  /** Those in force at `now`, from `Storage.acknowledgements(now)`. */
+  acknowledgements?: readonly Acknowledgement[] | undefined;
 }
 
 /** The one metric named here: reachability is core's own concept. */
@@ -98,9 +103,21 @@ export function buildNodeState(input: NodeStateInput): NodeState[] {
     else byNode.set(point.node, [point]);
   }
 
-  return input.nodes.map((node) =>
-    buildNodeStateFor(node, byNode.get(node.node.name) ?? [], input.now),
+  const acknowledged = new Map(
+    (input.acknowledgements ?? []).map((each) => [each.node, each] as const),
   );
+
+  return input.nodes.map((node) => {
+    const state = buildNodeStateFor(
+      node,
+      byNode.get(node.node.name) ?? [],
+      input.now,
+    );
+    const acknowledgement = acknowledged.get(node.node.name);
+    if (acknowledgement !== undefined) state.acknowledged = acknowledgement;
+
+    return state;
+  });
 }
 
 function buildNodeStateFor(

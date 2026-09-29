@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import {
+  type AcknowledgementResponse,
+  AcknowledgeRequestSchema,
   type ApiSettings,
   CheckRequestSchema,
   describeIssues,
@@ -10,12 +12,14 @@ import {
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import {
   type ApiDeps,
+  deleteAcknowledgement,
   getHealth,
   getMetrics,
   getNode,
   getState,
   InvalidQueryError,
   postCheck,
+  putAcknowledgement,
 } from "./handlers";
 
 // The only file that knows Fastify exists.
@@ -95,6 +99,57 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
 
     return sendError(reply, 404, `unknown node "${parsed.data.node}"`);
   });
+
+  // PUT: one per node, and a second replaces the first.
+  app.put<{ Params: { name: string }; Body: unknown }>(
+    "/api/nodes/:name/ack",
+    async (request, reply) => {
+      const parsed = AcknowledgeRequestSchema.safeParse(request.body ?? {});
+
+      if (!parsed.success) {
+        return sendError(reply, 400, describeIssues(parsed.error));
+      }
+
+      const { name } = request.params;
+      const acknowledgement = await putAcknowledgement(
+        options.deps,
+        name,
+        parsed.data,
+      );
+
+      if (!acknowledgement) {
+        return sendError(reply, 404, `unknown node "${name}"`);
+      }
+
+      const body: AcknowledgementResponse = { acknowledgement };
+      return body;
+    },
+  );
+
+  app.delete<{ Params: { name: string } }>(
+    "/api/nodes/:name/ack",
+    async (request, reply) => {
+      const { name } = request.params;
+      const result = await deleteAcknowledgement(options.deps, name);
+
+      switch (result.kind) {
+        case "unknown-node":
+          return sendError(reply, 404, `unknown node "${name}"`);
+        case "none":
+          return sendError(reply, 404, `${name} has no acknowledgement`);
+        case "removed": {
+          const body: AcknowledgementResponse = {
+            acknowledgement: result.acknowledgement,
+          };
+          return body;
+        }
+        default: {
+          const unhandled: never = result;
+          throw new Error(`unhandled outcome ${JSON.stringify(unhandled)}`);
+        }
+      }
+    },
+  );
 
   app.setNotFoundHandler((_request, reply) =>
     sendError(reply, 404, "not found"),

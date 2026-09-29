@@ -1,6 +1,7 @@
 import { type ApiSettings, createLogger, type Logger } from "@ephorate/core";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
+import { SqliteStorage } from "../../storage/sqlite-storage";
 import type { ApiDeps } from "../handlers";
 import { createApiServer, MissingTokenError } from "../server";
 import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures";
@@ -309,6 +310,157 @@ describe("createApiServer", () => {
         expect(response.json().error).toMatch(message);
       },
     );
+  });
+
+  describe("PUT and DELETE /api/nodes/:name/ack", () => {
+    let storage: SqliteStorage | undefined;
+    let now = NOW;
+
+    /** The real storage in memory: the acknowledgement must round-trip. */
+    async function ackServer() {
+      const opened = new SqliteStorage(":memory:");
+      await opened.migrate();
+      storage = opened;
+      now = NOW;
+
+      return serverOf({
+        deps: depsOf([], { storage: opened, now: () => now }),
+      });
+    }
+
+    afterEach(async () => {
+      await storage?.close();
+      storage = undefined;
+    });
+
+    it("stores one with a note and an end, and the state shows it", async () => {
+      const server = await ackServer();
+
+      const put = await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+        payload: { note: "  waiting for a new IP  ", duration: "3d" },
+      });
+
+      expect(put.statusCode).toBe(200);
+      const stored = {
+        node: "achilles",
+        note: "waiting for a new IP",
+        since: NOW,
+        until: NOW + 3 * 86_400,
+      };
+      expect(put.json()).toEqual({ acknowledgement: stored });
+
+      const state = await server.inject({
+        method: "GET",
+        url: "/api/state",
+        headers: authorized,
+      });
+      expect(state.json().nodes[0].acknowledged).toEqual(stored);
+    });
+
+    it("stores one until the node is back to ok when nothing is given", async () => {
+      const server = await ackServer();
+
+      const put = await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+      });
+
+      expect(put.statusCode).toBe(200);
+      expect(put.json()).toEqual({
+        acknowledgement: { node: "achilles", since: NOW },
+      });
+    });
+
+    it.each([
+      [{ duration: "0s" }, "duration must be between"],
+      [{ duration: "400d" }, "duration must be between"],
+      [{ duration: "a fortnight" }, "Expected 30, 30s, 15m, 2h or 7d"],
+      [{ note: "   " }, "note"],
+      [{ note: "two\nlines" }, "note must be one line of plain text"],
+      [{ note: "wipe \u001b[2J" }, "note must be one line of plain text"],
+      [{ until: 5 }, "until"],
+    ])("refuses %j with a 400 that says why", async (payload, words) => {
+      const server = await ackServer();
+
+      const put = await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+        payload,
+      });
+
+      expect(put.statusCode).toBe(400);
+      expect(put.json().error).toContain(words);
+    });
+
+    it("is a 404 for a node that is not configured, both ways", async () => {
+      const server = await ackServer();
+
+      for (const method of ["PUT", "DELETE"] as const) {
+        const response = await server.inject({
+          method,
+          url: "/api/nodes/hector/ack",
+          headers: authorized,
+        });
+
+        expect(response.statusCode).toBe(404);
+        expect(response.json()).toEqual({ error: 'unknown node "hector"' });
+      }
+    });
+
+    it("removes one, answering with it, and then has none to remove", async () => {
+      const server = await ackServer();
+      await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+        payload: { note: "known" },
+      });
+
+      const first = await server.inject({
+        method: "DELETE",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+      });
+      const second = await server.inject({
+        method: "DELETE",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+      });
+
+      expect(first.json()).toEqual({
+        acknowledgement: { node: "achilles", note: "known", since: NOW },
+      });
+      expect(second.statusCode).toBe(404);
+      expect(second.json()).toEqual({
+        error: "achilles has no acknowledgement",
+      });
+    });
+
+    // Past its end it silenced nothing: removing it is not news.
+    it("calls one past its end none, and clears it away", async () => {
+      const server = await ackServer();
+      await server.inject({
+        method: "PUT",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+        payload: { duration: 60 },
+      });
+      now = NOW + 60;
+
+      const response = await server.inject({
+        method: "DELETE",
+        url: "/api/nodes/achilles/ack",
+        headers: authorized,
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(await storage?.expireAcknowledgements(NOW + 60)).toBe(0);
+    });
   });
 
   it("answers an unknown route in the same shape as any other failure", async () => {

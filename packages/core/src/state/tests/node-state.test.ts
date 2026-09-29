@@ -869,3 +869,39 @@ function viewOf(state: NodeState, metric: string) {
 
   return view;
 }
+
+describe("acknowledgements", () => {
+  const twoNodes = {
+    nodes: [
+      { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
+      { name: "german", host: "203.0.113.12" },
+    ],
+  };
+
+  // Known and owned is not fixed: the table still has to show red.
+  it("marks the node it names and leaves its status as it is", () => {
+    const acknowledgement = {
+      node: "german",
+      note: "waiting for a new IP",
+      since: NOW - 3600,
+    };
+    const [achilles, german] = buildNodeState({
+      nodes: resolveConfig(parseConfig(twoNodes, TEST_PROBES), TEST_PROBES),
+      points: [
+        {
+          ts: NOW,
+          node: "german",
+          metric: "reachability.verdict",
+          ok: false,
+          meta: { verdict: "down" },
+        },
+      ],
+      now: NOW,
+      acknowledgements: [acknowledgement],
+    });
+
+    expect(german?.acknowledged).toEqual(acknowledgement);
+    expect(german?.status).toBe("critical");
+    expect(achilles).not.toHaveProperty("acknowledged");
+  });
+});

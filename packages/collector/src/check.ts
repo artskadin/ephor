@@ -82,6 +82,7 @@ export async function checkOnce(
         nodes: deps.nodes,
         points: await deps.storage.latest(),
         now,
+        acknowledgements: await deps.storage.acknowledgements(now),
       }),
       startedAt,
       complete: unfinished.length === 0,

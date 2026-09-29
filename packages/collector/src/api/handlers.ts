@@ -1,4 +1,6 @@
 import {
+  type Acknowledgement,
+  type AcknowledgeRequest,
   buildNodeState,
   CHECK_MAX_WAIT_SECONDS,
   type CheckRequest,
@@ -44,6 +46,7 @@ export async function getState(deps: ApiDeps): Promise<StateResponse> {
       nodes: deps.nodes,
       points: await deps.storage.latest(),
       now,
+      acknowledgements: await deps.storage.acknowledgements(now),
     }),
   };
 }
@@ -61,6 +64,7 @@ export async function getNode(
     nodes: [node],
     points: await deps.storage.latest(name),
     now,
+    acknowledgements: await deps.storage.acknowledgements(now),
   });
 
   if (!state) {
@@ -68,6 +72,52 @@ export async function getNode(
   }
 
   return { now, node: state };
+}
+
+/** `undefined` for a node nobody configured: the route's 404. */
+export async function putAcknowledgement(
+  deps: ApiDeps,
+  name: string,
+  request: AcknowledgeRequest,
+): Promise<Acknowledgement | undefined> {
+  if (!deps.nodes.some((candidate) => candidate.node.name === name)) {
+    return undefined;
+  }
+
+  const since = deps.now();
+  const acknowledgement: Acknowledgement = { node: name, since };
+  if (request.note !== undefined) acknowledgement.note = request.note;
+  if (request.duration !== undefined) {
+    acknowledgement.until = since + request.duration;
+  }
+
+  await deps.storage.acknowledge(acknowledgement);
+
+  return acknowledgement;
+}
+
+type Unacknowledged =
+  | { kind: "unknown-node" }
+  | { kind: "none" }
+  | { kind: "removed"; acknowledgement: Acknowledgement };
+
+// One expired but not yet swept is "none": it silenced nothing any more.
+export async function deleteAcknowledgement(
+  deps: ApiDeps,
+  name: string,
+): Promise<Unacknowledged> {
+  if (!deps.nodes.some((candidate) => candidate.node.name === name)) {
+    return { kind: "unknown-node" };
+  }
+
+  const inForce = (await deps.storage.acknowledgements(deps.now())).find(
+    (each) => each.node === name,
+  );
+  await deps.storage.unacknowledge(name);
+
+  return inForce === undefined
+    ? { kind: "none" }
+    : { kind: "removed", acknowledgement: inForce };
 }
 
 export async function getMetrics(

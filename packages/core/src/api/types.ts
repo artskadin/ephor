@@ -1,4 +1,5 @@
 import type { NodeState } from "../state/node-state";
+import type { Acknowledgement } from "../storage/types";
 import type { MetricPoint } from "../types/metrics";
 
 // The wire shapes live in core so the collector that writes them and the
@@ -41,6 +42,11 @@ export interface HealthResponse {
 export interface NodeResponse {
   now: number;
   node: NodeState;
+}
+
+/** `PUT` answers with the one stored, `DELETE` with the one removed. */
+export interface AcknowledgementResponse {
+  acknowledgement: Acknowledgement;
 }
 
 /** The state after a forced run; blocks at most `CHECK_MAX_WAIT_SECONDS`. */
