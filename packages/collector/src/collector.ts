@@ -1,7 +1,10 @@
 import {
+  type Acknowledgement,
+  buildNodeState,
   type Config,
   type Logger,
   type MetricPoint,
+  type MetricStatus,
   type ProbeContext,
   type ProbeError,
   type QueueState,
@@ -21,6 +24,7 @@ import { systemClock } from "./scheduling/clock";
 import { type ForcedRun, Scheduler, type Task } from "./scheduling/scheduler";
 import { TaskExecutor } from "./scheduling/task-executor";
 import { waitBudgetMs } from "./scheduling/wait-budget";
+import { WakeWatch } from "./scheduling/wake-watch";
 
 interface CollectorOptions {
   config: Config;
@@ -41,6 +45,7 @@ export class Collector {
   private readonly pruner: Pruner;
   /** Shared by every ssh probe: the limits are ssh's. */
   private readonly sshGates: SshGates;
+  private readonly wakeWatch: WakeWatch;
 
   constructor(private readonly options: CollectorOptions) {
     this.resolvedNodes = resolveConfig(
@@ -78,11 +83,20 @@ export class Collector {
       onPruned: (removed) =>
         options.logger.info("pruned old metrics", { removed }),
     });
+
+    this.wakeWatch = new WakeWatch({
+      clock: systemClock,
+      onWake: (gapMs) =>
+        options.logger.info("collector resumed after a gap", {
+          gapSeconds: Math.round(gapMs / 1000),
+        }),
+    });
   }
 
   async start(): Promise<void> {
     await this.options.storage.migrate();
 
+    this.wakeWatch.start();
     this.scheduler.start();
     this.pruner.start();
   }
@@ -90,6 +104,7 @@ export class Collector {
   stop(): void {
     this.scheduler.stop();
     this.pruner.stop();
+    this.wakeWatch.stop();
   }
 
   /** The budget is computed here, where the queues are, for both callers. */
@@ -202,7 +217,56 @@ export class Collector {
     }
 
     await this.options.storage.write(points);
+
+    // The measurement is stored; a failure here must not fail the task.
+    await this.settleAcknowledgement(task.node).catch((cause: unknown) =>
+      logger.error("acknowledgement not settled", { cause }),
+    );
   }
+
+  private async settleAcknowledgement(node: ResolvedNode): Promise<void> {
+    const name = node.node.name;
+    const now = Math.floor(Date.now() / 1000);
+    const acknowledgement = (
+      await this.options.storage.acknowledgements(now)
+    ).find((each) => each.node === name);
+    if (!acknowledgement) return;
+
+    const points = await this.options.storage.latest(name);
+
+    // Until every enabled probe has run since the start or a wake, a stale
+    // value may be the collector's own absence, not news of the node.
+    const awakeSince = Math.floor(this.wakeWatch.awakeSince / 1000);
+    for (const [probe, settings] of node.probes) {
+      if (!settings.enabled) continue;
+      const up = points.find((point) => point.metric === `${probe}.up`);
+      if (up === undefined || up.ts < awakeSince) return;
+    }
+
+    const [state] = buildNodeState({ nodes: [node], points, now });
+    if (!state) {
+      throw new Error(`buildNodeState returned nothing for node "${name}"`);
+    }
+
+    if (!isAcknowledgementOver(acknowledgement, state.status)) return;
+
+    await this.options.storage.unacknowledge(name);
+    this.options.logger.info("acknowledgement cleared", {
+      node: name,
+      acknowledged: acknowledgement.status,
+      status: state.status,
+      untilOk: acknowledgement.untilOk,
+    });
+  }
+}
+
+function isAcknowledgementOver(
+  acknowledgement: Acknowledgement,
+  status: MetricStatus,
+): boolean {
+  return acknowledgement.untilOk
+    ? status === "ok"
+    : status !== acknowledgement.status;
 }
 
 function probeErrorDetail(error: ProbeError): string {
