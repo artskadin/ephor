@@ -1,4 +1,4 @@
-import type { Storage } from "@ephorate/core";
+import type { Logger, Storage } from "@ephorate/core";
 import type { Clock } from "../scheduling/clock";
 
 interface PrunerOptions {
@@ -7,10 +7,18 @@ interface PrunerOptions {
   retentionSeconds: number;
   /** Local time of day, `HH:MM`. */
   runAt: string;
-  onPruned?: ((removed: number) => void) | undefined;
+  /** Configured and enabled: the API reaches no other node's. */
+  nodeNames: readonly string[];
+  logger: Logger;
 }
 
-/** Deletes old metrics once a day. */
+interface PruneReport {
+  metrics: number;
+  acknowledgementsExpired: number;
+  acknowledgementsOrphaned: number;
+}
+
+/** Once a day: old metrics, and acknowledgements nothing can reach. */
 export class Pruner {
   private timer?: NodeJS.Timeout | undefined;
   private lastRunDay = "";
@@ -29,6 +37,7 @@ export class Pruner {
     this.timer = undefined;
   }
 
+  // Never rejects: under `void` in a timer, a rejection exits the process.
   async tick(): Promise<void> {
     const now = new Date(this.options.clock.now());
     const today = now.toISOString().slice(0, 10);
@@ -37,18 +46,37 @@ export class Pruner {
     if (formatTime(now) !== this.options.runAt) return;
 
     this.lastRunDay = today;
-    await this.runOnce();
+    try {
+      await this.runOnce();
+    } catch (cause) {
+      this.options.logger.error("pruning failed, next try tomorrow", {
+        cause,
+      });
+    }
   }
 
-  async runOnce(): Promise<number> {
-    const cutoff =
-      Math.floor(this.options.clock.now() / 1000) -
-      this.options.retentionSeconds;
+  async runOnce(): Promise<PruneReport> {
+    const { storage } = this.options;
+    const now = Math.floor(this.options.clock.now() / 1000);
 
-    const removed = await this.options.storage.prune(cutoff);
-    this.options.onPruned?.(removed);
+    const metrics = await storage.prune(now - this.options.retentionSeconds);
+    const acknowledgementsExpired = await storage.expireAcknowledgements(now);
 
-    return removed;
+    const configured = new Set(this.options.nodeNames);
+    let acknowledgementsOrphaned = 0;
+    for (const { node } of await storage.acknowledgements(now)) {
+      if (configured.has(node)) continue;
+      if (await storage.unacknowledge(node)) acknowledgementsOrphaned += 1;
+    }
+
+    const report = {
+      metrics,
+      acknowledgementsExpired,
+      acknowledgementsOrphaned,
+    };
+    this.options.logger.info("pruned", { ...report });
+
+    return report;
   }
 }
 

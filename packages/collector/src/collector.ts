@@ -80,8 +80,8 @@ export class Collector {
       clock: systemClock,
       retentionSeconds: options.config.storage.retention,
       runAt: options.config.storage.pruneAt,
-      onPruned: (removed) =>
-        options.logger.info("pruned old metrics", { removed }),
+      nodeNames: this.resolvedNodes.map((node) => node.node.name),
+      logger: options.logger.child({ component: "pruner" }),
     });
 
     this.wakeWatch = new WakeWatch({
