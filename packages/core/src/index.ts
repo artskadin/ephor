@@ -21,6 +21,7 @@ export type {
   MetricsResponse,
   NodeResponse,
   QueueState,
+  RemovedAcknowledgementResponse,
   SshQueues,
   StateResponse,
 } from "./api/types";

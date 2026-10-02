@@ -8,6 +8,7 @@ import {
   type ErrorResponse,
   type Logger,
   MetricsQuerySchema,
+  type RemovedAcknowledgementResponse,
 } from "@ephorate/core";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import {
@@ -141,10 +142,15 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
       switch (result.kind) {
         case "unknown-node":
           return sendError(reply, 404, `unknown node "${name}"`);
-        case "none":
-          return sendError(reply, 404, `${name} has no acknowledgement`);
+        // The node is there and has none: the goal of a DELETE is met.
+        case "none": {
+          const body: RemovedAcknowledgementResponse = {
+            acknowledgement: null,
+          };
+          return body;
+        }
         case "removed": {
-          const body: AcknowledgementResponse = {
+          const body: RemovedAcknowledgementResponse = {
             acknowledgement: result.acknowledgement,
           };
           return body;

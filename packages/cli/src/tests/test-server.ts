@@ -1,14 +1,27 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { CheckResponse, StateResponse } from "@ephorate/core";
+import type {
+  AcknowledgementResponse,
+  CheckResponse,
+  RemovedAcknowledgementResponse,
+  StateResponse,
+} from "@ephorate/core";
 
 export const TOKEN = "0123456789abcdef";
 
-/** What `POST /api/check` answers: a result, or a refusal with its text. */
-type CheckAnswer = CheckResponse | { status: 400 | 404; error: string };
+/** A refusal as the real server words it: a status and `{ error }`. */
+interface Refusal {
+  status: 400 | 404 | 409;
+  error: string;
+}
 
 interface CollectorBehaviour {
-  check?: CheckAnswer | undefined;
+  /** What `POST /api/check` answers. */
+  check?: CheckResponse | Refusal | undefined;
+  /** What `PUT /api/nodes/<name>/ack` answers. */
+  acknowledge?: AcknowledgementResponse | Refusal | undefined;
+  /** What `DELETE /api/nodes/<name>/ack` answers. */
+  unacknowledge?: RemovedAcknowledgementResponse | Refusal | undefined;
   /** Answers to `/api/state` in order, the given state once they run out. */
   statesInOrder?: StateResponse[] | undefined;
 }
@@ -60,19 +73,14 @@ export async function collectorOf(
         return;
       }
 
-      const { check } = behaviour;
+      const answer = answerTo(request, behaviour);
 
-      if (request.url === "/api/check" && request.method === "POST" && check) {
-        if ("status" in check) {
-          response.writeHead(check.status, {
-            "content-type": "application/json",
-          });
-          response.end(JSON.stringify({ error: check.error }));
-          return;
-        }
-
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify(check));
+      if (answer !== undefined) {
+        const status = "status" in answer ? answer.status : 200;
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify("status" in answer ? { error: answer.error } : answer),
+        );
         return;
       }
 
@@ -89,6 +97,22 @@ export async function collectorOf(
     requests,
     close: () => closed(server),
   };
+}
+
+function answerTo(
+  request: IncomingMessage,
+  behaviour: CollectorBehaviour,
+): object | Refusal | undefined {
+  if (request.url === "/api/check" && request.method === "POST") {
+    return behaviour.check;
+  }
+
+  if (/^\/api\/nodes\/[^/]+\/ack$/.test(request.url ?? "")) {
+    if (request.method === "PUT") return behaviour.acknowledge;
+    if (request.method === "DELETE") return behaviour.unacknowledge;
+  }
+
+  return undefined;
 }
 
 function bodyOf(request: IncomingMessage): Promise<string> {

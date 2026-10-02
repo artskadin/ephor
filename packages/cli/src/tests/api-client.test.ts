@@ -231,3 +231,93 @@ describe("ApiClient.state", () => {
     expect(failure.failure).toBe("timeout");
   });
 });
+
+describe("ApiClient acknowledgements", () => {
+  const stored = {
+    node: "achilles",
+    since: NOW,
+    status: "warn" as const,
+    untilOk: false,
+  };
+
+  it("puts the request under the node's name, escaped, and hands back what was stored", async () => {
+    const collector = await collectorOf(stateOf(), {
+      acknowledge: { acknowledgement: stored },
+    });
+    cleanups.push(collector.close);
+    const client = new ApiClient({ apiUrl: collector.url, token: TOKEN });
+
+    await expect(
+      client.acknowledge("achilles", { note: "known", duration: 60 }),
+    ).resolves.toEqual({ acknowledgement: stored });
+    await client.acknowledge("a/b?c", {});
+
+    expect(collector.requests.map((request) => request.method)).toEqual([
+      "PUT",
+      "PUT",
+    ]);
+    expect(collector.requests.map((request) => request.url)).toEqual([
+      "/api/nodes/achilles/ack",
+      "/api/nodes/a%2Fb%3Fc/ack",
+    ]);
+    expect(JSON.parse(collector.requests[0]?.body ?? "")).toEqual({
+      note: "known",
+      duration: 60,
+    });
+  });
+
+  it("deletes, and hands back the one removed or null for none", async () => {
+    for (const acknowledgement of [stored, null]) {
+      const collector = await collectorOf(stateOf(), {
+        unacknowledge: { acknowledgement },
+      });
+      cleanups.push(collector.close);
+      const client = new ApiClient({ apiUrl: collector.url, token: TOKEN });
+
+      await expect(client.unacknowledge("achilles")).resolves.toEqual({
+        acknowledgement,
+      });
+      expect(collector.requests[0]?.method).toBe("DELETE");
+    }
+  });
+
+  it("passes a refusal on with the collector's words", async () => {
+    const collector = await collectorOf(stateOf(), {
+      acknowledge: {
+        status: 409,
+        error: "achilles is ok: nothing to acknowledge",
+      },
+    });
+    cleanups.push(collector.close);
+    const client = new ApiClient({ apiUrl: collector.url, token: TOKEN });
+
+    const failure = await client
+      .acknowledge("achilles", {})
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).failure).toBe("rejected");
+    expect((failure as ApiError).message).toMatch(
+      /answered 409: achilles is ok: nothing to acknowledge/,
+    );
+  });
+
+  it("refuses an answer that is not an acknowledgement, null on a put included", async () => {
+    const url = await serverAnswering(
+      200,
+      JSON.stringify({ acknowledgement: null }),
+    );
+    const client = new ApiClient({ apiUrl: url, token: TOKEN });
+
+    const failure = await client
+      .acknowledge("achilles", {})
+      .catch((error: unknown) => error);
+    expect((failure as ApiError).failure).toBe("bad-answer");
+
+    const other = await serverAnswering(200, JSON.stringify({ now: 1 }));
+    const removal = await new ApiClient({ apiUrl: other, token: TOKEN })
+      .unacknowledge("achilles")
+      .catch((error: unknown) => error);
+    expect((removal as ApiError).failure).toBe("bad-answer");
+  });
+});

@@ -99,6 +99,65 @@ program
   });
 
 program
+  .command("ack")
+  .description("Acknowledge a node's problem: `watch` keeps quiet about it")
+  .argument("<node>", "the node, as named in config.yaml")
+  .option("--note <text>", "why, shown beside the node (one line)")
+  .option("--for <duration>", "an end whatever the node does: 30m, 12h, 3d")
+  .option(
+    "--until-ok",
+    "last until the node is ok, not until its status changes",
+  )
+  .option("--clear", "remove the node's acknowledgement instead")
+  .option("--json", "print the collector's answer as JSON")
+  .addHelpText(
+    "after",
+    [
+      "",
+      "By default the acknowledgement covers the status the node has now: any",
+      "change is news again. --until-ok covers every status short of ok.",
+      "Acknowledging again replaces the old one whole: without --until-ok it",
+      "becomes the default kind, for the status the node has then.",
+    ].join("\n"),
+  )
+  .action(
+    async (
+      node: string,
+      options: {
+        note?: string;
+        for?: string;
+        untilOk?: boolean;
+        clear?: boolean;
+        json?: boolean;
+      },
+    ) => {
+      const { acknowledgeRequestFrom, runAck } = await import("./commands/ack");
+      const clearing = options.clear ?? false;
+
+      if (
+        clearing &&
+        (options.note !== undefined ||
+          options.for !== undefined ||
+          options.untilOk !== undefined)
+      ) {
+        throw new UsageError(
+          "--clear removes the acknowledgement: --note, --for and --until-ok do not go with it",
+        );
+      }
+
+      const request = clearing ? undefined : acknowledgeRequestFrom(options);
+
+      await runAck({
+        client: new ApiClient(clientConfigFrom(process.env)),
+        node,
+        request,
+        json: options.json ?? false,
+        print: (line) => void process.stdout.write(`${line}\n`),
+      });
+    },
+  );
+
+program
   .command("watch")
   .description("The status table, redrawn as the collector reports")
   .option(

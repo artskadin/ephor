@@ -459,7 +459,7 @@ describe("createApiServer", () => {
       }
     });
 
-    it("removes one, answering with it, and then has none to remove", async () => {
+    it("removes one, answering with it, and then answers null: none left", async () => {
       const server = await ackServer();
       await server.inject({
         method: "PUT",
@@ -488,10 +488,8 @@ describe("createApiServer", () => {
           untilOk: false,
         },
       });
-      expect(second.statusCode).toBe(404);
-      expect(second.json()).toEqual({
-        error: "achilles has no acknowledgement",
-      });
+      expect(second.statusCode).toBe(200);
+      expect(second.json()).toEqual({ acknowledgement: null });
     });
 
     // Past its end it silenced nothing: removing it is not news.
@@ -511,7 +509,8 @@ describe("createApiServer", () => {
         headers: authorized,
       });
 
-      expect(response.statusCode).toBe(404);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ acknowledgement: null });
       expect(await storage?.expireAcknowledgements(NOW + 60)).toBe(0);
     });
   });

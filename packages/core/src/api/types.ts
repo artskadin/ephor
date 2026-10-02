@@ -44,9 +44,14 @@ export interface NodeResponse {
   node: NodeState;
 }
 
-/** `PUT` answers with the one stored, `DELETE` with the one removed. */
+/** What `PUT` stored. */
 export interface AcknowledgementResponse {
   acknowledgement: Acknowledgement;
+}
+
+/** What `DELETE` removed: `null` when there was none, not a 404. */
+export interface RemovedAcknowledgementResponse {
+  acknowledgement: Acknowledgement | null;
 }
 
 /** The state after a forced run; blocks at most `CHECK_MAX_WAIT_SECONDS`. */

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { Acknowledgement } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { BINARY, ephor } from "./run-binary";
 import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server";
@@ -210,5 +211,154 @@ describe("ephor with a reader that stops early", () => {
 
     expect(code).toBe(0);
     expect(Buffer.concat(stderr).toString()).toBe("");
+  });
+});
+
+describe("ephor ack", () => {
+  const acknowledgement: Acknowledgement = {
+    node: "achilles",
+    note: "ports are firewalled",
+    since: 1_800_000_000,
+    until: 1_800_000_000 + 3 * 86_400,
+    status: "warn",
+    untilOk: false,
+  };
+
+  async function ackWith(
+    words: string[],
+    behaviour: Parameters<typeof collectorOf>[1],
+  ) {
+    const collector = await collectorOf(stateOf(), behaviour);
+    cleanups.push(collector.close);
+    const run = await ephor(["ack", ...words], {
+      EPHOR_API_URL: collector.url,
+      EPHOR_TOKEN: TOKEN,
+    });
+
+    return { run, requests: collector.requests };
+  }
+
+  it("sends the note, the end in seconds, and the kind; says what was stored", async () => {
+    const { run, requests } = await ackWith(
+      ["achilles", "--note", "ports are firewalled", "--for", "3d"],
+      { acknowledge: { acknowledgement } },
+    );
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toBe(
+      "acknowledged achilles (warn) until its status changes, 3d at most: " +
+        "ports are firewalled\n",
+    );
+    expect(run.stderr).toBe("");
+    expect(requests.map((request) => request.method)).toEqual(["PUT"]);
+    expect(JSON.parse(requests[0]?.body ?? "")).toEqual({
+      note: "ports are firewalled",
+      duration: 3 * 86_400,
+    });
+  });
+
+  it("asks for the sticky kind with --until-ok, and says so", async () => {
+    const sticky: Acknowledgement = {
+      node: "achilles",
+      since: 1,
+      status: "critical",
+      untilOk: true,
+    };
+    const { run, requests } = await ackWith(["achilles", "--until-ok"], {
+      acknowledge: { acknowledgement: sticky },
+    });
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toBe(
+      "acknowledged achilles (critical) until it is ok\n",
+    );
+    expect(JSON.parse(requests[0]?.body ?? "")).toEqual({ untilOk: true });
+  });
+
+  it("prints an end that is not a whole unit as it is", async () => {
+    const { run } = await ackWith(["achilles", "--for", "90m"], {
+      acknowledge: {
+        acknowledgement: { ...acknowledgement, until: 1_800_000_000 + 5400 },
+      },
+    });
+
+    expect(run.stdout).toContain(", 1h 30m at most:");
+  });
+
+  it("prints the collector's answer with --json", async () => {
+    const { run } = await ackWith(["achilles", "--json"], {
+      acknowledge: { acknowledgement },
+    });
+
+    expect(run.code).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual({ acknowledgement });
+  });
+
+  it("clears one, and says which", async () => {
+    const { run, requests } = await ackWith(["achilles", "--clear"], {
+      unacknowledge: { acknowledgement },
+    });
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toBe(
+      "cleared the acknowledgement of achilles (warn): ports are firewalled\n",
+    );
+    expect(requests.map((request) => request.method)).toEqual(["DELETE"]);
+  });
+
+  // The goal of --clear is "none left": already met is not a failure.
+  it("exits 0 clearing a node that had none", async () => {
+    const { run } = await ackWith(["achilles", "--clear"], {
+      unacknowledge: { acknowledgement: null },
+    });
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toBe("achilles had no acknowledgement\n");
+  });
+
+  it("exits 2 with the collector's words for an unknown node or an ok one", async () => {
+    for (const [words, behaviour, error] of [
+      [
+        ["hector"],
+        { acknowledge: { status: 404, error: 'unknown node "hector"' } },
+        'unknown node "hector"',
+      ],
+      [
+        ["hector", "--clear"],
+        { unacknowledge: { status: 404, error: 'unknown node "hector"' } },
+        'unknown node "hector"',
+      ],
+      [
+        ["achilles"],
+        {
+          acknowledge: {
+            status: 409,
+            error: "achilles is ok: nothing to acknowledge",
+          },
+        },
+        "achilles is ok: nothing to acknowledge",
+      ],
+    ] as const) {
+      const { run } = await ackWith([...words], behaviour);
+
+      expect(run.code).toBe(2);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain(error);
+    }
+  });
+
+  it("refuses a bad flag before asking the collector, naming the flag", async () => {
+    for (const [words, message] of [
+      [["--for", "3dd"], /--for: Expected 30, 30s/],
+      [["--for", "0"], /--for: duration must be between/],
+      [["--note", "two\nlines"], /--note: note must be one line/],
+      [["--clear", "--until-ok"], /--clear removes the acknowledgement/],
+    ] as const) {
+      const { run, requests } = await ackWith(["achilles", ...words], {});
+
+      expect(run.code).toBe(2);
+      expect(run.stderr).toMatch(message);
+      expect(requests).toEqual([]);
+    }
   });
 });

@@ -1,7 +1,11 @@
 import {
+  type Acknowledgement,
+  type AcknowledgementResponse,
+  type AcknowledgeRequest,
   CHECK_MAX_WAIT_SECONDS,
   type CheckRequest,
   type CheckResponse,
+  type RemovedAcknowledgementResponse,
   type StateResponse,
 } from "@ephorate/core";
 
@@ -71,8 +75,37 @@ export class ApiClient {
     return answer;
   }
 
+  async acknowledge(
+    node: string,
+    request: AcknowledgeRequest,
+  ): Promise<AcknowledgementResponse> {
+    const path = acknowledgementPath(node);
+    const acknowledgement = acknowledgementIn(
+      await this.request("PUT", path, request),
+    );
+
+    if (!isAcknowledgement(acknowledgement)) {
+      throw this.badAnswer(path, "is not an acknowledgement");
+    }
+
+    return { acknowledgement };
+  }
+
+  async unacknowledge(node: string): Promise<RemovedAcknowledgementResponse> {
+    const path = acknowledgementPath(node);
+    const acknowledgement = acknowledgementIn(
+      await this.request("DELETE", path),
+    );
+
+    if (acknowledgement !== null && !isAcknowledgement(acknowledgement)) {
+      throw this.badAnswer(path, "is not an acknowledgement");
+    }
+
+    return { acknowledgement };
+  }
+
   private async request(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -176,6 +209,28 @@ function isCheckResponse(value: unknown): value is CheckResponse {
     typeof candidate.startedAt === "number" &&
     typeof candidate.complete === "boolean" &&
     Array.isArray(candidate.pending)
+  );
+}
+
+// A name is the operator's text: `a/b` or `?` must not reshape the route.
+function acknowledgementPath(node: string): string {
+  return `/api/nodes/${encodeURIComponent(node)}/ack`;
+}
+
+function acknowledgementIn(answer: unknown): unknown {
+  return typeof answer === "object" && answer !== null
+    ? (answer as { acknowledgement?: unknown }).acknowledgement
+    : undefined;
+}
+
+function isAcknowledgement(value: unknown): value is Acknowledgement {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { node?: unknown }).node === "string" &&
+    typeof (value as { status?: unknown }).status === "string" &&
+    typeof (value as { since?: unknown }).since === "number" &&
+    typeof (value as { untilOk?: unknown }).untilOk === "boolean"
   );
 }
 
