@@ -1,4 +1,5 @@
 import {
+  type Acknowledgement,
   buildNodeState,
   type MetricPoint,
   type ProbeDescriptor,
@@ -58,6 +59,7 @@ const PROBES = [SYSTEM, REACHABILITY];
 function stateOf(
   config: Record<string, unknown>,
   points: readonly MetricPoint[],
+  acknowledgements: Acknowledgement[] = [],
 ): StateResponse {
   const parsed = parseConfig(config, PROBES);
 
@@ -67,6 +69,7 @@ function stateOf(
       nodes: resolveConfig(parsed, PROBES),
       points,
       now: NOW,
+      acknowledgements,
     }),
   };
 }
@@ -411,5 +414,96 @@ describe("StatusTable in a window narrower than the table", () => {
       wide.slice(0, tableLines).map((line) => line.slice(0, 40).trimEnd()),
     );
     for (const line of narrow) expect(line.length).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("StatusTable with an acknowledgement", () => {
+  const known: Acknowledgement = {
+    node: "antilochus",
+    since: at(2 * 3600),
+    status: "warn",
+    untilOk: false,
+    note: "443 moved to a sidecar",
+  };
+
+  const linesWith = (acknowledgement: Acknowledgement): string[] =>
+    frame(stateOf(FLEET, FLEET_POINTS, [acknowledgement]), false).split("\n");
+
+  it("says so under the ages and above the reasons, the node still marked", () => {
+    const lines = linesWith(known);
+
+    expect(cells(lines[3])[0]).toBe("! antilochus");
+    expect(lines[5]).toBe("  acknowledged 2h ago: 443 moved to a sidecar");
+    expect(lines[6]).toBe("  system.ports reports a problem");
+  });
+
+  it("names the sticky kind and the time left, and drops an absent note", () => {
+    const lines = linesWith({
+      node: "antilochus",
+      since: at(2 * 3600),
+      until: NOW + 3 * 86_400,
+      status: "warn",
+      untilOk: true,
+    });
+
+    expect(lines[5]).toBe("  acknowledged 2h ago, until ok, 3d left");
+  });
+
+  it("gives the time left of the default kind without naming a kind", () => {
+    const lines = linesWith({
+      node: "antilochus",
+      since: at(2 * 3600),
+      until: NOW + 3 * 86_400,
+      status: "warn",
+      untilOk: false,
+    });
+
+    expect(lines[5]).toBe("  acknowledged 2h ago, 3d left");
+  });
+
+  it("adds one line to the acknowledged node and none to the others", () => {
+    const without = frame(stateOf(FLEET, FLEET_POINTS), false).split("\n");
+    const lines = linesWith(known);
+
+    expect(lines).toHaveLength(without.length + 1);
+    expect(lines.filter((line) => line.includes("acknowledged"))).toHaveLength(
+      1,
+    );
+  });
+
+  it("is the same text in colour, not dimmed like the reasons", () => {
+    const coloured = frame(stateOf(FLEET, FLEET_POINTS, [known]), true).split(
+      "\n",
+    );
+
+    expect(coloured[5]).toBe("  acknowledged 2h ago: 443 moved to a sidecar");
+    expect(spans(coloured[6]).map(([code]) => code)).toEqual(["2"]);
+  });
+
+  it("widens a one-shot table to a long note, drawn whole", async () => {
+    const note = "n".repeat(200);
+    const state = stateOf(FLEET, FLEET_POINTS, [{ ...known, note }]);
+    const width = statusTableWidth(state);
+
+    expect(width).toBe("  acknowledged 2h ago: ".length + note.length);
+    const drawn = await frameOf(
+      <StatusTable state={state} colour={false} />,
+      width,
+    );
+    expect(drawn.split("\n")).toContain(`  acknowledged 2h ago: ${note}`);
+  });
+
+  // `watch` draws at the window's width: the line wraps, as reasons do.
+  it("wraps a long note inside a narrow window", async () => {
+    const note = "a long note ".repeat(10).trim();
+    const state = stateOf(FLEET, FLEET_POINTS, [{ ...known, note }]);
+    const narrow = (
+      await frameOf(<StatusTable state={state} colour={false} />, 40)
+    ).split("\n");
+
+    for (const line of narrow) expect(line.length).toBeLessThanOrEqual(40);
+    expect(narrow.join(" ").replace(/\s+/g, " ")).toContain(
+      `acknowledged 2h ago: ${note}`,
+    );
   });
 });

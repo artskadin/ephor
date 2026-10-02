@@ -1,4 +1,5 @@
 import {
+  type Acknowledgement,
   formatDuration,
   type MetricSeverity,
   type MetricStatus,
@@ -70,8 +71,9 @@ const TINT_BY_STATUS: Readonly<Record<MetricStatus, Tint | undefined>> = {
   unknown: "dim",
 };
 
-// Two lines per node, the values and their ages, then one line per reason
-// under the node. `!` before the name survives without colour.
+// Two lines per node, the values and their ages, then its acknowledgement,
+// not dimmed, then one line per reason. `!` before the name survives
+// without colour; an acknowledgement changes neither.
 export function StatusTable({ state, colour }: StatusTableProps): ReactElement {
   const { columns, rows, widths } = layoutTable(state);
   const keys = ["NODE", ...columns.map((column) => column.title)];
@@ -116,6 +118,9 @@ export function StatusTable({ state, colour }: StatusTableProps): ReactElement {
               keys={keys}
             />
           )}
+          {row.acknowledgement !== undefined && (
+            <Text>{`${" ".repeat(GAP)}${row.acknowledgement}`}</Text>
+          )}
           {row.reasons.length > 0 && (
             <Text dimColor={colour}>
               {row.reasons
@@ -136,7 +141,11 @@ export function statusTableWidth(state: StateResponse): number {
     widths.reduce((sum, width) => sum + width, 0) + GAP * columns.length;
   const reasonWidth = Math.max(
     0,
-    ...rows.flatMap((row) => row.reasons.map((reason) => GAP + reason.length)),
+    ...rows.flatMap((row) =>
+      [...row.reasons, row.acknowledgement ?? ""].map(
+        (line) => GAP + line.length,
+      ),
+    ),
   );
 
   return Math.max(lineWidth, reasonWidth);
@@ -153,7 +162,7 @@ function layoutTable(state: StateResponse): Layout {
   const columns = COLUMNS.filter((column) =>
     state.nodes.some((node) => node.probes.includes(column.probe)),
   );
-  const rows = state.nodes.map((node) => buildRow(node, columns));
+  const rows = state.nodes.map((node) => buildRow(node, columns, state.now));
 
   // From the plain text, so colour cannot move a column.
   const widths = [
@@ -235,17 +244,22 @@ interface Row {
   name: { text: string; status: MetricStatus };
   values: { text: string; status: MetricStatus }[];
   ages: { text: string; status: MetricStatus }[];
+  acknowledgement?: string;
   reasons: string[];
 }
 
 // The value line is painted by what the value says, the age line by its
 // staleness, the name by the node's status.
-function buildRow(node: NodeState, columns: readonly Column[]): Row {
+function buildRow(
+  node: NodeState,
+  columns: readonly Column[],
+  now: number,
+): Row {
   const cells = columns.map((column) =>
     node.probes.includes(column.probe) ? column.read(node) : undefined,
   );
 
-  return {
+  const row: Row = {
     node: node.node,
     name: {
       text: `${node.status === "ok" ? "" : "! "}${node.node}`,
@@ -266,6 +280,30 @@ function buildRow(node: NodeState, columns: readonly Column[]): Row {
     ),
     reasons: node.reasons,
   };
+  if (node.acknowledged !== undefined) {
+    row.acknowledgement = acknowledgementText(node.acknowledged, now);
+  }
+
+  return row;
+}
+
+// Ages by the collector's clock, `now` from its answer: a bastion's clock
+// and the PC's may differ.
+function acknowledgementText(
+  acknowledgement: Acknowledgement,
+  now: number,
+): string {
+  const parts = [
+    `acknowledged ${formatDuration(now - acknowledgement.since)} ago`,
+  ];
+  if (acknowledgement.untilOk) parts.push("until ok");
+  if (acknowledgement.until !== undefined) {
+    parts.push(`${formatDuration(acknowledgement.until - now)} left`);
+  }
+  const note =
+    acknowledgement.note === undefined ? "" : `: ${acknowledgement.note}`;
+
+  return `${parts.join(", ")}${note}`;
 }
 
 function percentColumn(title: string, probe: string, metric: string): Column {
