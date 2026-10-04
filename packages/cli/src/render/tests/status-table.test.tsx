@@ -11,7 +11,7 @@ import { cleanup, render } from "ink-testing-library";
 import type { ReactElement } from "react";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { frameOf } from "../frame";
-import { StatusTable, statusTableWidth } from "../status-table";
+import { nodeHeights, StatusTable, statusTableWidth } from "../status-table";
 
 // Ink paints through chalk, which decides at import whether the process
 // may use colour; under a test runner it may not. Forced on before ink is
@@ -646,5 +646,78 @@ describe("StatusTable's PORTS column", () => {
 
   it("says ok for a reading that carries no list", () => {
     expect(portsCell({})).toBe("ok");
+  });
+});
+
+describe("nodeHeights", () => {
+  // Words of every length, an unbreakable run, a note: what ink must wrap.
+  const wordy: Acknowledgement = {
+    node: "antilochus",
+    since: at(2 * 3600),
+    status: "warn",
+    untilOk: false,
+    note: "443 moved to a sidecar while the provider rotates the address pool",
+  };
+  const points: MetricPoint[] = [
+    ...FLEET_POINTS,
+    {
+      ts: at(30),
+      node: "patroclus",
+      metric: "system.up",
+      ok: false,
+      meta: {
+        errorKind: "unreachable",
+        detail: `kex_exchange_identification: ${"x".repeat(70)} read: Connection reset by peer`,
+      },
+    },
+  ];
+  const state = stateOf(FLEET, points, [wordy]);
+
+  // The property `watch` relies on: what it counts is what ink draws.
+  it.each([24, 37, 50, 80, 120])(
+    "counts the lines ink draws at %i columns",
+    async (columns) => {
+      const drawn = (
+        await frameOf(<StatusTable state={state} colour={false} />, columns)
+      ).split("\n");
+      const heights = nodeHeights(state, columns);
+
+      expect(heights.map((each) => each.node)).toEqual([
+        "german",
+        "hector",
+        "antilochus",
+        "patroclus",
+        "achilles",
+      ]);
+      expect(1 + heights.reduce((sum, each) => sum + each.height, 0)).toBe(
+        drawn.length,
+      );
+      // Each node starts exactly where the heights before it say: a
+      // wrapped reason may start a line without a space, so no guessing.
+      let line = 1;
+      for (const { node, height } of heights) {
+        expect(drawn[line]?.replace(/^! /, "").split(" ")[0]).toBe(node);
+        line += height;
+      }
+    },
+  );
+
+  it("draws only the nodes asked for, with the whole fleet's widths", () => {
+    const all = frame(state, false).split("\n");
+    const some = render(
+      <StatusTable
+        state={state}
+        colour={false}
+        visible={{ first: 1, count: 2 }}
+      />,
+    )
+      .lastFrame()
+      ?.split("\n");
+
+    expect(some?.[0]).toBe(all[0]);
+    expect(some?.slice(1)).toEqual([
+      ...blockOf(all, "hector"),
+      ...blockOf(all, "antilochus"),
+    ]);
   });
 });

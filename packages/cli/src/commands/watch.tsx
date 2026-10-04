@@ -2,6 +2,7 @@ import { render } from "ink";
 import { UsageError } from "../exit-code";
 import type { Notify } from "../notify/desktop-notifier";
 import type { NotifyLevel } from "../notify/transitions";
+import { Scroll } from "../render/scroll";
 import { Watch } from "../render/watch";
 import { type WatchSource, WatchStore } from "../render/watch-store";
 
@@ -51,6 +52,7 @@ export async function runWatch(options: WatchOptions): Promise<void> {
     notifyOn: options.notifyOn,
   });
 
+  const scroll = new Scroll();
   const { promise: quitted, resolve: quit } = Promise.withResolvers<void>();
   let instance: ReturnType<typeof render> | undefined;
 
@@ -61,6 +63,9 @@ export async function runWatch(options: WatchOptions): Promise<void> {
         apiUrl={options.source.apiUrl}
         colour={options.colour}
         notifyOn={options.notify ? options.notifyOn : undefined}
+        scroll={scroll}
+        columns={stdout.columns}
+        rows={stdout.rows}
         onQuit={quit}
       />,
       {

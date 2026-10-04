@@ -11,11 +11,14 @@ import {
 } from "@ephorate/core";
 import { Box, Text } from "ink";
 import type { ReactElement } from "react";
+import wrapAnsi from "wrap-ansi";
 
 interface StatusTableProps {
   state: StateResponse;
   /** See `colourEnabled`. */
   colour: boolean;
+  /** Of the ordered nodes, the ones drawn; all when absent. */
+  visible?: { first: number; count: number } | undefined;
 }
 
 interface Cell {
@@ -75,8 +78,17 @@ const TINT_BY_STATUS: Readonly<Record<MetricStatus, Tint | undefined>> = {
 // Two lines per node, the values and their ages, then its acknowledgement,
 // not dimmed, then one line per reason. `!` before the name survives
 // without colour; an acknowledgement changes neither.
-export function StatusTable({ state, colour }: StatusTableProps): ReactElement {
-  const { columns, rows, widths } = layoutTable(state);
+export function StatusTable({
+  state,
+  colour,
+  visible,
+}: StatusTableProps): ReactElement {
+  // Widths from every node, so scrolling cannot move a column.
+  const { columns, rows: allRows, widths } = layoutTable(state);
+  const rows =
+    visible === undefined
+      ? allRows
+      : allRows.slice(visible.first, visible.first + visible.count);
   const keys = ["NODE", ...columns.map((column) => column.title)];
   const tint = (status: MetricStatus): Tint | undefined =>
     colour ? TINT_BY_STATUS[status] : undefined;
@@ -120,19 +132,45 @@ export function StatusTable({ state, colour }: StatusTableProps): ReactElement {
             />
           )}
           {row.acknowledgement !== undefined && (
-            <Text>{`${" ".repeat(GAP)}${row.acknowledgement}`}</Text>
+            <Text>{indented([row.acknowledgement])}</Text>
           )}
           {row.reasons.length > 0 && (
-            <Text dimColor={colour}>
-              {row.reasons
-                .map((reason) => `${" ".repeat(GAP)}${reason}`)
-                .join("\n")}
-            </Text>
+            <Text dimColor={colour}>{indented(row.reasons)}</Text>
           )}
         </Box>
       ))}
     </Box>
   );
+}
+
+function indented(lines: readonly string[]): string {
+  return lines.map((line) => `${" ".repeat(GAP)}${line}`).join("\n");
+}
+
+// Ink wraps a `Text` with wrap-ansi, `{ trim: false, hard: true }`
+// (ink/build/wrap-text.js); counting the same way gives the height exact.
+export function wrappedHeight(text: string, columns: number): number {
+  return wrapAnsi(text, columns, { trim: false, hard: true }).split("\n")
+    .length;
+}
+
+/** Each node's lines at `columns` wide, in the table's order. */
+export function nodeHeights(
+  state: StateResponse,
+  columns: number,
+): { node: string; height: number }[] {
+  return layoutTable(state).rows.map((row) => {
+    let height = 1;
+    if (row.ages.some((cell) => cell.text !== "")) height += 1;
+    if (row.acknowledgement !== undefined) {
+      height += wrappedHeight(indented([row.acknowledgement]), columns);
+    }
+    if (row.reasons.length > 0) {
+      height += wrappedHeight(indented(row.reasons), columns);
+    }
+
+    return { node: row.node, height };
+  });
 }
 
 /** The widest line: ink lays out a cell per column per line, so no more. */
@@ -213,7 +251,9 @@ function Line({
   keys: readonly string[];
 }): ReactElement {
   return (
-    <Box flexDirection="row">
+    // Not shrunk either: in `watch`'s cut box a squeezed line drew over the
+    // one above it.
+    <Box flexDirection="row" flexShrink={0}>
       {cells.map((cell, index) =>
         index === cells.length - 1 ? (
           <Box key={keys[index]} flexShrink={0}>

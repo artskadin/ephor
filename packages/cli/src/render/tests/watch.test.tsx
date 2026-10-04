@@ -1,6 +1,7 @@
 import type { StateResponse } from "@ephorate/core";
 import { cleanup, render } from "ink-testing-library";
 import { afterEach, describe, expect, it } from "vitest";
+import { Scroll } from "../scroll";
 import { Watch } from "../watch";
 import { type WatchSource, WatchStore } from "../watch-store";
 
@@ -47,14 +48,17 @@ function sourceOf(...answers: (StateResponse | Error)[]): WatchSource {
   };
 }
 
+/** ink-testing-library's stream is 100 columns wide; the rows are ours. */
 function watching(
   source: WatchSource,
   onQuit: () => void = () => undefined,
   notifyOn: "warn" | "critical" | undefined = "warn",
+  initial: StateResponse = stateOf("ok"),
+  rows = 40,
 ): ReturnType<typeof render> {
   const store = new WatchStore({
     source,
-    initial: stateOf("ok"),
+    initial,
     intervalMs: 10,
     now: () => NOW_MS,
   });
@@ -67,6 +71,9 @@ function watching(
       apiUrl={source.apiUrl}
       colour={false}
       notifyOn={notifyOn}
+      scroll={new Scroll()}
+      columns={100}
+      rows={rows}
       onQuit={onQuit}
     />,
   );
@@ -87,8 +94,8 @@ describe("Watch", () => {
 
     expect(lastFrame()).toContain("achilles");
     expect(lastFrame()).not.toContain("! achilles");
-    expect(lastFrame()).toMatch(
-      /collector at http:\/\/127\.0\.0\.1:31556 · updated \d\d:\d\d:\d\d · q to quit/,
+    expect(lastFrame()?.replace(/\s+/g, " ")).toMatch(
+      /nodes 1–1 of 1 · all ok · collector at http:\/\/127\.0\.0\.1:31556 · updated \d\d:\d\d:\d\d · q to quit/,
     );
 
     await until(() => lastFrame()?.includes("! achilles") ?? false);
@@ -103,11 +110,11 @@ describe("Watch", () => {
     await until(() => lastFrame()?.includes("unreachable") ?? false);
 
     expect(lastFrame()).toContain("! achilles");
-    expect(lastFrame()).toMatch(/achilles is warn\n\ncollector at/);
+    expect(lastFrame()).toMatch(/achilles is warn\n\nnodes 1–1 of 1/);
     // ink wraps the footer at the window's width: joined back for the match.
     const footer = lastFrame()?.split("\n\n")[1]?.replace(/\s+/g, " ");
     expect(footer).toMatch(
-      /^collector at http:\/\/127\.0\.0\.1:31556 unreachable since \d\d:\d\d:\d\d, last update \d\d:\d\d:\d\d: cannot reach the collector$/,
+      /^nodes 1–1 of 1 · 1 warn · collector at http:\/\/127\.0\.0\.1:31556 unreachable since \d\d:\d\d:\d\d, last update \d\d:\d\d:\d\d: cannot reach the collector$/,
     );
   });
 
@@ -134,5 +141,116 @@ describe("Watch", () => {
     expect(critical.lastFrame()?.replace(/\s+/g, " ")).toContain(
       "notify: critical and stale only",
     );
+  });
+});
+
+describe("Watch over a fleet taller than the window", () => {
+  /** Thirty nodes with no readings, each one line and one reason. */
+  const fleet: StateResponse = {
+    now: NOW_MS / 1000,
+    nodes: Array.from({ length: 30 }, (_, index) => ({
+      node: `node-${String(index).padStart(2, "0")}`,
+      status: index < 2 ? ("critical" as const) : ("warn" as const),
+      reachability: "ok" as const,
+      probes: ["reachability"],
+      metrics: [],
+      reasons: [`reason ${index}`],
+    })),
+  };
+
+  const ROWS = 15;
+
+  const nodesIn = (frame: string | undefined): string[] =>
+    (frame ?? "").match(/node-\d\d/g) ?? [];
+
+  it("draws only what fits, below the window, and says which", () => {
+    const { lastFrame } = watching(
+      sourceOf(fleet),
+      undefined,
+      "warn",
+      fleet,
+      ROWS,
+    );
+    const frame = lastFrame() ?? "";
+
+    // 15 rows: the header, five nodes of two lines, a blank, a footer of
+    // two lines at 100 columns: 14, one short of the window.
+    expect(nodesIn(frame)).toEqual([
+      "node-00",
+      "node-01",
+      "node-02",
+      "node-03",
+      "node-04",
+    ]);
+    expect(frame.split("\n")).toHaveLength(ROWS - 1);
+    expect(frame.replace(/\s+/g, " ")).toContain(
+      "nodes 1–5 of 30 · 2 critical, 28 warn · ↑↓ PgUp PgDn",
+    );
+  });
+
+  // Below the window by one line at most: one more node would not fit,
+  // and a frame as tall as the window makes ink wipe the screen.
+  it.each([9, 12, 15, 16, 21])(
+    "fills %i rows to one line short, never more",
+    (rows) => {
+      const lines = (
+        watching(sourceOf(fleet), undefined, "warn", fleet, rows).lastFrame() ??
+        ""
+      ).split("\n");
+
+      expect(lines.length).toBeLessThan(rows);
+      expect(lines.length + 2).toBeGreaterThanOrEqual(rows);
+    },
+  );
+
+  // Twenty reasons into nine rows: drawn alone, cut, the footer in place.
+  it("cuts a node taller than the window, and keeps below it", () => {
+    const tall: StateResponse = {
+      ...fleet,
+      nodes: [
+        {
+          ...(fleet.nodes[0] as StateResponse["nodes"][number]),
+          reasons: Array.from({ length: 20 }, (_, index) => `reason ${index}`),
+        },
+      ],
+    };
+    const lines = (
+      watching(sourceOf(tall), undefined, "warn", tall, 9).lastFrame() ?? ""
+    ).split("\n");
+
+    expect(lines.length).toBeLessThan(9);
+    expect(lines[1]).toMatch(/node-00/);
+    expect(lines.join(" ")).toContain("nodes 1–1 of 1");
+  });
+
+  it("scrolls by a node, a page, and to either end", async () => {
+    const { lastFrame, stdin } = watching(
+      sourceOf(fleet),
+      undefined,
+      "warn",
+      fleet,
+      ROWS,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const after = async (key: string, first: string) => {
+      stdin.write(key);
+      await until(() => nodesIn(lastFrame())[0] === first);
+    };
+
+    await after("j", "node-01");
+    await after("\u001b[B", "node-02");
+    await after("k", "node-01");
+    await after("\u001b[6~", "node-06");
+    await after("\u001b[5~", "node-01");
+    await after("G", "node-25");
+    expect(nodesIn(lastFrame())).toEqual([
+      "node-25",
+      "node-26",
+      "node-27",
+      "node-28",
+      "node-29",
+    ]);
+    await after("g", "node-00");
   });
 });
