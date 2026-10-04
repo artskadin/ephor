@@ -1,4 +1,4 @@
-import type { MetricStatus, StateResponse } from "@ephorate/core";
+import type { MetricStatus, NodeState, StateResponse } from "@ephorate/core";
 
 /** `warn`: every change. `critical`: into or out of critical or stale. */
 export type NotifyLevel = "warn" | "critical";
@@ -12,6 +12,8 @@ export interface Transition {
   to: MetricStatus | "absent";
   /** The node's first reason after the change, if it has one. */
   reason: string | undefined;
+  /** An acknowledgement in the newer answer covers the new status. */
+  acknowledged: boolean;
 }
 
 export function transitionsBetween(
@@ -32,6 +34,7 @@ export function transitionsBetween(
         from,
         to,
         reason: after.get(name)?.reasons[0],
+        acknowledged: coversStatus(after.get(name), to),
       });
     }
   }
@@ -43,10 +46,24 @@ export function transitionsBetween(
 // worst trouble of all, and the operator must know they are blind.
 const SERIOUS: ReadonlySet<Transition["from"]> = new Set(["critical", "stale"]);
 
+// The daemon's rule, applied here too: it clears only after a write, so a
+// default-kind one can outlive its status (gone stale with no write, or
+// a change written before every probe ran again after a wake).
+function coversStatus(
+  node: NodeState | undefined,
+  to: Transition["to"],
+): boolean {
+  const acknowledgement = node?.acknowledged;
+  if (acknowledgement === undefined) return false;
+
+  return acknowledgement.untilOk ? to !== "ok" : acknowledgement.status === to;
+}
+
 export function isWorthNotifying(
   transition: Transition,
   level: NotifyLevel,
 ): boolean {
+  if (transition.acknowledged) return false;
   if (level === "warn") return true;
 
   return SERIOUS.has(transition.from) || SERIOUS.has(transition.to);

@@ -254,3 +254,87 @@ describe("WatchStore", () => {
     expect(sent).toEqual(["ephor: node-0", "ephor: node-1"]);
   });
 });
+
+describe("WatchStore with acknowledged nodes", () => {
+  const base = stateOf("ok").nodes[0] as NodeState;
+
+  /** `acknowledged`: the indexes holding one, taken in warn, sticky. */
+  function fleet(
+    statuses: readonly ("ok" | "warn" | "critical")[],
+    acknowledged: readonly number[] = [],
+    untilOk = true,
+  ): StateResponse {
+    return {
+      now: NOW_MS / 1000,
+      nodes: statuses.map((status, index) => ({
+        ...base,
+        node: `node-${index}`,
+        status,
+        reasons: [],
+        ...(acknowledged.includes(index)
+          ? {
+              acknowledged: {
+                node: `node-${index}`,
+                since: NOW_MS / 1000 - 60,
+                status: "warn" as const,
+                untilOk,
+              },
+            }
+          : {}),
+      })),
+    };
+  }
+
+  async function sentBetween(
+    initial: StateResponse,
+    next: StateResponse,
+  ): Promise<string[]> {
+    const sent: string[] = [];
+    const source = sourceOf(next);
+    const store = new WatchStore({
+      source,
+      initial,
+      intervalMs: 10,
+      now: () => NOW_MS,
+      notify: async (title, body) => {
+        sent.push(`${title} / ${body}`);
+      },
+    });
+    stores.push(store);
+    store.start();
+    await until(() => source.calls >= 3);
+
+    return sent;
+  }
+
+  it("keeps quiet while the newer answer still carries one", async () => {
+    await expect(
+      sentBetween(fleet(["warn"], [0]), fleet(["critical"], [0])),
+    ).resolves.toEqual([]);
+  });
+
+  it("speaks of a status the default kind does not cover, still listed", async () => {
+    await expect(
+      sentBetween(fleet(["warn"], [0], false), fleet(["critical"], [0], false)),
+    ).resolves.toEqual(["ephor: node-0 / warn → critical"]);
+  });
+
+  it("speaks as usual once the daemon has dropped it", async () => {
+    await expect(
+      sentBetween(fleet(["warn"], [0]), fleet(["critical"])),
+    ).resolves.toEqual(["ephor: node-0 / warn → critical"]);
+  });
+
+  // Seven nodes change, two of them covered: five of their own, under the
+  // summary's six.
+  it("counts the summary without the acknowledged", async () => {
+    const sent = await sentBetween(
+      fleet(Array(7).fill("ok"), [0, 1]),
+      fleet(Array(7).fill("warn"), [0, 1]),
+    );
+
+    expect(sent).toHaveLength(5);
+    expect(sent.every((line) => !line.includes("nodes changed"))).toBe(true);
+    expect(sent.some((line) => /node-[01] /.test(line))).toBe(false);
+  });
+});
