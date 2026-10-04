@@ -221,7 +221,7 @@ describe("StatusTable", () => {
       "3%",
       "41%",
       "62%",
-      "ok",
+      "443",
     ]);
     expect(cells(lines[2])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
   });
@@ -254,7 +254,7 @@ describe("StatusTable", () => {
       "1%",
       "35%",
       "96%",
-      "ok",
+      "443",
     ]);
     expect(cells(lines[10])).toEqual(["15m", "5m", "5m", "5m", "5m"]);
     // The old `down` and the disk past its bound are shown, not argued
@@ -505,5 +505,61 @@ describe("StatusTable with an acknowledgement", () => {
     expect(narrow.join(" ").replace(/\s+/g, " ")).toContain(
       `acknowledged 2h ago: ${note}`,
     );
+  });
+});
+
+describe("StatusTable's PORTS column", () => {
+  const portsCell = (meta: Record<string, unknown>, ok = true): string => {
+    const points = systemPoints("achilles", at(30), {
+      load: 1,
+      mem: 1,
+      disk: 1,
+    }).map((point) =>
+      point.metric === "system.ports" ? { ...point, ok, meta } : point,
+    );
+    const config = {
+      nodes: [{ name: "achilles", host: "203.0.113.10", ssh: "achilles" }],
+    };
+    const lines = frame(stateOf(config, points), false).split("\n");
+
+    return cells(lines[1]).at(-1) ?? "";
+  };
+
+  // No `ports` in the config: nothing to compare, the list is for reference.
+  it("lists what listens when nothing is wrong", () => {
+    expect(
+      portsCell({ listening: [443, 2222, 3948], undeclared: [], missing: [] }),
+    ).toBe("443, 2222, 3948");
+  });
+
+  it("names what is wrong instead of the list, missing first", () => {
+    expect(
+      portsCell(
+        { listening: [2222, 3948], undeclared: [3948], missing: ["443"] },
+        false,
+      ),
+    ).toBe("missing 443");
+    expect(
+      portsCell(
+        { listening: [443, 2222, 3948], undeclared: [2222, 3948], missing: [] },
+        false,
+      ),
+    ).toBe("extra 2222, 3948");
+  });
+
+  it("says unreadable when the node could not list its ports", () => {
+    expect(
+      portsCell({ unreadable: "ss is missing or failed on the node" }, false),
+    ).toBe("unreadable");
+  });
+
+  it("says none when nothing listens", () => {
+    expect(portsCell({ listening: [], undeclared: [], missing: [] })).toBe(
+      "none",
+    );
+  });
+
+  it("says ok for a reading that carries no list", () => {
+    expect(portsCell({})).toBe("ok");
   });
 });

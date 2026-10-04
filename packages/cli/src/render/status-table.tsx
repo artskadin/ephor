@@ -324,15 +324,23 @@ function percentColumn(title: string, probe: string, metric: string): Column {
   };
 }
 
-/** `ok`, or the first thing wrong in the probe's own words. */
+// What listens, for reference: without `ports` in the config nothing is
+// compared; with them, the first thing wrong in the probe's own words.
 function portsText(view: MetricView): string {
-  if (view.ok !== false) return "ok";
+  if (view.ok !== false) {
+    if (!Array.isArray(view.meta?.listening)) return "ok";
+
+    const listening = stringListIn(view.meta, "listening");
+    return listening.length > 0 ? listening.join(", ") : "none";
+  }
 
   const missing = stringListIn(view.meta, "missing");
   if (missing.length > 0) return `missing ${missing.join(", ")}`;
 
   const undeclared = stringListIn(view.meta, "undeclared");
   if (undeclared.length > 0) return `extra ${undeclared.join(", ")}`;
+
+  if (typeof view.meta?.unreadable === "string") return "unreadable";
 
   return "!";
 }

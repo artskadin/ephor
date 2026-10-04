@@ -1,3 +1,16 @@
+// `listening_ports`: a JSON string of the ports beyond loopback (achilles
+// has 127.0.0.1:8443), or null when `ss` is missing or fails: an empty
+// list would read as "nothing listens". Column 4 is the local address.
+export const LISTENING_PORTS_SNIPPET = String.raw`
+  if listening_ports=$(set -o pipefail; ss -tlnH 2>/dev/null \
+    | awk '$4 !~ /^(127\.|\[::1\]|\[::ffff:127\.)/ && $4 !~ /%lo:/ { print $4 }' \
+    | sed 's/.*://' | sort -un | paste -sd, -); then
+    listening_ports="\"$listening_ports\""
+  else
+    listening_ports=null
+  fi
+`;
+
 export const SYSTEM_COLLECT_SCRIPT = String.raw`
   set -eu
 
@@ -15,7 +28,7 @@ export const SYSTEM_COLLECT_SCRIPT = String.raw`
 
   host_name=$(hostname)
 
-  listening_ports=$(ss -tlnH | awk '{print $4}' | sed 's/.*://' | sort -un | paste -sd, -)
+${LISTENING_PORTS_SNIPPET}
 
   printf '{'
   printf '"load1":%s,' "$load1"
@@ -28,6 +41,6 @@ export const SYSTEM_COLLECT_SCRIPT = String.raw`
   printf '"hostName":"%s",' "$host_name"
   printf '"diskTotalBytes":%s,' "$disk_total"
   printf '"diskUsedBytes":%s,' "$disk_used"
-  printf '"listeningPorts":"%s"' "$listening_ports"
+  printf '"listeningPorts":%s' "$listening_ports"
   printf '}'
 `;

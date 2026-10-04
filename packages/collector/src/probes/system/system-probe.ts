@@ -32,7 +32,8 @@ interface SystemSnapshot {
   memAvailableKb: number;
   diskTotalBytes: number;
   diskUsedBytes: number;
-  listeningPorts: string;
+  /** Comma-separated; null when `ss` is missing or failed on the node. */
+  listeningPorts: string | null;
 }
 
 export class SystemProbe implements Probe<SystemSnapshot> {
@@ -147,11 +148,21 @@ function roundToTenth(value: number): number {
 // An undeclared port is something forgotten or something that should not
 // be there; a declared port not listening is a service down.
 function comparePorts(
-  listeningCsv: string,
+  listeningCsv: string | null,
   context: ProbeContext,
 ): Pick<MetricPoint, "metric" | "value" | "ok" | "meta"> {
+  if (listeningCsv === null) {
+    return {
+      metric: "system.ports",
+      ok: false,
+      meta: { unreadable: "ss is missing or failed on the node" },
+    };
+  }
+
+  // `"".split(",")` is `[""]`, and `Number("")` is 0: a port nobody has.
   const listening = listeningCsv
     .split(",")
+    .filter((part) => part.trim() !== "")
     .map((port) => Number(port.trim()))
     .filter((port) => Number.isFinite(port));
 
