@@ -48,6 +48,30 @@ describe("ephor status", () => {
     expect(run.stderr).toBe("");
   });
 
+  // The table puts the worst first; JSON is the data as the collector sent it.
+  it("sorts the table worst first and leaves the JSON in the collector's order", async () => {
+    const state = stateOf(
+      { name: "achilles", status: "ok" },
+      { name: "german", status: "critical" },
+      { name: "antilochus", status: "warn" },
+    );
+    const collector = await collectorOf(state);
+    cleanups.push(collector.close);
+    const environment = { EPHOR_API_URL: collector.url, EPHOR_TOKEN: TOKEN };
+
+    const table = await ephor(["status"], environment);
+    const json = await ephor(["status", "--json"], environment);
+
+    const names = table.stdout
+      .split("\n")
+      .filter((line, index) => index > 0 && /^\S/.test(line))
+      .map((line) => line.replace(/^! /, "").split(" ")[0]);
+    expect(names).toEqual(["german", "antilochus", "achilles"]);
+    expect(
+      (JSON.parse(json.stdout) as typeof state).nodes.map((node) => node.node),
+    ).toEqual(["achilles", "german", "antilochus"]);
+  });
+
   // The code says the command did its job, not how the fleet is: a
   // terminal that reacts to it (Warp paints the block red) would otherwise
   // call every answer on a fleet with one warn a failure.

@@ -202,6 +202,27 @@ const stripped = (text: string): string =>
     )
     .join("");
 
+/**
+ * A node's lines, from its name to the next node: found by name, so a test
+ * does not depend on where the order puts it. A node's own line is the one
+ * that does not start with a space once the colour is gone.
+ */
+function blockOf(lines: readonly string[], name: string): string[] {
+  const isNodeLine = (line: string) => !stripped(line).startsWith(" ");
+  const start = lines.findIndex(
+    (line, index) =>
+      index > 0 &&
+      isNodeLine(line) &&
+      stripped(line).replace(/^! /, "").split(/\s/)[0] === name,
+  );
+  if (start === -1) throw new Error(`no node "${name}" in the table`);
+
+  const next = lines.findIndex(
+    (line, index) => index > start && isNodeLine(line),
+  );
+  return lines.slice(start, next === -1 ? undefined : next);
+}
+
 describe("StatusTable", () => {
   const plain = frame(stateOf(FLEET, FLEET_POINTS), false);
   const lines = plain.split("\n");
@@ -215,7 +236,8 @@ describe("StatusTable", () => {
       "DISK",
       "PORTS",
     ]);
-    expect(cells(lines[1])).toEqual([
+    const achilles = blockOf(lines, "achilles");
+    expect(cells(achilles[0])).toEqual([
       "achilles",
       "ok",
       "3%",
@@ -223,11 +245,50 @@ describe("StatusTable", () => {
       "62%",
       "443",
     ]);
-    expect(cells(lines[2])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
+    expect(cells(achilles[1])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
+    expect(achilles).toHaveLength(2);
+  });
+
+  // Critical, stale, warn, unknown, ok; within a status, by name.
+  it("puts the worst nodes first", () => {
+    const names = lines
+      .slice(1)
+      .filter((line) => !line.startsWith(" "))
+      .map((line) => line.replace(/^! /, "").split(" ")[0]);
+
+    expect(names).toEqual([
+      "german",
+      "hector",
+      "antilochus",
+      "patroclus",
+      "achilles",
+    ]);
+  });
+
+  it("orders nodes of one status by name, by code unit", () => {
+    const state = stateOf(
+      {
+        nodes: ["b", "B", "a"].map((name, index) => ({
+          name,
+          host: `203.0.113.${20 + index}`,
+        })),
+      },
+      [],
+    );
+    expect(new Set(state.nodes.map((node) => node.status))).toEqual(
+      new Set(["unknown"]),
+    );
+    const names = frame(state, false)
+      .split("\n")
+      .filter((line, index) => index > 0 && !line.startsWith(" "))
+      .map((line) => line.replace(/^! /, "").split(" ")[0]);
+
+    expect(names).toEqual(["B", "a", "b"]);
   });
 
   it("marks a node that is not ok, and says why under it", () => {
-    expect(cells(lines[3])).toEqual([
+    const antilochus = blockOf(lines, "antilochus");
+    expect(cells(antilochus[0])).toEqual([
       "! antilochus",
       "ok",
       "2%",
@@ -235,20 +296,22 @@ describe("StatusTable", () => {
       "87%",
       "missing 443",
     ]);
-    expect(cells(lines[4])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
-    expect(lines[5]).toBe("  system.ports reports a problem");
+    expect(cells(antilochus[1])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
+    expect(antilochus[2]).toBe("  system.ports reports a problem");
   });
 
   it("dashes the columns of a probe the node does not have, with no age", () => {
-    expect(cells(lines[6])).toEqual(["! german", "down", "-", "-", "-", "-"]);
-    expect(cells(lines[7])).toEqual(["2m"]);
-    expect(lines[8]).toBe(
+    const german = blockOf(lines, "german");
+    expect(cells(german[0])).toEqual(["! german", "down", "-", "-", "-", "-"]);
+    expect(cells(german[1])).toEqual(["2m"]);
+    expect(german[2]).toBe(
       "  not reachable from any region, the control group included",
     );
   });
 
   it("keeps stale values on show, with their age and one reason per quiet probe", () => {
-    expect(cells(lines[9])).toEqual([
+    const hector = blockOf(lines, "hector");
+    expect(cells(hector[0])).toEqual([
       "! hector",
       "down",
       "1%",
@@ -256,20 +319,30 @@ describe("StatusTable", () => {
       "96%",
       "443",
     ]);
-    expect(cells(lines[10])).toEqual(["15m", "5m", "5m", "5m", "5m"]);
+    expect(cells(hector[1])).toEqual(["15m", "5m", "5m", "5m", "5m"]);
     // The old `down` and the disk past its bound are shown, not argued
     // about: the reasons are about the silence, the values speak for
     // themselves, in colour where there is any.
-    expect(lines[11]).toBe("  system last reported 5m ago, expected every 1m");
-    expect(lines[12]).toBe(
+    expect(hector[2]).toBe("  system last reported 5m ago, expected every 1m");
+    expect(hector[3]).toBe(
       "  reachability last reported 15m ago, expected every 5m",
     );
   });
 
   it("gives a node that never reported dashes, no age line, and its reasons", () => {
-    expect(cells(lines[13])).toEqual(["! patroclus", "-", "-", "-", "-", "-"]);
-    expect(lines[14]).toBe("  system has not reported yet");
-    expect(lines[15]).toBe("  reachability has not reported yet");
+    const patroclus = blockOf(lines, "patroclus");
+    expect(cells(patroclus[0])).toEqual([
+      "! patroclus",
+      "-",
+      "-",
+      "-",
+      "-",
+      "-",
+    ]);
+    expect(patroclus.slice(1)).toEqual([
+      "  system has not reported yet",
+      "  reachability has not reported yet",
+    ]);
     expect(lines).toHaveLength(16);
   });
 
@@ -286,7 +359,10 @@ describe("StatusTable", () => {
         expect(starts).toContain(cell.index);
       }
     }
-    for (const row of [lines[2], lines[4], lines[7], lines[10]]) {
+    const ageLines = ["achilles", "antilochus", "german", "hector"].map(
+      (name) => blockOf(lines, name)[1],
+    );
+    for (const row of ageLines) {
       for (const cell of (row ?? "").matchAll(/\S+/g)) {
         expect(starts).toContain(cell.index);
       }
@@ -320,39 +396,42 @@ describe("StatusTable", () => {
     const coloured = frame(stateOf(FLEET, FLEET_POINTS), true);
     const colouredLines = coloured.split("\n");
 
-    expect(colouredLines[1]).not.toContain("\u001b");
-    expect(colouredLines[2]).not.toContain("\u001b");
+    const block = (name: string) => blockOf(colouredLines, name);
+    expect(block("achilles").join("\n")).not.toContain("\u001b");
     // A fresh problem: the name and the value in the tint of the problem,
     // the age plain — it is not the age that is wrong.
-    expect(spans(colouredLines[3])).toEqual([
+    const antilochus = block("antilochus");
+    expect(spans(antilochus[0])).toEqual([
       ["33", "! antilochus"],
       ["33", "missing 443"],
     ]);
-    expect(colouredLines[4]).not.toContain("\u001b");
-    expect(spans(colouredLines[5])).toEqual([
+    expect(antilochus[1]).not.toContain("\u001b");
+    expect(spans(antilochus[2])).toEqual([
       ["2", "  system.ports reports a problem"],
     ]);
-    expect(spans(colouredLines[6])).toEqual([
+    const german = block("german");
+    expect(spans(german[0])).toEqual([
       ["31", "! german"],
       ["31", "down"],
     ]);
-    expect(colouredLines[7]).not.toContain("\u001b");
+    expect(german[1]).not.toContain("\u001b");
     // Stale: the name says the node went quiet, each value keeps the tint
     // of what it said — `down` and a disk past its critical bound red, the
     // rest plain — and every stale age is yellow: how old, not how bad.
-    expect(spans(colouredLines[9])).toEqual([
+    const hector = block("hector");
+    expect(spans(hector[0])).toEqual([
       ["33", "! hector"],
       ["31", "down"],
       ["31", "96%"],
     ]);
-    expect(spans(colouredLines[10])).toEqual([
+    expect(spans(hector[1])).toEqual([
       ["33", "15m"],
       ["33", "5m"],
       ["33", "5m"],
       ["33", "5m"],
       ["33", "5m"],
     ]);
-    expect(spans(colouredLines[13])).toEqual([["2", "! patroclus"]]);
+    expect(spans(block("patroclus")[0])).toEqual([["2", "! patroclus"]]);
     // The escape codes are the only difference: the columns line up the
     // same, and stripping them gives the plain table back.
     expect(stripped(coloured)).toBe(plain);
@@ -432,9 +511,10 @@ describe("StatusTable with an acknowledgement", () => {
   it("says so under the ages and above the reasons, the node still marked", () => {
     const lines = linesWith(known);
 
-    expect(cells(lines[3])[0]).toBe("! antilochus");
-    expect(lines[5]).toBe("  acknowledged 2h ago: 443 moved to a sidecar");
-    expect(lines[6]).toBe("  system.ports reports a problem");
+    const antilochus = blockOf(lines, "antilochus");
+    expect(cells(antilochus[0])[0]).toBe("! antilochus");
+    expect(antilochus[2]).toBe("  acknowledged 2h ago: 443 moved to a sidecar");
+    expect(antilochus[3]).toBe("  system.ports reports a problem");
   });
 
   it("names the sticky kind and the time left, and drops an absent note", () => {
@@ -446,7 +526,9 @@ describe("StatusTable with an acknowledgement", () => {
       untilOk: true,
     });
 
-    expect(lines[5]).toBe("  acknowledged 2h ago, until ok, 3d left");
+    expect(blockOf(lines, "antilochus")[2]).toBe(
+      "  acknowledged 2h ago, until ok, 3d left",
+    );
   });
 
   it("gives the time left of the default kind without naming a kind", () => {
@@ -458,7 +540,9 @@ describe("StatusTable with an acknowledgement", () => {
       untilOk: false,
     });
 
-    expect(lines[5]).toBe("  acknowledged 2h ago, 3d left");
+    expect(blockOf(lines, "antilochus")[2]).toBe(
+      "  acknowledged 2h ago, 3d left",
+    );
   });
 
   it("adds one line to the acknowledged node and none to the others", () => {
@@ -476,8 +560,9 @@ describe("StatusTable with an acknowledgement", () => {
       "\n",
     );
 
-    expect(coloured[5]).toBe("  acknowledged 2h ago: 443 moved to a sidecar");
-    expect(spans(coloured[6]).map(([code]) => code)).toEqual(["2"]);
+    const antilochus = blockOf(coloured, "antilochus");
+    expect(antilochus[2]).toBe("  acknowledged 2h ago: 443 moved to a sidecar");
+    expect(spans(antilochus[3]).map(([code]) => code)).toEqual(["2"]);
   });
 
   it("widens a one-shot table to a long note, drawn whole", async () => {

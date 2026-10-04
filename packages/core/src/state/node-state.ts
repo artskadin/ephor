@@ -101,7 +101,7 @@ const VERDICT_REASON: Readonly<Record<Verdict, string | undefined>> = {
 
 // Worst wins. `stale` outranks `warn`: a node we cannot see may be in
 // trouble right now.
-const STATUS_RANK: Readonly<Record<MetricStatus, number>> = {
+export const STATUS_RANK: Readonly<Record<MetricStatus, number>> = {
   ok: 0,
   unknown: 1,
   warn: 2,

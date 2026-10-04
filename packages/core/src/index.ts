@@ -59,6 +59,7 @@ export {
   buildNodeState,
   isMetricStatus,
   REACHABILITY_VERDICT_METRIC,
+  STATUS_RANK,
 } from "./state/node-state";
 export type {
   Acknowledgement,

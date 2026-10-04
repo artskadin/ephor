@@ -6,6 +6,7 @@ import {
   type MetricView,
   type NodeState,
   REACHABILITY_VERDICT_METRIC,
+  STATUS_RANK,
   type StateResponse,
 } from "@ephorate/core";
 import { Box, Text } from "ink";
@@ -162,7 +163,9 @@ function layoutTable(state: StateResponse): Layout {
   const columns = COLUMNS.filter((column) =>
     state.nodes.some((node) => node.probes.includes(column.probe)),
   );
-  const rows = state.nodes.map((node) => buildRow(node, columns, state.now));
+  const rows = [...state.nodes]
+    .sort(worstFirst)
+    .map((node) => buildRow(node, columns, state.now));
 
   // From the plain text, so colour cannot move a column.
   const widths = [
@@ -181,6 +184,15 @@ function layoutTable(state: StateResponse): Layout {
   ];
 
   return { columns, rows, widths };
+}
+
+// Worst first, so a fleet's trouble is at the top; then by name, compared
+// by code unit: a locale would order `B` and `b` differently per machine.
+function worstFirst(left: NodeState, right: NodeState): number {
+  const byStatus = STATUS_RANK[right.status] - STATUS_RANK[left.status];
+  if (byStatus !== 0) return byStatus;
+
+  return left.node < right.node ? -1 : left.node > right.node ? 1 : 0;
 }
 
 interface PaintedCell {
