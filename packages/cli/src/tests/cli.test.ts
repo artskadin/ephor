@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Acknowledgement } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { BINARY, ephor } from "./run-binary";
@@ -99,6 +102,31 @@ describe("ephor status", () => {
     expect(run.code).toBe(2);
     expect(run.stdout).toBe("");
     expect(run.stderr).toMatch(/EPHOR_TOKEN is not set/);
+  });
+
+  // On the machine `ephor serve` runs on: the token file beside its config.
+  it("reads the token from the file beside the config, warning when it is open", async () => {
+    const collector = await collectorOf(stateOf());
+    cleanups.push(collector.close);
+    const directory = mkdtempSync(join(tmpdir(), "ephor-status-"));
+    cleanups.push(async () => rmSync(directory, { recursive: true }));
+    writeFileSync(join(directory, "token"), `${TOKEN}\n`, { mode: 0o600 });
+    const environment = {
+      EPHOR_API_URL: collector.url,
+      EPHOR_CONFIG: join(directory, "config.yaml"),
+    };
+
+    const closed = await ephor(["status", "--json"], environment);
+    expect(closed.code).toBe(0);
+    expect(closed.stderr).toBe("");
+
+    chmodSync(join(directory, "token"), 0o644);
+    const open = await ephor(["status", "--json"], environment);
+    expect(open.code).toBe(0);
+    expect(open.stderr).toBe(
+      `warning: ${join(directory, "token")} is readable by others (mode 644): ` +
+        `chmod 600 ${join(directory, "token")}\n`,
+    );
   });
 
   it("exits 2 when the collector is not there, and says where it looked", async () => {

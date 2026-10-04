@@ -6,8 +6,10 @@ interface ServeOptions {
   configPath: string;
   /** `EPHOR_DB`; wins over `storage.path`. */
   databasePath: string | undefined;
-  /** `EPHOR_TOKEN`. */
+  /** `EPHOR_TOKEN`, else the token file; empty when neither is there. */
   token: string;
+  /** Named when there is no token, so the message says where to put one. */
+  tokenPath: string;
   logger: Logger;
 }
 
@@ -30,7 +32,7 @@ export async function runServe(options: ServeOptions): Promise<never> {
   const signalled = firstSignal(options.logger);
 
   const daemon = await serve(options).catch((error: unknown) => {
-    throw explainStartFailure(error);
+    throw explainStartFailure(error, options.tokenPath);
   });
 
   const signal = await signalled;
@@ -62,9 +64,18 @@ function firstSignal(logger: Logger): Promise<string> {
   });
 }
 
-function explainStartFailure(error: unknown): unknown {
-  if (error instanceof ConfigError || error instanceof MissingTokenError) {
-    return new ServeError(error.message);
+function explainStartFailure(error: unknown, tokenPath: string): unknown {
+  if (error instanceof ConfigError) return new ServeError(error.message);
+
+  // The collector names only the variable; the file is the client's.
+  if (error instanceof MissingTokenError) {
+    return new ServeError(
+      `no API token: EPHOR_TOKEN is not set and ${tokenPath} does not ` +
+        "exist. The API is open to everything on this host, a panel or " +
+        `another operator included. Make one: openssl rand -hex 32 > ` +
+        `${tokenPath} && chmod 600 ${tokenPath}; or set api.enabled: false ` +
+        "to run without an API.",
+    );
   }
 
   if (!(error instanceof Error && "code" in error && "address" in error)) {

@@ -1,25 +1,53 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ClientConfigError,
   clientConfigFrom,
   DEFAULT_API_URL,
 } from "../client-config";
 
+let directory: string;
+let configPath: string;
+
+beforeEach(() => {
+  directory = mkdtempSync(join(tmpdir(), "ephor-client-"));
+  configPath = join(directory, "config.yaml");
+});
+
+afterEach(() => {
+  rmSync(directory, { recursive: true, force: true });
+});
+
 describe("clientConfigFrom", () => {
   it("needs only the token, and then talks to the daemon on this machine", () => {
-    expect(clientConfigFrom({ EPHOR_TOKEN: "secret" })).toEqual({
+    expect(clientConfigFrom({ EPHOR_TOKEN: "secret" })).toMatchObject({
       apiUrl: DEFAULT_API_URL,
       token: "secret",
     });
   });
 
-  it("refuses to run without a token, and says whose token it wants", () => {
+  it("refuses to run without a token, naming the variable and the file", () => {
     for (const environment of [{}, { EPHOR_TOKEN: "" }]) {
-      expect(() => clientConfigFrom(environment)).toThrow(ClientConfigError);
-      expect(() => clientConfigFrom(environment)).toThrow(
-        /EPHOR_TOKEN is not set.*ephor serve/,
+      expect(() => clientConfigFrom(environment, configPath)).toThrow(
+        ClientConfigError,
+      );
+      expect(() => clientConfigFrom(environment, configPath)).toThrow(
+        `no API token: EPHOR_TOKEN is not set and ${join(directory, "token")} does not exist. If \`ephor serve\` runs here with another config, set EPHOR_CONFIG`,
       );
     }
+  });
+
+  // On the machine `ephor serve` runs on, nothing to export.
+  it("reads the token file beside the config", () => {
+    writeFileSync(join(directory, "token"), "from-file\n", { mode: 0o600 });
+
+    expect(clientConfigFrom({}, configPath)).toEqual({
+      apiUrl: DEFAULT_API_URL,
+      token: "from-file",
+      tokenWarning: undefined,
+    });
   });
 
   it.each([

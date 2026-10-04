@@ -183,14 +183,38 @@ describe("ephor serve", () => {
     START_TIMEOUT_MS,
   );
 
-  it("exits 2 without a token, saying which variable", async () => {
+  it("exits 2 without a token, naming the variable and the file", async () => {
     const configPath = writeConfig("enabled: true");
 
     const exit = await exited(ephor(["serve", "--config", configPath]));
 
     expect(exit.code).toBe(2);
-    expect(exit.stderr).toContain("EPHOR_TOKEN is not set");
+    expect(exit.stderr).toContain(
+      `no API token: EPHOR_TOKEN is not set and ${join(directory, "token")} does not exist`,
+    );
+    expect(exit.stderr).toContain(`chmod 600 ${join(directory, "token")}`);
   });
+
+  // `ephor init` writes it there: nothing to export before `serve`.
+  it(
+    "takes the token from the file beside the config, and says if others can read it",
+    async () => {
+      const port = await pickFreePort();
+      const configPath = writeConfig(`port: ${port}`);
+      writeFileSync(join(directory, "token"), `${TOKEN}\n`, { mode: 0o644 });
+
+      const child = ephor(["serve", "--config", configPath]);
+      await listening(port, child);
+
+      child.kill("SIGTERM");
+      const exit = await exited(child);
+      expect(exit.code).toBe(0);
+      expect(exit.stderr).toContain(
+        `${join(directory, "token")} is readable by others (mode 644)`,
+      );
+    },
+    START_TIMEOUT_MS,
+  );
 
   it("exits 2 on a config it cannot read", async () => {
     const exit = await exited(

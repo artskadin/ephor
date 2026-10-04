@@ -8,6 +8,7 @@ import { runStatus } from "./commands/status";
 import { resolveConfigPath } from "./config-path";
 import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code";
 import { colourEnabled } from "./render/colour-mode";
+import { findToken, tokenPath } from "./token";
 
 const { version } = createRequire(import.meta.url)("../package.json") as {
   version: string;
@@ -38,12 +39,17 @@ program
     // takes 60 ms, and no other command needs it. `ephor --version` is
     // 160 ms in total.
     const { runServe } = await import("./commands/serve");
+    const logger = loggerFromEnvironment();
+    const configPath = resolveConfigPath({ flag: options.config });
+    const found = findToken({ environment: process.env, configPath });
+    if (found?.warning !== undefined) logger.warn(found.warning);
 
     await runServe({
-      configPath: resolveConfigPath({ flag: options.config }),
+      configPath,
       databasePath: process.env.EPHOR_DB,
-      token: process.env.EPHOR_TOKEN ?? "",
-      logger: loggerFromEnvironment(),
+      token: found?.token ?? "",
+      tokenPath: tokenPath(configPath),
+      logger,
     });
   });
 
@@ -73,12 +79,14 @@ program
       if (node !== undefined) request.node = node;
       if (options.probe !== undefined) request.probe = options.probe;
 
+      const configPath = resolveConfigPath({ flag: options.config });
+
       await runCheck({
-        configPath: resolveConfigPath({ flag: options.config }),
+        configPath,
         request,
         // No token means no daemon was set up: the probes run here.
-        client: process.env.EPHOR_TOKEN
-          ? new ApiClient(clientConfigFrom(process.env))
+        client: findToken({ environment: process.env, configPath })
+          ? collectorClient(configPath)
           : undefined,
         ...outputFrom(options),
         logger: loggerFromEnvironment(),
@@ -93,7 +101,7 @@ program
   .option("--json", "print the collector's answer as JSON")
   .option("--plain", "no colour, whatever the terminal")
   .action(async (options: { json?: boolean; plain?: boolean }) => {
-    const client = new ApiClient(clientConfigFrom(process.env));
+    const client = collectorClient();
 
     await runStatus({ client, ...outputFrom(options) });
   });
@@ -148,7 +156,7 @@ program
       const request = clearing ? undefined : acknowledgeRequestFrom(options);
 
       await runAck({
-        client: new ApiClient(clientConfigFrom(process.env)),
+        client: collectorClient(),
         node,
         request,
         json: options.json ?? false,
@@ -193,7 +201,7 @@ program
       }
 
       await runWatch({
-        source: new ApiClient(clientConfigFrom(process.env)),
+        source: collectorClient(),
         intervalMs: intervalFrom(options.interval) * 1000,
         colour: colourEnabled({
           plain: options.plain ?? false,
@@ -214,6 +222,16 @@ try {
   process.exitCode = EXIT_OK;
 } catch (error) {
   process.exitCode = failed(error);
+}
+
+/** The collector's client; a token file others can read is said once. */
+function collectorClient(configPath?: string): ApiClient {
+  const config = clientConfigFrom(process.env, configPath);
+  if (config.tokenWarning !== undefined) {
+    process.stderr.write(`warning: ${config.tokenWarning}\n`);
+  }
+
+  return new ApiClient(config);
 }
 
 /** `--json` and `--plain` as every command that prints a state takes them. */

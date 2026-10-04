@@ -130,8 +130,8 @@ export class ApiClient {
     if (response.status === 401) {
       throw new ApiError(
         "unauthorized",
-        `the collector at ${apiUrl} rejected the token: EPHOR_TOKEN must ` +
-          "be the one `ephor serve` runs with",
+        `the collector at ${apiUrl} rejected the token: EPHOR_TOKEN, or ` +
+          "the token file, must hold the one `ephor serve` runs with",
       );
     }
 

@@ -1,10 +1,14 @@
+import { resolveConfigPath } from "./config-path";
 import { UsageError } from "./exit-code";
+import { findToken, tokenPath } from "./token";
 
 export const DEFAULT_API_URL = "http://127.0.0.1:31556";
 
 interface ClientConfig {
   apiUrl: string;
   token: string;
+  /** For stderr, once: the token file is readable by others. */
+  tokenWarning?: string | undefined;
 }
 
 export class ClientConfigError extends UsageError {
@@ -14,14 +18,22 @@ export class ClientConfigError extends UsageError {
   }
 }
 
-/** `EPHOR_TOKEN` and `EPHOR_API_URL`; `cli.yaml` from `init` sits below. */
-export function clientConfigFrom(environment: NodeJS.ProcessEnv): ClientConfig {
-  const token = environment.EPHOR_TOKEN;
+/**
+ * The token from `EPHOR_TOKEN`, else the `token` file `ephor serve` reads
+ * on this machine; the address from `EPHOR_API_URL`. `cli.yaml` comes next.
+ */
+export function clientConfigFrom(
+  environment: NodeJS.ProcessEnv,
+  configPath: string = resolveConfigPath({ environment }),
+): ClientConfig {
+  const found = findToken({ environment, configPath });
 
-  if (token === undefined || token === "") {
+  if (found === undefined) {
+    const path = tokenPath(configPath);
     throw new ClientConfigError(
-      "EPHOR_TOKEN is not set. The collector's API requires it: export the " +
-        "token `ephor serve` runs with.",
+      `no API token: EPHOR_TOKEN is not set and ${path} does not exist. ` +
+        "If `ephor serve` runs here with another config, set EPHOR_CONFIG " +
+        "to it; else export the token it runs with as EPHOR_TOKEN.",
     );
   }
 
@@ -56,7 +68,11 @@ export function clientConfigFrom(environment: NodeJS.ProcessEnv): ClientConfig {
     );
   }
 
-  return { apiUrl: apiUrl.replace(/\/+$/, ""), token };
+  return {
+    apiUrl: apiUrl.replace(/\/+$/, ""),
+    token: found.token,
+    tokenWarning: found.warning,
+  };
 }
 
 function parseUrl(candidate: string): URL | undefined {
