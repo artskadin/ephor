@@ -72,9 +72,8 @@ function explainStartFailure(error: unknown, tokenPath: string): unknown {
     return new ServeError(
       `no API token: EPHOR_TOKEN is not set and ${tokenPath} does not ` +
         "exist. The API is open to everything on this host, a panel or " +
-        `another operator included. Make one: openssl rand -hex 32 > ` +
-        `${tokenPath} && chmod 600 ${tokenPath}; or set api.enabled: false ` +
-        "to run without an API.",
+        "another operator included. `ephor init` writes one, keeping the " +
+        "config; or set api.enabled: false to run without an API.",
     );
   }
 

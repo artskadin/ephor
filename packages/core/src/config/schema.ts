@@ -282,7 +282,14 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
       probeDefaults: optionalSection(ProbeDefaultsSchema.prefault({})),
       probes: GlobalProbesSchema,
       thresholds: ThresholdsSchema,
-      nodes: z.array(NodeWithKnownProbesSchema).min(1, "at least one node"),
+      // Absent or left blank under the template's comments: the same
+      // message as an empty list, not "expected array, received null".
+      nodes: z.preprocess(
+        (value) => value ?? [],
+        z
+          .array(NodeWithKnownProbesSchema)
+          .min(1, "at least one node: list yours under `nodes:`"),
+      ),
       storage: optionalSection(StorageSchema.prefault({})),
       api: optionalSection(ApiSchema.prefault({})),
     })

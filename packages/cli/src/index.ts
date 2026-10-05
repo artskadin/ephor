@@ -54,6 +54,22 @@ program
   });
 
 program
+  .command("init")
+  .description(
+    "Write config.yaml from a template and an API token beside it; keeps what is there",
+  )
+  .option(...CONFIG_OPTION)
+  .action(async (options: { config?: string }) => {
+    const { runInit } = await import("./commands/init");
+
+    runInit({
+      configPath: resolveConfigPath({ flag: options.config }),
+      environmentToken: process.env.EPHOR_TOKEN,
+      print: (line) => void process.stdout.write(`${line}\n`),
+    });
+  });
+
+program
   .command("check")
   .description(
     "Run the probes once, through `ephor serve` when it is up, else here",

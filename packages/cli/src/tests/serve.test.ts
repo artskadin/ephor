@@ -192,7 +192,9 @@ describe("ephor serve", () => {
     expect(exit.stderr).toContain(
       `no API token: EPHOR_TOKEN is not set and ${join(directory, "token")} does not exist`,
     );
-    expect(exit.stderr).toContain(`chmod 600 ${join(directory, "token")}`);
+    expect(exit.stderr).toContain(
+      "`ephor init` writes one, keeping the config",
+    );
   });
 
   // `ephor init` writes it there: nothing to export before `serve`.

@@ -54,14 +54,14 @@ probes:
     # At least one `required: false` region is what makes the verdict
     # possible — it is the control group, not extra data:
     #
-    #   RU 0/4   EU 3/3   ->  blocked   (filtered, the server is fine)
-    #   RU 0/4   EU 0/3   ->  down      (the server is gone)
-    #   RU 2/4   EU 3/3   ->  partial   (some operators filter it)
-    #   RU 4/4   EU 3/3   ->  ok
+    #   RU 0/3   EU 3/3   ->  blocked   (filtered, the server is fine)
+    #   RU 0/3   EU 0/3   ->  down      (the server is gone)
+    #   RU 2/3   EU 3/3   ->  partial   (some operators filter it)
+    #   RU 3/3   EU 3/3   ->  ok
     regions:
       ru:
         match: [ru]
-        count: 4
+        count: 3 # at most what check-host has there: ru 3 on 2026-10-05
         required: true
       eu:
         match: [de, nl, fi]
@@ -75,25 +75,31 @@ probes:
 # Nodes
 # ---------------------------------------------------------------------------
 nodes:
-  # Fullest form: everything spelled out, nothing taken from ~/.ssh/config.
+  # Fullest form: no alias, ssh connects to `host` as this user, on this
+  # port, through this jump host; keys still come from ~/.ssh/config and
+  # the ssh agent.
   - name: achilles
-    host: 62.60.253.142
+    host: 203.0.113.10
     domain: achilles.example.com
     tags: [production]
     ssh:
       user: monitor
       port: 3948
-      key: ~/.ssh/id_ephor
       jump: bastion # ProxyJump; omit when connecting directly
     ports:
       - { port: 443, label: xray, expose: public }
-      - { port: 8443, label: nginx, expose: local }
+      - { port: 2222, label: panel-agent, expose: bastion }
       - { port: 3948, label: ssh, expose: bastion }
 
   # Shorter form: `ssh:` as a string is an alias from ~/.ssh/config, and a
   # bare number is a public tcp port. Convenient, never required.
+  #
+  # `ports` is optional. Left out, the PORTS column lists the TCP ports
+  # that listen beyond loopback, for reference only. Listed, one that
+  # stops listening warns, and so does one listening but not listed: list
+  # every such port. Loopback-only sockets and UDP are never seen.
   - name: antilochus
-    host: 193.148.59.12
+    host: 203.0.113.11
     ssh: antilochus
     ports: [443]
     probes:
@@ -103,7 +109,7 @@ nodes:
   # No ssh access at all: reachability still works, system is skipped and
   # says why rather than silently reporting nothing.
   - name: german
-    host: 144.31.73.62
+    host: 203.0.113.12
     ports: [443]
 
 # ---------------------------------------------------------------------------

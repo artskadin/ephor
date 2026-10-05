@@ -197,6 +197,28 @@ describe("ephor", () => {
   });
 });
 
+describe("ephor init", () => {
+  // Step 0 as the docs will tell it: init, then check says what is missing.
+  it("writes the config and the token, then check asks for nodes", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "ephor-init-"));
+    cleanups.push(async () => rmSync(directory, { recursive: true }));
+    const config = join(directory, "config.yaml");
+
+    const first = await ephor(["init", "--config", config]);
+    const again = await ephor(["init", "--config", config]);
+    const check = await ephor(["check", "--config", config]);
+
+    expect(first.code).toBe(0);
+    expect(first.stdout).toContain(`created ${config}`);
+    expect(again.code).toBe(0);
+    expect(again.stdout).toContain(`kept ${config}: already there`);
+    expect(check.code).toBe(2);
+    expect(check.stderr).toContain(
+      "at least one node: list yours under `nodes:`",
+    );
+  });
+});
+
 describe("ephor watch", () => {
   it("exits 2 when stdout is not a terminal, and names status instead", async () => {
     const run = await ephor(["watch"], {
