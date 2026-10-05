@@ -76,8 +76,8 @@ probes:
 # ---------------------------------------------------------------------------
 nodes:
   # Fullest form: no alias, ssh connects to `host` as this user, on this
-  # port, through this jump host; keys still come from ~/.ssh/config and
-  # the ssh agent.
+  # port, through this jump host. `key` is tried first and the agent's
+  # keys are not; the jump host still logs in through ~/.ssh/config.
   - name: achilles
     host: 203.0.113.10
     domain: achilles.example.com
@@ -85,6 +85,7 @@ nodes:
     ssh:
       user: monitor
       port: 3948
+      key: ~/.ssh/id_ephor
       jump: bastion # ProxyJump; omit when connecting directly
     ports:
       - { port: 443, label: xray, expose: public }

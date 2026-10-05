@@ -1,11 +1,18 @@
 import type { Ssh } from "@ephorate/core";
 
-// The alias alone, or the pieces the config spelled out; `ssh -G` takes the
-// same list.
+// The alias, or the pieces the config spelled out; `ssh -G` takes the same
+// list. A key is passed either way: written, it is meant. ssh expands `~`
+// in `-i` itself, and says so on stderr when the file is not there.
 export function sshTargetArgs(sshConfig: Ssh, host: string): string[] {
-  if (sshConfig.alias) return [sshConfig.alias];
+  // No agent keys: an agent offering several first runs into the node's
+  // MaxAuthTries (6 by default). `IdentityFile` lines in ssh_config still
+  // count, and the `-J` hop authenticates on its own, without this key.
+  const key = sshConfig.key
+    ? ["-i", sshConfig.key, "-o", "IdentitiesOnly=yes"]
+    : [];
+  if (sshConfig.alias) return [...key, sshConfig.alias];
 
-  const args: string[] = [];
+  const args: string[] = [...key];
 
   if (sshConfig.port !== 22) {
     args.push("-p", String(sshConfig.port));

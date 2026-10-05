@@ -59,14 +59,16 @@ nodes:
   #   host: 203.0.113.11
   #
   # Without an alias: ssh connects to \`host\` as this user, on this port,
-  # through this jump host (itself a name ssh resolves); keys and anything
-  # else still come from ~/.ssh/config and the ssh agent.
+  # through this jump host (itself a name ssh resolves). \`key\` is tried
+  # first and the agent's keys are not; the jump host itself still logs
+  # in through ~/.ssh/config and the agent.
   #
   # - name: helsinki
   #   host: 203.0.113.12
   #   ssh:
   #     user: root
   #     port: 22
+  #     key: ~/.ssh/id_ed25519
   #     jump: bastion       # ProxyJump; leave out to connect directly
   #
   # Ports are optional. Left out, the PORTS column lists the TCP ports
