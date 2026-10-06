@@ -6,7 +6,7 @@ import type {
   RemovedAcknowledgementResponse,
   StateResponse,
 } from "@ephorate/core";
-import { ApiClient } from "./api-client";
+import { ApiClient, ApiError } from "./api-client";
 import { openTunnel, type Tunnel } from "./tunnel";
 
 interface RemoteCollectorOptions {
@@ -26,11 +26,13 @@ interface RemoteCollectorOptions {
 export class RemoteCollector {
   /** Not loopback, so `check` never takes a dead remote for no daemon. */
   readonly apiUrl: string;
+  readonly remote: string;
   private tunnel: Tunnel | undefined;
   private opening: Promise<Tunnel> | undefined;
 
   constructor(private readonly options: RemoteCollectorOptions) {
     this.apiUrl = `ssh://${options.remote}`;
+    this.remote = options.remote;
   }
 
   state(): Promise<StateResponse> {
@@ -57,19 +59,34 @@ export class RemoteCollector {
     this.tunnel = undefined;
   }
 
+  // Measured: right after ssh dies, before its exit is seen, the tunnel
+  // still reads open. The request never left: once more, a POST too.
   private async call<T>(
     request: (client: ApiClient) => Promise<T>,
   ): Promise<T> {
     const tunnel = await this.openTunnel();
+
+    try {
+      return await request(this.clientThrough(tunnel));
+    } catch (error) {
+      if (!(error instanceof ApiError && error.failure === "link-closed")) {
+        throw error;
+      }
+      tunnel.close();
+      if (this.tunnel === tunnel) this.tunnel = undefined;
+
+      return request(this.clientThrough(await this.openTunnel()));
+    }
+  }
+
+  private clientThrough(tunnel: Tunnel): ApiClient {
     const { remote, remotePort, token, tokenSource } = this.options;
 
-    return request(
-      new ApiClient({
-        apiUrl: tunnel.url,
-        token,
-        tunnel: { remote, remotePort, tokenSource },
-      }),
-    );
+    return new ApiClient({
+      apiUrl: tunnel.url,
+      token,
+      tunnel: { remote, remotePort, tokenSource },
+    });
   }
 
   // One tunnel at a time: `watch` polls while a slow ssh is still opening.

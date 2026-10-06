@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DEFAULT_API_PORT } from "@ephorate/core";
@@ -8,6 +7,11 @@ import { ApiError } from "../api-client";
 import { cliFilePath, readCliFile } from "../cli-file";
 import { UsageError } from "../exit-code";
 import { RemoteCollector } from "../remote-collector";
+import {
+  BASHRC_FIRST_LINE,
+  notOnPathMessage,
+  runOverSsh,
+} from "../remote-command";
 import { lastLine, openTunnel } from "../tunnel";
 
 interface InitRemoteOptions {
@@ -28,9 +32,7 @@ const AccessSchema = z
   })
   .strict();
 
-const BASHRC_FIRST_LINE =
-  "on the first line of ~/.bashrc there: Debian's returns early for the " +
-  "non-interactive shell ssh runs commands in";
+const ACCESS_TIMEOUT_MS = 30_000;
 
 /**
  * Points the commands typed here at the collector on `remote`: asks it
@@ -85,7 +87,12 @@ async function askForAccess(
 ): Promise<z.infer<typeof AccessSchema>> {
   const { remote } = options;
   const command = "ephor api-access";
-  const result = await runOverSsh(options.ssh ?? "ssh", remote, command);
+  const result = await runOverSsh({
+    remote,
+    command,
+    timeoutMs: ACCESS_TIMEOUT_MS,
+    ssh: options.ssh,
+  });
 
   if (result.code === 0) {
     try {
@@ -103,20 +110,15 @@ async function askForAccess(
 
   if (result.timedOut) {
     throw new UsageError(
-      `no answer from \`${command}\` on ${remote} within 30 s: does a login ` +
+      `no answer from \`${command}\` on ${remote} within ${ACCESS_TIMEOUT_MS / 1000} s: does a login ` +
         "script there wait for input?",
     );
   }
   if (result.code === 255) {
     throw new UsageError(`cannot reach ${remote} over ssh: ${said}`);
   }
-  // 127 is the shell's "not found": nvm's PATH is not loaded over ssh.
   if (result.code === 127) {
-    throw new UsageError(
-      `ephor or node is not on ${remote}'s PATH for commands run over ` +
-        `ssh (${said}): install ephor there (npm i -g ephorate). With node ` +
-        `in a home directory (nvm, a tarball), set its PATH ${BASHRC_FIRST_LINE}`,
-    );
+    throw new UsageError(notOnPathMessage(remote, said));
   }
   if (said.includes("unknown command 'api-access'")) {
     throw new UsageError(
@@ -161,49 +163,4 @@ async function collectorAnswer(
   } finally {
     collector.close();
   }
-}
-
-function runOverSsh(
-  ssh: string,
-  remote: string,
-  command: string,
-): Promise<{
-  code: number;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-}> {
-  return new Promise((resolve) => {
-    execFile(
-      ssh,
-      [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=10",
-        "-o",
-        "LogLevel=ERROR",
-        "-o",
-        "ControlPath=none",
-        "--",
-        remote,
-        command,
-      ],
-      { timeout: 30_000 },
-      (error, stdout, stderr) => {
-        const code =
-          error === null
-            ? 0
-            : typeof error.code === "number"
-              ? error.code
-              : 255;
-        resolve({
-          code,
-          stdout,
-          stderr: stderr || (error?.message ?? ""),
-          timedOut: error?.killed === true,
-        });
-      },
-    );
-  });
 }

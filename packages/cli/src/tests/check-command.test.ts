@@ -2,6 +2,7 @@ import { createLogger } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api-client";
 import { type CollectorClient, runCheck } from "../commands/check";
+import { UsageError } from "../exit-code";
 
 /**
  * The one decision the binary tests cannot reach without a network: a
@@ -36,6 +37,21 @@ async function checkWith(client: CollectorClient): Promise<string[]> {
 }
 
 describe("runCheck with a refused connection", () => {
+  // Measured: a tunnel's ssh killed mid-POST reads as refused.
+  it("does not run it again over ssh when the remote daemon answers after", async () => {
+    const failure = await checkWith({
+      ...refusingClient("ssh://bastion"),
+      remote: "bastion",
+      state: () => Promise.resolve({ now: 0, nodes: [] }),
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(UsageError);
+    expect((failure as Error).message).toBe(
+      "lost the ssh link to bastion during the check: it goes on there, " +
+        "and `ephor status` shows it once done",
+    );
+  });
+
   it("does not run the probes here for a collector elsewhere", async () => {
     await expect(
       checkWith(refusingClient("http://203.0.113.7:31556")),

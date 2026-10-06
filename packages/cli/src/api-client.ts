@@ -13,6 +13,8 @@ import {
 type ApiFailure =
   | "refused"
   | "unreachable"
+  /** The tunnel's ssh is gone; the request never left this machine. */
+  | "link-closed"
   | "timeout"
   | "unauthorized"
   | "rejected"
@@ -206,6 +208,15 @@ export class ApiClient {
       );
     }
 
+    // ssh listens on the local end while it lives: refused there, it is gone.
+    if (tunnel && hasSocketCode(cause, "ECONNREFUSED")) {
+      return new ApiError(
+        "link-closed",
+        `the ssh link to ${tunnel.remote} closed`,
+        { cause },
+      );
+    }
+
     if (hasSocketCode(cause, "ECONNREFUSED")) {
       return new ApiError(
         "refused",
@@ -242,7 +253,7 @@ function isStateResponse(value: unknown): value is StateResponse {
   );
 }
 
-function isCheckResponse(value: unknown): value is CheckResponse {
+export function isCheckResponse(value: unknown): value is CheckResponse {
   if (!isStateResponse(value)) return false;
 
   const candidate = value as Partial<CheckResponse>;

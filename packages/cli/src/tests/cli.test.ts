@@ -3,9 +3,13 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Acknowledgement } from "@ephorate/core";
+import type { Acknowledgement, CheckResponse } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { fakeSshDirectory, fakeSshRunning } from "./fake-ssh";
+import {
+  fakeEphorDirectory,
+  fakeSshDirectory,
+  fakeSshRunning,
+} from "./fake-ssh";
 import { BINARY, ephor } from "./run-binary";
 import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server";
 
@@ -257,18 +261,103 @@ describe("ephor with a cli.yaml naming a remote collector", () => {
     child.kill("SIGKILL");
     await expect.poll(() => fakeSshRunning(fakeSsh), { timeout: 5000 }).toBe(0);
   });
+});
 
-  // Never probe from here for a remote collector: other keys, other route.
-  it("exits 2 when nothing serves there, and does not check from here", async () => {
+// Never probe from here for a remote collector: other keys, other route.
+describe("ephor check with nothing serving on the remote", () => {
+  const fakeSsh = fakeSshDirectory();
+  const fakeEphor = fakeEphorDirectory(BINARY);
+
+  /**
+   * cli.yaml names a remote whose API port nobody serves; ssh runs the
+   * remote's commands here, its config "there". No token there: its own
+   * check must not ask a daemon this machine may be running.
+   */
+  async function setup(options: { withEphor?: boolean } = {}) {
+    const here = mkdtempSync(join(tmpdir(), "ephor-here-"));
+    const there = mkdtempSync(join(tmpdir(), "ephor-there-"));
+    cleanups.push(async () => {
+      rmSync(here, { recursive: true });
+      rmSync(there, { recursive: true });
+    });
     const nobody = Number(new URL(await closedPortUrl()).port);
+    writeFileSync(
+      join(here, "cli.yaml"),
+      `remote: bastion\ntoken: ${TOKEN}\napiPort: ${nobody}\n`,
+      { mode: 0o600 },
+    );
+    // Its node's ssh fails at once: nothing leaves the machine.
+    writeFileSync(
+      join(there, "config.yaml"),
+      [
+        "nodes:",
+        "  - name: achilles",
+        "    host: 203.0.113.10",
+        "    ssh: unreachable.test",
+        "probes:",
+        "  reachability: { enabled: false }",
+        "  system: { retries: 0, timeout: 2s }",
+        "",
+      ].join("\n"),
+    );
 
-    const run = await ephor(["check", "--json"], remoteSetup(nobody));
+    return {
+      EPHOR_CONFIG: join(here, "config.yaml"),
+      FAKE_REMOTE_CONFIG: join(there, "config.yaml"),
+      PATH: [
+        fakeSsh,
+        ...(options.withEphor === false ? [] : [fakeEphor]),
+        "/usr/bin",
+        "/bin",
+      ].join(":"),
+    };
+  }
+
+  it("runs it there over ssh, saying so, and prints its answer", async () => {
+    const run = await ephor(["check", "--json"], await setup());
+
+    expect(run.code).toBe(0);
+    expect(run.stderr).toContain(
+      "no `ephor serve` on bastion: ran once there over ssh, nothing recorded",
+    );
+    expect(run.stderr).toContain("bastion: checking every node: every probe");
+    const response = JSON.parse(run.stdout) as CheckResponse;
+    expect(response).toMatchObject({ complete: true, pending: [] });
+    expect(response.nodes.map((node) => node.node)).toEqual(["achilles"]);
+    expect(response.nodes[0]?.reasons.join("\n")).toContain(
+      "Could not resolve hostname unreachable.test",
+    );
+  });
+
+  it("draws the table here from the answer, past a login banner", async () => {
+    const run = await ephor(["check", "achilles", "--probe", "system"], {
+      ...(await setup()),
+      FAKE_REMOTE_BANNER: "Welcome to bastion! nvm loaded",
+    });
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toMatch(/^NODE\s+LOAD/);
+    expect(run.stdout).toContain("! achilles");
+    expect(run.stdout).not.toContain("Welcome");
+  });
+
+  // The name reaches the remote shell intact, quote and dash included.
+  it("exits 2 with the remote's own words for a node it does not have", async () => {
+    const run = await ephor(["check", "--", "-hec'tor"], await setup());
 
     expect(run.code).toBe(2);
-    expect(run.stderr).toBe(
-      `no \`ephor serve\` on bastion: ssh connected, but nothing answers on port ${nobody} there\n`,
-    );
     expect(run.stdout).toBe("");
+    expect(run.stderr).toContain(`bastion: unknown node "-hec'tor"`);
+    expect(run.stderr).toContain("`ephor check` on bastion exited 2");
+  });
+
+  it("exits 2 saying where PATH goes when ephor is not on it there", async () => {
+    const run = await ephor(["check"], await setup({ withEphor: false }));
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain(
+      "ephor or node is not on bastion's PATH for commands run over ssh",
+    );
   });
 });
 

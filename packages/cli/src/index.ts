@@ -103,7 +103,7 @@ program
 program
   .command("check")
   .description(
-    "Run the probes once, through `ephor serve` when it is up, else here",
+    "Run the probes once, through `ephor serve` when it is up, else once on its machine",
   )
   .argument("[node]", "one node instead of every node")
   .option("--probe <name>", "one probe instead of every probe")

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../api-client";
 import { RemoteCollector } from "../remote-collector";
 import type { Tunnel } from "../tunnel";
-import { collectorOf, stateOf, TOKEN } from "./test-server";
+import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 
@@ -102,5 +102,36 @@ describe("RemoteCollector", () => {
     expect((failure as ApiError).message).toBe(
       "no `ephor serve` on bastion: ssh connected, but nothing answers on port 31556 there",
     );
+  });
+
+  // Not "no serve there": `check` must not run it there a second time.
+  it("reads a refusal at the tunnel's own end as the ssh link gone, once more on a new one", async () => {
+    const tunnels = tunnelsTo(await closedPortUrl());
+
+    const failure = await remoteOf(tunnels.open)
+      .state()
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).failure).toBe("link-closed");
+    expect((failure as ApiError).message).toBe(
+      "the ssh link to bastion closed",
+    );
+    expect(tunnels.opened.map((tunnel) => tunnel.open)).toEqual([false, true]);
+  });
+
+  it("asks again through a new tunnel when ssh died unnoticed", async () => {
+    const state = stateOf({ name: "achilles", status: "ok" });
+    const collector = await collectorOf(state);
+    cleanups.push(collector.close);
+    const dead = tunnelsTo(await closedPortUrl());
+    const live = tunnelsTo(collector.url);
+    let opens = 0;
+
+    // The first still reads open: its exit has not been seen yet.
+    const remote = remoteOf(() => (opens++ === 0 ? dead.open() : live.open()));
+
+    await expect(remote.state()).resolves.toEqual(state);
+    expect(dead.opened.map((tunnel) => tunnel.open)).toEqual([false]);
   });
 });

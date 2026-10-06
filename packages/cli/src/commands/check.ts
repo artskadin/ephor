@@ -9,13 +9,17 @@ import {
   type NodeState,
   type StateResponse,
 } from "@ephorate/core";
-import { ApiError } from "../api-client";
+import { ApiError, isCheckResponse } from "../api-client";
 import { UsageError } from "../exit-code";
+import { notOnPathMessage, quoteForShell, runOverSsh } from "../remote-command";
 import { stateText } from "../render/state-text";
+import { lastLine } from "../tunnel";
 
 /** What `ApiClient` offers; an interface so a test can stand one in. */
 export interface CollectorClient {
   apiUrl: string;
+  /** The ssh host of a collector behind a tunnel. */
+  remote?: string | undefined;
   check(request: CheckRequest): Promise<CheckResponse>;
   state(): Promise<StateResponse>;
 }
@@ -56,9 +60,9 @@ export async function runCheck(options: CheckOptions): Promise<void> {
   );
 }
 
-// A refused connection on this machine is the one failure that means "no
-// daemon": then once here, same keys, same route. Refused through a tunnel
-// is a remote daemon down, and probing from here would swap both.
+// A refused connection is the one failure that means "no daemon": then
+// once where it would run, same keys, same route. Over ssh for a remote
+// one: probing from here would swap both. Any other address: an error.
 // `client` apart from `options`: narrowing does not cross a call.
 async function checkThroughDaemon(
   client: CollectorClient,
@@ -69,12 +73,24 @@ async function checkThroughDaemon(
   try {
     response = await client.check(options.request);
   } catch (error) {
-    if (
-      !(error instanceof ApiError && error.failure === "refused") ||
-      !isLoopback(client.apiUrl)
-    ) {
+    if (!(error instanceof ApiError && error.failure === "refused")) {
       throw error;
     }
+
+    if (client.remote !== undefined) {
+      if (await isServing(client)) {
+        throw new UsageError(
+          `lost the ssh link to ${client.remote} during the check: it goes ` +
+            "on there, and `ephor status` shows it once done",
+        );
+      }
+      options.note(
+        `no \`ephor serve\` on ${client.remote}: ran once there over ssh, nothing recorded`,
+      );
+      return checkOverSsh(client.remote, options);
+    }
+
+    if (!isLoopback(client.apiUrl)) throw error;
 
     options.note(
       `no \`ephor serve\` at ${client.apiUrl}: ran once here, nothing recorded`,
@@ -84,6 +100,19 @@ async function checkThroughDaemon(
   }
 
   return response.complete ? response : awaitPending(client, response, options);
+}
+
+// Measured: a tunnel's ssh killed mid-POST reads as refused, as no serve
+// does. A daemon answering through a new tunnel was there all along, and
+// a check run over ssh would post to it again.
+async function isServing(client: CollectorClient): Promise<boolean> {
+  try {
+    await client.state();
+    return true;
+  } catch (error) {
+    if (error instanceof ApiError && error.failure === "refused") return false;
+    throw error;
+  }
 }
 
 function isLoopback(apiUrl: string): boolean {
@@ -211,6 +240,67 @@ async function checkHere(options: CheckOptions): Promise<CheckResponse> {
       const unhandled: never = outcome;
       throw new Error(`unhandled check outcome ${JSON.stringify(unhandled)}`);
     }
+  }
+}
+
+/**
+ * `ephor check --json` on the collector's machine, with its config and its
+ * keys. Its stderr goes on as it comes: a fleet takes seconds there too.
+ */
+async function checkOverSsh(
+  remote: string,
+  options: CheckOptions,
+): Promise<CheckResponse> {
+  const { node, probe } = options.request;
+  const command = [
+    "ephor check --json",
+    ...(probe === undefined ? [] : ["--probe", quoteForShell(probe)]),
+    // `--`: a node name starting with a dash is not an option there.
+    ...(node === undefined ? [] : ["--", quoteForShell(node)]),
+  ].join(" ");
+
+  const result = await runOverSsh({
+    remote,
+    command,
+    onStderrLine: (line) => options.note(`${remote}: ${line}`),
+  });
+
+  if (result.code === 0) {
+    const answer = jsonIn(result.stdout);
+    if (isCheckResponse(answer)) return answer;
+
+    throw new UsageError(
+      `\`${command}\` on ${remote} answered something else than a check ` +
+        "result: is ephor there as new as here?",
+    );
+  }
+
+  const said = lastLine(result.stderr) ?? `exit code ${result.code}`;
+
+  // ssh's own failure, or the command there killed by a signal; its words
+  // went by above.
+  if (result.code === 255) {
+    throw new UsageError(
+      `ssh to ${remote} ended with 255: it lost the link, or \`ephor check\` ` +
+        "there was killed",
+    );
+  }
+  if (result.code === 127) {
+    throw new UsageError(notOnPathMessage(remote, said));
+  }
+  // Its own words went by above, prefixed.
+  throw new UsageError(`\`ephor check\` on ${remote} exited ${result.code}`);
+}
+
+// A login script there may print before ephor does; the JSON starts a line.
+function jsonIn(stdout: string): unknown {
+  const start = stdout.search(/^\{$/m);
+  if (start === -1) return undefined;
+
+  try {
+    return JSON.parse(stdout.slice(start));
+  } catch {
+    return undefined;
   }
 }
 
