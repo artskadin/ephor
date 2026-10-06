@@ -65,7 +65,7 @@ describe("findToken", () => {
     rmSync(tokenPath(configPath));
     mkdirSync(tokenPath(configPath));
     expect(() => findToken({ environment: {}, configPath })).toThrow(
-      /cannot read the token at .*EISDIR/,
+      /cannot read .*token: EISDIR/,
     );
   });
 

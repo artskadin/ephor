@@ -32,6 +32,15 @@ export class ApiError extends Error {
 interface ApiClientOptions {
   apiUrl: string;
   token: string;
+  /** Set when `apiUrl` is a tunnel's local end: the messages name the far end. */
+  tunnel?:
+    | {
+        remote: string;
+        remotePort: number;
+        /** Where the token came from, for a rejected one. */
+        tokenSource: string;
+      }
+    | undefined;
   /** `/api/state` answers in a millisecond; seconds mean a bad route. */
   timeoutMs?: number | undefined;
 }
@@ -128,17 +137,21 @@ export class ApiClient {
     }
 
     if (response.status === 401) {
+      const { tunnel } = this.options;
       throw new ApiError(
         "unauthorized",
-        `the collector at ${apiUrl} rejected the token: EPHOR_TOKEN, or ` +
-          "the token file, must hold the one `ephor serve` runs with",
+        tunnel
+          ? `${this.collector()} rejected the token in ${tunnel.tokenSource}: ` +
+              "it must be the one `ephor serve` there runs with"
+          : `${this.collector()} rejected the token: EPHOR_TOKEN, or the ` +
+              "token file, must hold the one `ephor serve` runs with",
       );
     }
 
     if (!response.ok) {
       throw new ApiError(
         "rejected",
-        `the collector at ${apiUrl} answered ${response.status}` +
+        `${this.collector()} answered ${response.status}` +
           `${await errorTextIn(response)}`,
       );
     }
@@ -153,21 +166,40 @@ export class ApiClient {
     }
   }
 
+  /** `the collector at <url>`, or on the far end of a tunnel. */
+  private collector(): string {
+    const { tunnel, apiUrl } = this.options;
+    return tunnel
+      ? `the collector on ${tunnel.remote}`
+      : `the collector at ${apiUrl}`;
+  }
+
   private nothingCameBack(cause: unknown, timeoutMs: number): ApiError {
-    const { apiUrl } = this.options;
+    const { tunnel } = this.options;
 
     if (isTimeout(cause)) {
       return new ApiError(
         "timeout",
-        `no answer from the collector at ${apiUrl} within ${timeoutMs / 1000} s`,
+        `no answer from ${this.collector()} within ${timeoutMs / 1000} s`,
         { cause },
       );
     }
 
-    if (refusedConnection(cause)) {
+    // Measured: through a tunnel, nothing listening there reads as a reset
+    // here, not a refusal; ssh took the connection, its far end could not.
+    if (tunnel && hasSocketCode(cause, "ECONNRESET")) {
       return new ApiError(
         "refused",
-        `cannot reach the collector at ${apiUrl}: ${failureText(cause)}. ` +
+        `no \`ephor serve\` on ${tunnel.remote}: ssh connected, but nothing ` +
+          `answers on port ${tunnel.remotePort} there`,
+        { cause },
+      );
+    }
+
+    if (hasSocketCode(cause, "ECONNREFUSED")) {
+      return new ApiError(
+        "refused",
+        `cannot reach ${this.collector()}: ${failureText(cause)}. ` +
           "Is `ephor serve` running there?",
         { cause },
       );
@@ -175,7 +207,7 @@ export class ApiClient {
 
     return new ApiError(
       "unreachable",
-      `cannot reach the collector at ${apiUrl}: ${failureText(cause)}.`,
+      `cannot reach ${this.collector()}: ${failureText(cause)}.`,
       { cause },
     );
   }
@@ -183,7 +215,7 @@ export class ApiClient {
   private badAnswer(path: string, what: string, cause?: unknown): ApiError {
     return new ApiError(
       "bad-answer",
-      `the answer from ${this.options.apiUrl}${path} ${what}: is that ` +
+      `the answer from ${this.collector()} to ${path} ${what}: is that ` +
         "really an ephor collector?",
       cause === undefined ? undefined : { cause },
     );
@@ -272,10 +304,9 @@ function socketErrors(error: unknown): Error[] {
   return inner instanceof Error ? [inner] : [error];
 }
 
-function refusedConnection(error: unknown): boolean {
+function hasSocketCode(error: unknown, code: string): boolean {
   return socketErrors(error).some(
-    (socketError) =>
-      "code" in socketError && socketError.code === "ECONNREFUSED",
+    (socketError) => "code" in socketError && socketError.code === code,
   );
 }
 

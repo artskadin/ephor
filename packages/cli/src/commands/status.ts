@@ -2,7 +2,7 @@ import type { ApiClient } from "../api-client";
 import { stateText } from "../render/state-text";
 
 interface StatusOptions {
-  client: ApiClient;
+  client: Pick<ApiClient, "state">;
   json: boolean;
   colour: boolean;
   /** Stdout is the data channel; everything for a person goes to stderr. */

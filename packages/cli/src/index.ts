@@ -2,17 +2,22 @@ import { createRequire } from "node:module";
 import { type CheckRequest, createLogger, type Logger } from "@ephorate/core";
 import { Command, CommanderError } from "commander";
 import { ApiClient, ApiError } from "./api-client";
-import { ClientConfigError, clientConfigFrom } from "./client-config";
+import { cliFilePath, readCliFile } from "./cli-file";
+import { ClientConfigError, collectorSourceFrom } from "./client-config";
 import { exitQuietlyOnClosedPipe } from "./closed-pipe";
 import { runStatus } from "./commands/status";
 import { resolveConfigPath } from "./config-path";
 import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code";
+import { RemoteCollector } from "./remote-collector";
 import { colourEnabled } from "./render/colour-mode";
 import { findToken, tokenPath } from "./token";
 
 const { version } = createRequire(import.meta.url)("../package.json") as {
   version: string;
 };
+
+/** Closed when the command ends: an open tunnel's ssh holds the loop. */
+const remoteCollectors: RemoteCollector[] = [];
 
 exitQuietlyOnClosedPipe(process.stdout);
 exitQuietlyOnClosedPipe(process.stderr);
@@ -100,8 +105,8 @@ program
       await runCheck({
         configPath,
         request,
-        // No token means no daemon was set up: the probes run here.
-        client: findToken({ environment: process.env, configPath })
+        // No daemon set up, here or remote: the probes run here.
+        client: hasCollector(configPath)
           ? collectorClient(configPath)
           : undefined,
         ...outputFrom(options),
@@ -238,16 +243,34 @@ try {
   process.exitCode = EXIT_OK;
 } catch (error) {
   process.exitCode = failed(error);
+} finally {
+  for (const collector of remoteCollectors) collector.close();
 }
 
-/** The collector's client; a token file others can read is said once. */
-function collectorClient(configPath?: string): ApiClient {
-  const config = clientConfigFrom(process.env, configPath);
-  if (config.tokenWarning !== undefined) {
-    process.stderr.write(`warning: ${config.tokenWarning}\n`);
-  }
+/**
+ * The collector's client: through an ssh tunnel when `cli.yaml` names a
+ * remote, else here. A secret file others can read is said once.
+ */
+function collectorClient(configPath?: string): ApiClient | RemoteCollector {
+  const source = collectorSourceFrom(process.env, configPath);
+  const warning =
+    source.kind === "remote" ? source.warning : source.config.tokenWarning;
+  if (warning !== undefined) process.stderr.write(`warning: ${warning}\n`);
 
-  return new ApiClient(config);
+  if (source.kind === "here") return new ApiClient(source.config);
+
+  const collector = new RemoteCollector(source);
+  remoteCollectors.push(collector);
+  return collector;
+}
+
+/** A daemon to ask before probing here: a remote one, or a token here. */
+function hasCollector(configPath: string): boolean {
+  return (
+    (!process.env.EPHOR_API_URL &&
+      readCliFile(cliFilePath(configPath)) !== undefined) ||
+    findToken({ environment: process.env, configPath }) !== undefined
+  );
 }
 
 /** `--json` and `--plain` as every command that prints a state takes them. */

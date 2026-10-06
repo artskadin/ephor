@@ -30,6 +30,27 @@ export function findToken(sources: TokenSources): FoundToken | undefined {
   if (fromEnvironment) return { token: fromEnvironment };
 
   const path = tokenPath(sources.configPath);
+  const file = readPrivateFile(path, sources.platform);
+  if (file === undefined) return undefined;
+
+  const token = file.text.trim();
+  if (token === "") {
+    throw new UsageError(
+      `the token file ${path} is empty: put the API token in it, or remove it`,
+    );
+  }
+
+  return { token, warning: file.warning };
+}
+
+/**
+ * A file holding a secret: its text, and a warning when others can read
+ * it. `undefined` when it does not exist; any other failure is said.
+ */
+export function readPrivateFile(
+  path: string,
+  platform?: NodeJS.Platform | undefined,
+): { text: string; warning?: string | undefined } | undefined {
   let text: string;
   let mode: number;
   try {
@@ -43,19 +64,10 @@ export function findToken(sources: TokenSources): FoundToken | undefined {
     }
   } catch (error) {
     if (isMissing(error)) return undefined;
-    throw new UsageError(
-      `cannot read the token at ${path}: ${messageOf(error)}`,
-    );
+    throw new UsageError(`cannot read ${path}: ${messageOf(error)}`);
   }
 
-  const token = text.trim();
-  if (token === "") {
-    throw new UsageError(
-      `the token file ${path} is empty: put the API token in it, or remove it`,
-    );
-  }
-
-  return { token, warning: looseModeWarning(path, mode, sources.platform) };
+  return { text, warning: looseModeWarning(path, mode, platform) };
 }
 
 // As ssh does with a key: a secret others can read is said out loud, but

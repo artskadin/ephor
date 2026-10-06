@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Acknowledgement } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
+import { fakeSshDirectory, fakeSshRunning } from "./fake-ssh";
 import { BINARY, ephor } from "./run-binary";
 import { closedPortUrl, collectorOf, stateOf, TOKEN } from "./test-server";
 
@@ -194,6 +196,79 @@ describe("ephor", () => {
     expect(run.code).toBe(2);
     expect(run.stdout).toBe("");
     expect(run.stderr).toMatch(/Usage: ephor/);
+  });
+});
+
+describe("ephor with a cli.yaml naming a remote collector", () => {
+  const fakeSsh = fakeSshDirectory();
+
+  /** A config directory whose cli.yaml points the client through ssh. */
+  function remoteSetup(apiPort: number): Record<string, string> {
+    const directory = mkdtempSync(join(tmpdir(), "ephor-remote-"));
+    cleanups.push(async () => rmSync(directory, { recursive: true }));
+    writeFileSync(
+      join(directory, "cli.yaml"),
+      `remote: bastion\ntoken: ${TOKEN}\napiPort: ${apiPort}\n`,
+      { mode: 0o600 },
+    );
+
+    return {
+      EPHOR_CONFIG: join(directory, "config.yaml"),
+      PATH: `${fakeSsh}:/usr/bin:/bin`,
+    };
+  }
+
+  it("asks the collector through the tunnel, and leaves no ssh behind", async () => {
+    const state = stateOf({ name: "achilles", status: "warn" });
+    const collector = await collectorOf(state);
+    cleanups.push(collector.close);
+
+    const run = await ephor(
+      ["status", "--json"],
+      remoteSetup(Number(new URL(collector.url).port)),
+    );
+
+    expect(run.code).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual(state);
+    expect(collector.requests[0]?.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(fakeSshRunning(fakeSsh)).toBe(0);
+  });
+
+  // Why `cat` there and not -N: killed outright, ephor runs no cleanup,
+  // and only the end of ssh's stdin, which the kernel gives, ends ssh.
+  it("leaves no ssh behind even when killed with SIGKILL mid-request", async () => {
+    // Takes the request and never answers: ephor waits on it.
+    const silent = createServer(() => undefined);
+    await new Promise<void>((resolve) =>
+      silent.listen(0, "127.0.0.1", resolve),
+    );
+    cleanups.push(async () => {
+      silent.closeAllConnections();
+      await new Promise<void>((resolve) => silent.close(() => resolve()));
+    });
+    const port = (silent.address() as { port: number }).port;
+
+    const child = spawn(process.execPath, [BINARY, "status", "--json"], {
+      env: remoteSetup(port),
+      stdio: "ignore",
+    });
+    await expect.poll(() => fakeSshRunning(fakeSsh), { timeout: 5000 }).toBe(1);
+
+    child.kill("SIGKILL");
+    await expect.poll(() => fakeSshRunning(fakeSsh), { timeout: 5000 }).toBe(0);
+  });
+
+  // Never probe from here for a remote collector: other keys, other route.
+  it("exits 2 when nothing serves there, and does not check from here", async () => {
+    const nobody = Number(new URL(await closedPortUrl()).port);
+
+    const run = await ephor(["check", "--json"], remoteSetup(nobody));
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toBe(
+      `no \`ephor serve\` on bastion: ssh connected, but nothing answers on port ${nobody} there\n`,
+    );
+    expect(run.stdout).toBe("");
   });
 });
 

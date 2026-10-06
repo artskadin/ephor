@@ -1,3 +1,4 @@
+import { cliFilePath, readCliFile } from "./cli-file";
 import { resolveConfigPath } from "./config-path";
 import { UsageError } from "./exit-code";
 import { findToken, tokenPath } from "./token";
@@ -9,6 +10,47 @@ interface ClientConfig {
   token: string;
   /** For stderr, once: the token file is readable by others. */
   tokenWarning?: string | undefined;
+}
+
+/** Where the collector is: on this machine, or behind an ssh tunnel. */
+type CollectorSource =
+  | { kind: "here"; config: ClientConfig }
+  | {
+      kind: "remote";
+      remote: string;
+      remotePort: number;
+      token: string;
+      /** Named when the token is rejected. */
+      tokenSource: string;
+      warning?: string | undefined;
+    };
+
+/**
+ * `EPHOR_API_URL` names one directly; else `cli.yaml` beside the config
+ * names a remote one; else it is here. `EPHOR_TOKEN` wins over any file.
+ */
+export function collectorSourceFrom(
+  environment: NodeJS.ProcessEnv,
+  configPath: string = resolveConfigPath({ environment }),
+): CollectorSource {
+  if (!environment.EPHOR_API_URL) {
+    const path = cliFilePath(configPath);
+    const cli = readCliFile(path);
+
+    if (cli !== undefined) {
+      const fromEnvironment = environment.EPHOR_TOKEN;
+      return {
+        kind: "remote",
+        remote: cli.remote,
+        remotePort: cli.apiPort,
+        token: fromEnvironment || cli.token,
+        tokenSource: fromEnvironment ? "EPHOR_TOKEN" : path,
+        warning: cli.warning,
+      };
+    }
+  }
+
+  return { kind: "here", config: clientConfigFrom(environment, configPath) };
 }
 
 export class ClientConfigError extends UsageError {
