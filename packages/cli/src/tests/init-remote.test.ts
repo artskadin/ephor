@@ -130,8 +130,9 @@ describe("ephor init --remote", () => {
     });
   });
 
-  it("points at moving a config here, and keeps it", async () => {
-    const { here, environment } = setup({
+  // There, the config its own rules find: an EPHOR_CONFIG included.
+  it("points at moving a config here to the one there, and keeps it", async () => {
+    const { here, there, environment } = setup({
       apiPort: await nobodyServing(),
     });
     writeFileSync(join(here, "config.yaml"), "nodes: [mine]\n");
@@ -139,36 +140,11 @@ describe("ephor init --remote", () => {
     const run = await ephor(["init", "--remote", "bastion"], environment);
 
     expect(run.stdout).toContain(
-      `scp ${join(here, "config.yaml")} bastion:.config/ephor/config.yaml`,
+      `scp ${join(here, "config.yaml")} bastion:${join(there, "config.yaml")}`,
     );
     expect(readFileSync(join(here, "config.yaml"), "utf8")).toBe(
       "nodes: [mine]\n",
     );
-  });
-
-  // A unit's EPHOR_CONFIG is not in ssh's environment: it is passed, and
-  // quoted for the remote shell, an apostrophe in the path included.
-  it("asks the remote's own config, when its serve runs with another", async () => {
-    const { here, environment } = setup({ apiPort: 1, token: false });
-    const etc = directory("ephor-it's-etc-");
-    writeFileSync(join(etc, "token"), "etc-token\n", { mode: 0o600 });
-
-    const run = await ephor(
-      [
-        "init",
-        "--remote",
-        "bastion",
-        "--remote-config",
-        join(etc, "config.yaml"),
-      ],
-      environment,
-    );
-
-    expect(run.code).toBe(0);
-    expect(parse(readFileSync(join(here, "cli.yaml"), "utf8"))).toMatchObject({
-      remote: "bastion",
-      token: "etc-token",
-    });
   });
 
   it.each([
@@ -177,16 +153,25 @@ describe("ephor init --remote", () => {
       { withEphor: false },
       "ephor or node is not on bastion's PATH for commands run over ssh (",
     ],
-    ["no token there", { token: false }, "on bastion: no API token here"],
-  ])("exits 2 with %s, and writes nothing", async (_name, options, message) => {
-    const { here, environment } = setup({ apiPort: 1, ...options });
+    // A unit's EPHOR_CONFIG is not in ssh's environment: say where it goes.
+    [
+      "no token there",
+      { token: false },
+      "on bastion: no API token here",
+      "export EPHOR_CONFIG=<its path> on the first line of ~/.bashrc there",
+    ],
+  ])(
+    "exits 2 with %s, and writes nothing",
+    async (_name, options, ...messages) => {
+      const { here, environment } = setup({ apiPort: 1, ...options });
 
-    const run = await ephor(["init", "--remote", "bastion"], environment);
+      const run = await ephor(["init", "--remote", "bastion"], environment);
 
-    expect(run.code).toBe(2);
-    expect(run.stderr).toContain(message);
-    expect(() => statSync(join(here, "cli.yaml"))).toThrow();
-  });
+      expect(run.code).toBe(2);
+      for (const message of messages) expect(run.stderr).toContain(message);
+      expect(() => statSync(join(here, "cli.yaml"))).toThrow();
+    },
+  );
 
   it("exits 2 when ssh cannot reach the host", async () => {
     const { environment } = setup({ apiPort: 1 });
@@ -218,7 +203,7 @@ describe("ephor init --remote", () => {
 });
 
 describe("ephor api-access", () => {
-  it("prints the token and the API port this machine's serve uses", async () => {
+  it("prints the token, API port and config this machine's serve uses", async () => {
     const there = directory("ephor-there-");
     writeFileSync(join(there, "config.yaml"), "api:\n  port: 41556\n");
     writeFileSync(join(there, "token"), `${TOKEN}\n`, { mode: 0o600 });
@@ -228,7 +213,11 @@ describe("ephor api-access", () => {
     });
 
     expect(run.code).toBe(0);
-    expect(JSON.parse(run.stdout)).toEqual({ token: TOKEN, apiPort: 41556 });
+    expect(JSON.parse(run.stdout)).toEqual({
+      token: TOKEN,
+      apiPort: 41556,
+      configPath: join(there, "config.yaml"),
+    });
   });
 
   it("says to run init when there is no token", async () => {

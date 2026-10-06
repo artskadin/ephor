@@ -68,41 +68,23 @@ program
     "--remote <host>",
     "instead: point the commands here at `ephor serve` on this ssh host (writes cli.yaml)",
   )
-  .option(
-    "--remote-config <path>",
-    "with --remote: the config.yaml `ephor serve` runs with there, when not its default",
-  )
-  .action(
-    async (options: {
-      config?: string;
-      remote?: string;
-      remoteConfig?: string;
-    }) => {
-      const configPath = resolveConfigPath({ flag: options.config });
-      const print = (line: string) => void process.stdout.write(`${line}\n`);
+  .action(async (options: { config?: string; remote?: string }) => {
+    const configPath = resolveConfigPath({ flag: options.config });
+    const print = (line: string) => void process.stdout.write(`${line}\n`);
 
-      if (options.remote !== undefined) {
-        const { runInitRemote } = await import("./commands/init-remote");
-        await runInitRemote({
-          remote: options.remote,
-          remoteConfig: options.remoteConfig,
-          configPath,
-          print,
-        });
-        return;
-      }
-      if (options.remoteConfig !== undefined) {
-        throw new UsageError("--remote-config goes with --remote");
-      }
+    if (options.remote !== undefined) {
+      const { runInitRemote } = await import("./commands/init-remote");
+      await runInitRemote({ remote: options.remote, configPath, print });
+      return;
+    }
 
-      const { runInit } = await import("./commands/init");
-      runInit({
-        configPath,
-        environmentToken: process.env.EPHOR_TOKEN,
-        print,
-      });
-    },
-  );
+    const { runInit } = await import("./commands/init");
+    runInit({
+      configPath,
+      environmentToken: process.env.EPHOR_TOKEN,
+      print,
+    });
+  });
 
 // Run over ssh by `init --remote` on another machine; it prints a secret.
 program

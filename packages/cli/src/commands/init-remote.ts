@@ -13,8 +13,6 @@ import { lastLine, openTunnel } from "../tunnel";
 interface InitRemoteOptions {
   /** The ssh alias, or `user@host`, of the machine running `ephor serve`. */
   remote: string;
-  /** Its `config.yaml`, when its `serve` runs with another (a unit's). */
-  remoteConfig?: string | undefined;
   /** The config path here: `cli.yaml` goes beside it. */
   configPath: string;
   print: (line: string) => void;
@@ -26,8 +24,13 @@ const AccessSchema = z
   .object({
     token: z.string().min(1),
     apiPort: z.number().int().min(1).max(65535),
+    configPath: z.string().min(1),
   })
   .strict();
+
+const BASHRC_FIRST_LINE =
+  "on the first line of ~/.bashrc there: Debian's returns early for the " +
+  "non-interactive shell ssh runs commands in";
 
 /**
  * Points the commands typed here at the collector on `remote`: asks it
@@ -64,13 +67,12 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
   print(await collectorAnswer(options, access));
 
   if (existsSync(configPath)) {
-    const there = options.remoteConfig ?? ".config/ephor/config.yaml";
     print("");
     print(
       `${configPath} here is not used while ${cliPath} names ${remote}. ` +
         `To move it there, replacing the one \`ephor init\` wrote:`,
     );
-    print(`  scp ${configPath} ${remote}:${there}`);
+    print(`  scp ${configPath} ${remote}:${access.configPath}`);
     print(
       `its \`ssh:\` entries then resolve on ${remote}, from its ~/.ssh; ` +
         "restart `ephor serve` there to read it.",
@@ -82,11 +84,7 @@ async function askForAccess(
   options: InitRemoteOptions,
 ): Promise<z.infer<typeof AccessSchema>> {
   const { remote } = options;
-  const command = `ephor api-access${
-    options.remoteConfig === undefined
-      ? ""
-      : ` --config ${quoteForShell(options.remoteConfig)}`
-  }`;
+  const command = "ephor api-access";
   const result = await runOverSsh(options.ssh ?? "ssh", remote, command);
 
   if (result.code === 0) {
@@ -96,7 +94,7 @@ async function askForAccess(
     } catch {
       throw new UsageError(
         `\`${command}\` on ${remote} answered something else than the API's ` +
-          "token and port: is ephor there as new as here?",
+          "token, port and config: is ephor there as new as here?",
       );
     }
   }
@@ -117,9 +115,7 @@ async function askForAccess(
     throw new UsageError(
       `ephor or node is not on ${remote}'s PATH for commands run over ` +
         `ssh (${said}): install ephor there (npm i -g ephorate). With node ` +
-        "in a home directory (nvm, a tarball), set its PATH on the first " +
-        "line of ~/.bashrc there: Debian's returns early for the " +
-        "non-interactive shell ssh runs commands in",
+        `in a home directory (nvm, a tarball), set its PATH ${BASHRC_FIRST_LINE}`,
     );
   }
   if (said.includes("unknown command 'api-access'")) {
@@ -131,7 +127,8 @@ async function askForAccess(
   if (said.includes("no API token here")) {
     throw new UsageError(
       `on ${remote}: ${said}; if \`ephor serve\` there runs with another ` +
-        "config (a unit's EPHOR_CONFIG), name it with --remote-config",
+        "config (a unit's EPHOR_CONFIG), export EPHOR_CONFIG=<its path> " +
+        BASHRC_FIRST_LINE,
     );
   }
 
@@ -209,9 +206,4 @@ function runOverSsh(
       },
     );
   });
-}
-
-// One word for the remote shell, whatever the path holds.
-function quoteForShell(text: string): string {
-  return `'${text.replaceAll("'", `'\\''`)}'`;
 }

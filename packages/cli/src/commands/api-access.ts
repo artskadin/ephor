@@ -12,7 +12,8 @@ interface ApiAccessOptions {
 
 /**
  * What `init --remote` on another machine needs from this one: the API's
- * token and port, by this machine's own rules. Run over ssh, never typed.
+ * token and port, and the config they came from, by this machine's own
+ * rules. Run over ssh, never typed.
  */
 export function runApiAccess(options: ApiAccessOptions): void {
   const { configPath, environment } = options;
@@ -26,7 +27,11 @@ export function runApiAccess(options: ApiAccessOptions): void {
   }
 
   options.print(
-    JSON.stringify({ token: found.token, apiPort: apiPortIn(configPath) }),
+    JSON.stringify({
+      token: found.token,
+      apiPort: apiPortIn(configPath),
+      configPath,
+    }),
   );
 }
 
