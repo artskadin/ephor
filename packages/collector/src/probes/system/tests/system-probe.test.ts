@@ -76,3 +76,50 @@ describe("SystemProbe's system.ports", () => {
     });
   });
 });
+
+describe("SystemProbe.run on a failed ssh", () => {
+  // The texts and codes are ssh's, measured on odysseus 2026-10-06.
+  function runWith(exitCode: number, stderr: string) {
+    return new SystemProbe().run({
+      ...contextWith([]),
+      executor: { run: async () => ({ stdout: "", stderr, exitCode }) },
+    });
+  }
+
+  it("calls a refused login auth_failed, keeping ssh's words", async () => {
+    const outcome = await runWith(
+      255,
+      "bruce@203.0.113.10: Permission denied (publickey).\n",
+    );
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: {
+        kind: "auth_failed",
+        detail: "bruce@203.0.113.10: Permission denied (publickey).",
+      },
+    });
+  });
+
+  // Logged in, then the script was refused a file: not a failed login.
+  it("leaves a script's own Permission denied unreachable", async () => {
+    const outcome = await runWith(1, "cat: /etc/shadow: Permission denied\n");
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { kind: "unreachable" },
+    });
+  });
+
+  it.each([
+    "ssh: connect to host 203.0.113.10 port 9: Operation timed out\n",
+    "unix_listener: cannot bind to path /root/.ssh/cm-ab12: Permission denied\n",
+  ])("leaves ssh's other failures unreachable: %s", async (stderr) => {
+    const outcome = await runWith(255, stderr);
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { kind: "unreachable" },
+    });
+  });
+});

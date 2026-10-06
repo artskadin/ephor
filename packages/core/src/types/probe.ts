@@ -5,7 +5,7 @@ export type ProbeOutcome<T> =
 export type ProbeError =
   | { kind: "timeout" }
   | { kind: "unreachable"; detail: string }
-  | { kind: "auth_failed" }
+  | { kind: "auth_failed"; detail: string }
   | { kind: "bad_response"; status?: number }
   | { kind: "not_configured"; what: string }
   | { kind: "internal"; cause: unknown };

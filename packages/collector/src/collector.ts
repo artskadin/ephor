@@ -272,6 +272,7 @@ function isAcknowledgementOver(
 function probeErrorDetail(error: ProbeError): string {
   switch (error.kind) {
     case "unreachable":
+    case "auth_failed":
       return error.detail;
     case "not_configured":
       return `missing: ${error.what}`;

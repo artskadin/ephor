@@ -56,12 +56,13 @@ export class SystemProbe implements Probe<SystemSnapshot> {
       });
 
       if (result.exitCode !== 0) {
+        const detail = result.stderr.trim() || `exit code ${result.exitCode}`;
+
         return {
           ok: false,
-          error: {
-            kind: "unreachable",
-            detail: result.stderr.trim() || `exit code ${result.exitCode}`,
-          },
+          error: isRefusedLogin(result.exitCode, result.stderr)
+            ? { kind: "auth_failed", detail }
+            : { kind: "unreachable", detail },
           durationMs: Date.now() - startedAt,
         };
       }
@@ -117,6 +118,13 @@ export class SystemProbe implements Probe<SystemSnapshot> {
   }
 }
 
+// ssh exits 255 for its own failure, else with the script's code: measured,
+// a wrong key is 255 with "Permission denied (publickey)", a script denied
+// a file is 1. The "(" keeps out ssh's own, e.g. a ControlPath it can't bind.
+function isRefusedLogin(exitCode: number, stderr: string): boolean {
+  return exitCode === 255 && stderr.includes("Permission denied (");
+}
+
 function parseSnapshot(stdout: string): SystemSnapshot {
   const parsed: unknown = JSON.parse(stdout.trim());
 
@@ -135,7 +143,7 @@ function toProbeError(cause: unknown): ProbeError {
   }
 
   if (message.includes("Permission denied") || message.includes("publicKey")) {
-    return { kind: "auth_failed" };
+    return { kind: "auth_failed", detail: message };
   }
 
   return { kind: "internal", cause };
