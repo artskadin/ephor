@@ -119,8 +119,11 @@ const StorageSchema = z
   })
   .strict();
 
+// Below the ephemeral range of macOS and Linux, unassigned at IANA.
+export const DEFAULT_API_PORT = 31556;
+
 // The token is not here on purpose: a config file gets copied, pasted into
-// bug reports and committed. It lives in `EPHOR_TOKEN`.
+// bug reports and committed. It lives in `EPHOR_TOKEN` or the token file.
 const ApiSchema = z
   .object({
     enabled: z.boolean().default(true),
@@ -129,7 +132,7 @@ const ApiSchema = z
     bind: z.string().min(1).default("127.0.0.1"),
     // Unassigned at IANA and below the ephemeral ranges (Linux 32768–60999,
     // macOS 49152–65535): an outgoing connection took 53556 as a source port.
-    port: z.number().int().min(1).max(65535).default(31556),
+    port: z.number().int().min(1).max(65535).default(DEFAULT_API_PORT),
   })
   .strict();
 

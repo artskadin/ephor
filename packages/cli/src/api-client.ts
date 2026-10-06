@@ -195,6 +195,16 @@ export class ApiClient {
         { cause },
       );
     }
+    // Closed before the headers: the same, or a serve that stopped mid-way.
+    if (tunnel && hasSocketCode(cause, "UND_ERR_SOCKET")) {
+      return new ApiError(
+        "refused",
+        `the collector on ${tunnel.remote} closed the connection before ` +
+          `answering: no \`ephor serve\` on port ${tunnel.remotePort} there, ` +
+          "or it stopped",
+        { cause },
+      );
+    }
 
     if (hasSocketCode(cause, "ECONNREFUSED")) {
       return new ApiError(

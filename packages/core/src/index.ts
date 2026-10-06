@@ -35,6 +35,7 @@ export {
 export type { ResolvedNode, ResolvedProbe } from "./config/resolve";
 export { resolveConcurrency, resolveConfig } from "./config/resolve";
 export type { ApiSettings, Config, Node, Ssh } from "./config/schema";
+export { DEFAULT_API_PORT } from "./config/schema";
 export type { LogFields, Logger, LogLevel } from "./logging/logger";
 export { createLogger } from "./logging/logger";
 export type {

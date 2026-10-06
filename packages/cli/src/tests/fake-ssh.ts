@@ -38,3 +38,17 @@ export function fakeSshRunning(directory: string): number {
     return 0;
   }
 }
+
+/** A directory holding an `ephor` that runs the built binary: the remote's. */
+export function fakeEphorDirectory(binary: string): string {
+  const directory = mkdtempSync(join(tmpdir(), "ephor-fake-remote-"));
+  const path = join(directory, "ephor");
+
+  writeFileSync(
+    path,
+    `#!/bin/sh\nexec "${process.execPath}" "${binary}" "$@"\n`,
+  );
+  chmodSync(path, 0o755);
+
+  return directory;
+}

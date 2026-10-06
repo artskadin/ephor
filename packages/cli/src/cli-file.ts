@@ -1,4 +1,5 @@
 import { dirname, join } from "node:path";
+import { DEFAULT_API_PORT } from "@ephorate/core";
 import { parse, YAMLParseError } from "yaml";
 import { z } from "zod";
 import { UsageError } from "./exit-code";
@@ -11,7 +12,7 @@ const CliFileSchema = z
     remote: z.string().min(1),
     token: z.string().min(1),
     /** The API's port there, when its `config.yaml` moved it. */
-    apiPort: z.number().int().min(1).max(65535).default(31556),
+    apiPort: z.number().int().min(1).max(65535).default(DEFAULT_API_PORT),
   })
   .strict();
 

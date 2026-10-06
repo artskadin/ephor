@@ -160,7 +160,7 @@ function freePort(): Promise<number> {
 }
 
 // The last: ssh's verdict comes after a banner or a host-key warning.
-function lastLine(text: string): string | undefined {
+export function lastLine(text: string): string | undefined {
   const line = text.trim().split("\n").at(-1);
   return line === undefined || line === "" ? undefined : line;
 }
