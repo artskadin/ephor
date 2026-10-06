@@ -2,24 +2,41 @@ import { z } from "zod";
 import type { ProbeDescriptor } from "../types/probe-contract";
 import { Duration } from "./duration";
 
+const FIELDS_AN_ALIAS_OVERRIDES = ["user", "port", "jump"] as const;
+
 // `ssh: achilles` for an alias in ~/.ssh/config, the object form otherwise.
 const SshTargetSchema = z
   .object({
     alias: z.string().min(1).optional(),
     user: z.string().min(1).optional(),
-    port: z.number().int().min(1).max(65535).default(22),
+    // No default: written or not must show after parsing, and without
+    // `-p` ssh uses its own (22, or ~/.ssh/config's).
+    port: z.number().int().min(1).max(65535).optional(),
     key: z.string().min(1).optional(),
     jump: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((ssh, context) => {
+    if (ssh.alias === undefined) return;
 
-const SshSchema = z.union([
-  z
-    .string()
-    .min(1)
-    .transform((alias) => SshTargetSchema.parse({ alias })),
+    // ssh takes these from ~/.ssh/config for an alias: they were dropped.
+    const written = FIELDS_AN_ALIAS_OVERRIDES.filter(
+      (field) => ssh[field] !== undefined,
+    );
+    if (written.length > 0) {
+      context.addIssue({
+        code: "custom",
+        message:
+          `with \`alias\`, ${written.join(", ")} come from ~/.ssh/config: ` +
+          `drop alias, or drop ${written.join(", ")}`,
+      });
+    }
+  });
+
+const SshSchema = z.preprocess(
+  (value) => (typeof value === "string" ? { alias: value } : value),
   SshTargetSchema,
-]);
+);
 
 export type Ssh = z.infer<typeof SshTargetSchema>;
 
@@ -211,7 +228,7 @@ const nodeShape = {
   tags: optionalSection(z.array(z.string().min(1)).default([])),
   enabled: z.boolean().default(true),
   local: z.boolean().default(false),
-  ssh: SshSchema.optional(),
+  ssh: optionalSection(SshSchema.optional()),
   ports: optionalSection(z.array(PortSchema).default([])),
   probes: optionalSection(
     z.record(z.string(), NodeProbeConfigSchema).default({}),

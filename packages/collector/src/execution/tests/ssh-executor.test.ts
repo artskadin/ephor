@@ -21,7 +21,7 @@ describe("SshExecutor", () => {
       logger: silent(),
     });
     const executor = new SshExecutor(
-      { alias: "achilles", port: 22 },
+      { alias: "achilles" },
       "203.0.113.10",
       15_000,
       "achilles",
@@ -62,26 +62,20 @@ describe("SshExecutor", () => {
     const timeouts: number[] = [];
 
     const executorOf = () =>
-      new SshExecutor(
-        { alias: "achilles", port: 22 },
-        "203.0.113.10",
-        1000,
-        "achilles",
-        {
-          gates,
-          spawn: async (
-            _command,
-            _args,
-            _script,
-            timeoutMs,
-          ): Promise<CommandResult> => {
-            timeouts.push(timeoutMs);
-            await hold.promise;
+      new SshExecutor({ alias: "achilles" }, "203.0.113.10", 1000, "achilles", {
+        gates,
+        spawn: async (
+          _command,
+          _args,
+          _script,
+          timeoutMs,
+        ): Promise<CommandResult> => {
+          timeouts.push(timeoutMs);
+          await hold.promise;
 
-            return { stdout: "", stderr: "", exitCode: 0 };
-          },
+          return { stdout: "", stderr: "", exitCode: 0 };
         },
-      );
+      });
 
     const first = executorOf().run("true");
     const second = executorOf().run("true");

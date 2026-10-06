@@ -14,7 +14,7 @@ export function sshTargetArgs(sshConfig: Ssh, host: string): string[] {
 
   const args: string[] = [...key];
 
-  if (sshConfig.port !== 22) {
+  if (sshConfig.port !== undefined) {
     args.push("-p", String(sshConfig.port));
   }
   if (sshConfig.jump) {

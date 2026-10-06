@@ -17,8 +17,8 @@ describe("buildSshArgs", () => {
   // In the schema since the start, and silently dropped until 2026-10-05.
   it("passes a key, and no agent keys, with or without an alias", () => {
     for (const ssh of [
-      { port: 22, user: "root", key: "~/.ssh/id_ephor" },
-      { alias: "achilles", port: 22, key: "~/.ssh/id_ephor" },
+      { user: "root", key: "~/.ssh/id_ephor" },
+      { alias: "achilles", key: "~/.ssh/id_ephor" },
     ]) {
       const args = buildSshArgs(ssh, "203.0.113.10", 10);
       const at = args.indexOf("-i");
@@ -35,7 +35,7 @@ describe("buildSshArgs", () => {
   });
 
   it("leaves the key to ssh's own config when none is written", () => {
-    const args = buildSshArgs({ port: 22, user: "root" }, "203.0.113.10", 10);
+    const args = buildSshArgs({ user: "root" }, "203.0.113.10", 10);
 
     expect(args).not.toContain("-i");
     expect(args).not.toContain("IdentitiesOnly=yes");
@@ -53,14 +53,18 @@ describe("buildSshArgs", () => {
     );
   });
 
-  it("omits port when it is the default", () => {
-    const args = buildSshArgs({ port: 22, user: "root" }, "1.2.3.4", 10);
-
-    expect(args).not.toContain("-p");
+  // Left out, ssh's own: 22, or what ~/.ssh/config says for the host.
+  it("passes a port only when one is written, 22 included", () => {
+    expect(buildSshArgs({ user: "root" }, "203.0.113.10", 10)).not.toContain(
+      "-p",
+    );
+    expect(
+      buildSshArgs({ port: 22, user: "root" }, "203.0.113.10", 10),
+    ).toEqual(expect.arrayContaining(["-p", "22"]));
   });
 
   it("always disables interactive password prompt", () => {
-    const args = buildSshArgs({ port: 22 }, "1.2.3.4", 10);
+    const args = buildSshArgs({}, "203.0.113.10", 10);
     expect(args).toEqual(expect.arrayContaining(["-o", "BatchMode=yes"]));
   });
 });

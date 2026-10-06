@@ -107,7 +107,59 @@ describe("buildConfigSchema", () => {
       TEST_PROBES,
     );
 
-    expect(config.nodes[0]?.ssh).toEqual({ alias: "my-vpn", port: 22 });
+    expect(config.nodes[0]?.ssh).toEqual({ alias: "my-vpn" });
+  });
+
+  const withSsh = (ssh: unknown) => ({
+    nodes: [{ name: "solo", host: "203.0.113.10", ssh }],
+  });
+
+  // Dropped in silence until 2026-10-06: ssh took them from ~/.ssh/config.
+  it("refuses user, port or jump beside an alias, naming them", () => {
+    expect(issuesOf(withSsh({ alias: "my-vpn", port: 2222 }))).toEqual([
+      "nodes.0.ssh: with `alias`, port come from ~/.ssh/config: drop alias, or drop port",
+    ]);
+    expect(
+      issuesOf(withSsh({ alias: "my-vpn", user: "root", jump: "bastion" })),
+    ).toEqual([
+      "nodes.0.ssh: with `alias`, user, jump come from ~/.ssh/config: drop alias, or drop user, jump",
+    ]);
+    // Written as the default is still written: it would be ignored too.
+    expect(issuesOf(withSsh({ alias: "my-vpn", port: 22 }))).toHaveLength(1);
+    // Every issue of the field at once, not one per run.
+    expect(issuesOf(withSsh({ alias: "my-vpn", user: "" }))).toEqual([
+      "nodes.0.ssh.user: Too small: expected string to have >=1 characters",
+      "nodes.0.ssh: with `alias`, user come from ~/.ssh/config: drop alias, or drop user",
+    ]);
+  });
+
+  it("takes a key beside an alias, and every field without one", () => {
+    expect(
+      parseConfig(withSsh({ alias: "my-vpn", key: "~/.ssh/k" }), TEST_PROBES)
+        .nodes[0]?.ssh,
+    ).toEqual({ alias: "my-vpn", key: "~/.ssh/k" });
+    expect(
+      parseConfig(
+        withSsh({ user: "root", port: 2222, jump: "bastion", key: "~/.ssh/k" }),
+        TEST_PROBES,
+      ).nodes[0]?.ssh,
+    ).toEqual({ user: "root", port: 2222, jump: "bastion", key: "~/.ssh/k" });
+  });
+
+  // A blanked section is an absent one, as everywhere in the config.
+  it("reads a blank ssh: as no ssh", () => {
+    expect(parseConfig(withSsh(null), TEST_PROBES).nodes[0]?.ssh).toBe(
+      undefined,
+    );
+  });
+
+  it("says what is wrong with an ssh that is neither form", () => {
+    expect(issuesOf(withSsh(""))).toEqual([
+      "nodes.0.ssh.alias: Too small: expected string to have >=1 characters",
+    ]);
+    expect(issuesOf(withSsh(42))).toEqual([
+      "nodes.0.ssh: Invalid input: expected object, received number",
+    ]);
   });
 
   it("expands a bare port number into a public tcp port", () => {
