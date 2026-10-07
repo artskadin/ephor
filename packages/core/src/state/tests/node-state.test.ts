@@ -860,6 +860,35 @@ describe("buildNodeState", () => {
       expect(state.reasons).toEqual([]);
     });
   });
+
+  // No probe named: any metric that is not ok says what its probe said.
+  describe("a metric's own words", () => {
+    it("are the reason when its probe gave some", () => {
+      const state = firstOf(soloConfig(), [
+        ...QUIET,
+        point("system.ports", {
+          value: 3,
+          ok: false,
+          meta: {
+            detail: "missing 9999; extra 2222 (listening, not declared)",
+          },
+        }),
+      ]);
+
+      expect(state.reasons).toEqual([
+        "system.ports: missing 9999; extra 2222 (listening, not declared)",
+      ]);
+    });
+
+    it("are a plain 'reports a problem' without them, as points stored before", () => {
+      const state = firstOf(soloConfig(), [
+        ...QUIET,
+        point("system.ports", { value: 3, ok: false, meta: {} }),
+      ]);
+
+      expect(state.reasons).toEqual(["system.ports reports a problem"]);
+    });
+  });
 });
 
 function viewOf(state: NodeState, metric: string) {

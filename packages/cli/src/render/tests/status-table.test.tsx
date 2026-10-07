@@ -11,7 +11,12 @@ import { cleanup, render } from "ink-testing-library";
 import type { ReactElement } from "react";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { frameOf } from "../frame";
-import { nodeHeights, StatusTable, statusTableWidth } from "../status-table";
+import {
+  nodeHeights,
+  PORTS_CELL_WIDTH,
+  StatusTable,
+  statusTableWidth,
+} from "../status-table";
 
 // Ink paints through chalk, which decides at import whether the process
 // may use colour; under a test runner it may not. Forced on before ink is
@@ -646,6 +651,49 @@ describe("StatusTable's PORTS column", () => {
 
   it("says ok for a reading that carries no list", () => {
     expect(portsCell({})).toBe("ok");
+  });
+
+  // Twenty ports made the column 153 wide for every node.
+  it("shows as many as fit, and how many more, whatever the list", () => {
+    const twenty = [
+      22, 53, 80, 443, 2222, 3000, 3306, 3948, 5201, 5432, 6379, 8080, 8443,
+      9000, 9090, 9100, 10050, 27017, 31556, 51820,
+    ];
+
+    const listening = portsCell({
+      listening: twenty,
+      undeclared: [],
+      missing: [],
+    });
+    const extra = portsCell(
+      { listening: twenty, undeclared: twenty.slice(1), missing: [] },
+      false,
+    );
+    const missing = portsCell(
+      {
+        listening: [],
+        undeclared: [],
+        missing: ["xray:443", "panel:2222", "9999"],
+      },
+      false,
+    );
+
+    expect(listening).toBe("22, 53, 80, 443 +16");
+    expect(extra).toMatch(/^extra 53, .* \+\d+$/);
+    const labelled = portsCell(
+      {
+        listening: [],
+        undeclared: [],
+        missing: ["remnawave-node:2222", "9999"],
+      },
+      false,
+    );
+
+    expect(missing).toBe("missing xray:443 +2");
+    expect(labelled).toBe("missing remnawave-no… +1");
+    for (const cell of [listening, extra, missing, labelled]) {
+      expect(cell.length).toBeLessThanOrEqual(PORTS_CELL_WIDTH);
+    }
   });
 });
 

@@ -361,7 +361,11 @@ function reasonFor(
   }
 
   if (view.status === "warn" && view.ok === false) {
-    return `${view.metric} reports a problem`;
+    // The probe's own words, when it gave some: a list the table cuts short.
+    const detail = view.meta?.detail;
+    return typeof detail === "string" && detail !== ""
+      ? `${view.metric}: ${detail}`
+      : `${view.metric} reports a problem`;
   }
 
   return undefined;

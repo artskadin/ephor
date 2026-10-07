@@ -66,13 +66,26 @@ describe("SystemProbe's system.ports", () => {
     });
   });
 
+  // The table cuts its cell short; the line under the node has it all.
+  it("says what is wrong in full, and nothing when all is as declared", () => {
+    expect(
+      portsPoint("443,2222,3948", [443, { port: 9999, label: "xray" }])?.meta
+        ?.detail,
+    ).toBe("missing xray:9999; extra 2222, 3948 (listening, not declared)");
+    expect(portsPoint("443", [443])?.meta).not.toHaveProperty("detail");
+    expect(portsPoint("443,2222")?.meta).not.toHaveProperty("detail");
+  });
+
   it("says it cannot tell when ss gave no answer", () => {
     expect(portsPoint(null)).toEqual({
       ts: 1_800_000_000,
       node: "achilles",
       metric: "system.ports",
       ok: false,
-      meta: { unreadable: "ss is missing or failed on the node" },
+      meta: {
+        unreadable: "ss is missing or failed on the node",
+        detail: "ss is missing or failed on the node",
+      },
     });
   });
 });

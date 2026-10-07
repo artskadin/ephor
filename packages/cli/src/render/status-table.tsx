@@ -383,18 +383,38 @@ function portsText(view: MetricView): string {
     if (!Array.isArray(view.meta?.listening)) return "ok";
 
     const listening = stringListIn(view.meta, "listening");
-    return listening.length > 0 ? listening.join(", ") : "none";
+    return listening.length > 0 ? cutShort("", listening) : "none";
   }
 
   const missing = stringListIn(view.meta, "missing");
-  if (missing.length > 0) return `missing ${missing.join(", ")}`;
+  if (missing.length > 0) return cutShort("missing ", missing);
 
   const undeclared = stringListIn(view.meta, "undeclared");
-  if (undeclared.length > 0) return `extra ${undeclared.join(", ")}`;
+  if (undeclared.length > 0) return cutShort("extra ", undeclared);
 
   if (typeof view.meta?.unreadable === "string") return "unreadable";
 
   return "!";
+}
+
+// One node's twenty ports widened the column for all, 153 characters a
+// line. What is wrong reads in full under the node; the rest in --json.
+export const PORTS_CELL_WIDTH = 24;
+
+/** As many as fit with the count of the rest: `22, 53, 80 +17`. */
+function cutShort(prefix: string, items: readonly string[]): string {
+  for (let shown = items.length; shown > 1; shown -= 1) {
+    const rest = items.length - shown;
+    const text = `${prefix}${items.slice(0, shown).join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
+    if (text.length <= PORTS_CELL_WIDTH) return text;
+  }
+
+  // A label is the user's: even one item may not fit.
+  const rest = items.length - 1;
+  const suffix = rest > 0 ? ` +${rest}` : "";
+  const room = PORTS_CELL_WIDTH - prefix.length - suffix.length;
+  const first = items[0] ?? "";
+  return `${prefix}${first.length <= room ? first : `${first.slice(0, room - 1)}…`}${suffix}`;
 }
 
 function stringListIn(

@@ -160,10 +160,11 @@ function comparePorts(
   context: ProbeContext,
 ): Pick<MetricPoint, "metric" | "value" | "ok" | "meta"> {
   if (listeningCsv === null) {
+    const unreadable = "ss is missing or failed on the node";
     return {
       metric: "system.ports",
       ok: false,
-      meta: { unreadable: "ss is missing or failed on the node" },
+      meta: { unreadable, detail: unreadable },
     };
   }
 
@@ -185,11 +186,21 @@ function comparePorts(
 
   // Nothing declared, nothing to compare against.
   const hasExpectations = context.ports.length > 0;
+  const ok =
+    !hasExpectations || (undeclared.length === 0 && missing.length === 0);
+
+  // In full, for the line under the node: the table's cell is cut short.
+  const detail = [
+    ...(missing.length > 0 ? [`missing ${missing.join(", ")}`] : []),
+    ...(undeclared.length > 0
+      ? [`extra ${undeclared.join(", ")} (listening, not declared)`]
+      : []),
+  ].join("; ");
 
   return {
     metric: "system.ports",
     value: listening.length,
-    ok: !hasExpectations || (undeclared.length === 0 && missing.length === 0),
-    meta: { listening, undeclared, missing },
+    ok,
+    meta: { listening, undeclared, missing, ...(ok ? {} : { detail }) },
   };
 }
