@@ -101,6 +101,45 @@ program
   });
 
 program
+  .command("setup-access")
+  .description(
+    "Give the collector named in cli.yaml its own ssh access to its nodes, through yours",
+  )
+  .argument("[nodes...]", "only these nodes instead of every node with ssh")
+  .option(...CONFIG_OPTION)
+  .action(async (nodes: string[], options: { config?: string }) => {
+    const cliPath = cliFilePath(resolveConfigPath({ flag: options.config }));
+    const cli = readCliFile(cliPath);
+    if (cli === undefined) {
+      throw new UsageError(
+        `no ${cliPath}: setup-access gives the collector named there access ` +
+          "to its nodes; `ephor init --remote <host>` names one. A collector " +
+          "here uses this machine's own ssh, nothing to set up",
+      );
+    }
+
+    const { runSetupAccess } = await import("./commands/setup-access");
+    await runSetupAccess({
+      remote: cli.remote,
+      nodes,
+      print: (line) => void process.stdout.write(`${line}\n`),
+    });
+  });
+
+// Run over ssh by `setup-access` on another machine.
+program
+  .command("access-targets", { hidden: true })
+  .option(...CONFIG_OPTION)
+  .action(async (options: { config?: string }) => {
+    const { runAccessTargets } = await import("./commands/access-targets");
+
+    await runAccessTargets({
+      configPath: resolveConfigPath({ flag: options.config }),
+      print: (line) => void process.stdout.write(`${line}\n`),
+    });
+  });
+
+program
   .command("check")
   .description(
     "Run the probes once, through `ephor serve` when it is up, else once on its machine",
