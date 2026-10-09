@@ -13,6 +13,8 @@ import { clock } from "./clock";
 /** What `watch` needs of `ApiClient`; a test stands in a fake. */
 export interface WatchSource {
   apiUrl: string;
+  /** The ssh host of a collector elsewhere. */
+  remote?: string | undefined;
   state(): Promise<StateResponse>;
 }
 

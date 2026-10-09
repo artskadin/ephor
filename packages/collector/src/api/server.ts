@@ -30,6 +30,8 @@ interface ApiServerOptions {
   settings: ApiSettings;
   token: string;
   logger: Logger;
+  /** The ephor serving: in every answer a client compares its own with. */
+  version: string;
 }
 
 export class MissingTokenError extends Error {
@@ -64,8 +66,12 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
     await sendError(reply, 401, "unauthorized");
   });
 
-  app.get("/api/health", () => getHealth(options.deps));
-  app.get("/api/state", () => getState(options.deps));
+  const { version } = options;
+  app.get("/api/health", () => ({ ...getHealth(options.deps), version }));
+  app.get("/api/state", async () => ({
+    ...(await getState(options.deps)),
+    version,
+  }));
 
   app.get<{ Params: { name: string } }>(
     "/api/nodes/:name",
@@ -96,7 +102,7 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
     }
 
     const result = await postCheck(options.deps, parsed.data);
-    if (result) return result;
+    if (result) return { ...result, version };
 
     return sendError(reply, 404, `unknown node "${parsed.data.node}"`);
   });

@@ -13,7 +13,11 @@ import {
   quoteForShell,
   runOverSsh,
 } from "../remote-command";
-import { olderEphorMessage, versionWarning } from "../remote-version";
+import {
+  olderEphorMessage,
+  versionIn,
+  versionWarning,
+} from "../remote-version";
 import { lastLine, openTunnel } from "../tunnel";
 import { contentHashOf, nodeCountIn } from "./api-access";
 import { giveAccess } from "./setup-access";
@@ -62,7 +66,11 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
   }
 
   let access = await askForAccess(options);
-  const versions = versionWarning(remote, access.version);
+  const versionThere = versionIn(access.version);
+  const versions =
+    versionThere === undefined
+      ? undefined
+      : versionWarning(remote, versionThere);
   if (versions !== undefined) print(versions);
   if (access.token === null && (await isServedThere(options, access.apiPort))) {
     throw new UsageError(
@@ -121,7 +129,7 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
       unfinished.push(`no ssh access set up for ${remote}`);
     }
 
-    const service = await installService(options, access.version);
+    const service = await installService(options, versionIn(access.version));
     if (service !== undefined) unfinished.push(service);
   }
 
@@ -178,7 +186,7 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
  */
 async function installService(
   options: InitRemoteOptions,
-  versionThere: string,
+  versionThere: string | undefined,
 ): Promise<string | undefined> {
   const { remote, print } = options;
   const result = await runOverSsh({

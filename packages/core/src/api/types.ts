@@ -9,6 +9,11 @@ export interface StateResponse {
   /** The collector's clock: ages on the client's would be off by the skew. */
   now: number;
   nodes: NodeState[];
+  /**
+   * The collector's ephor, for a client to say when it is another one.
+   * None from a check run in the client's own process.
+   */
+  version?: string | undefined;
 }
 
 /** How busy one limit is: a probe's concurrency, ssh processes, one sshd. */
@@ -37,6 +42,7 @@ export interface HealthResponse {
   /** Raw counts, not a verdict: `ok` stays true while a queue is behind. */
   queues: Record<string, QueueState>;
   ssh: SshQueues;
+  version: string;
 }
 
 export interface NodeResponse {

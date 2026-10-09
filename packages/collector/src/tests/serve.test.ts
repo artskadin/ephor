@@ -75,7 +75,12 @@ function writeConfig(apiSection: string): string {
 
 /** Started on `configPath`, stopped after the test. */
 async function start(configPath: string, token: string): Promise<Daemon> {
-  const daemon = await serve({ configPath, token, logger: quiet });
+  const daemon = await serve({
+    configPath,
+    token,
+    logger: quiet,
+    version: "1.2.3",
+  });
   cleanups.push(daemon.stop);
 
   return daemon;
@@ -164,6 +169,7 @@ describe("serve", () => {
       databasePath,
       token: "",
       logger: quiet,
+      version: "1.2.3",
     });
     cleanups.push(daemon.stop);
 

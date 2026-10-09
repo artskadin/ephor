@@ -2,6 +2,7 @@ import type { StateResponse } from "@ephorate/core";
 import { Box, type Key, Text, useInput } from "ink";
 import { type ReactElement, useReducer, useSyncExternalStore } from "react";
 import type { NotifyLevel } from "../notify/transitions";
+import { collectorVersionWarning } from "../remote-version";
 import { clock } from "./clock";
 import type { Scroll, ScrollMove } from "./scroll";
 import { nodeHeights, StatusTable, wrappedHeight } from "./status-table";
@@ -10,6 +11,8 @@ import type { WatchStore } from "./watch-store";
 interface WatchProps {
   store: WatchStore;
   apiUrl: string;
+  /** The ssh host of a collector elsewhere, named when its ephor differs. */
+  remote?: string | undefined;
   colour: boolean;
   /** Said in the footer unless it is the default, so silence is explained. */
   notifyOn: NotifyLevel | undefined;
@@ -52,6 +55,10 @@ export function Watch(props: WatchProps): ReactElement {
     useSyncExternalStore(store.subscribe, store.read);
   const [, redraw] = useReducer((count: number) => count + 1, 0);
 
+  const versionWarning = collectorVersionWarning(
+    { remote: props.remote, apiUrl },
+    state.version,
+  );
   const heights = nodeHeights(state, columns);
   const total = heights.length;
   const tail =
@@ -65,7 +72,9 @@ export function Watch(props: WatchProps): ReactElement {
       : "") +
     (notificationsFailed === undefined
       ? ""
-      : ` · notifications off: ${notificationsFailed}`);
+      : ` · notifications off: ${notificationsFailed}`) +
+    // Its own lines: the command in it is to be copied.
+    (versionWarning === undefined ? "" : `\n${versionWarning}`);
 
   // The footer's height is counted at its longest, every node number as
   // wide as the last. A frame as tall as the window makes ink wipe the

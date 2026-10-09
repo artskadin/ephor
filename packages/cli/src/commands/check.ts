@@ -12,7 +12,7 @@ import {
 import { ApiError, isCheckResponse } from "../api-client";
 import { UsageError } from "../exit-code";
 import { notOnPathMessage, quoteForShell, runOverSsh } from "../remote-command";
-import { olderEphorMessage } from "../remote-version";
+import { collectorVersionWarning, olderEphorMessage } from "../remote-version";
 import { stateText } from "../render/state-text";
 import { lastLine } from "../tunnel";
 
@@ -50,6 +50,11 @@ export async function runCheck(options: CheckOptions): Promise<void> {
   const response = options.client
     ? await checkThroughDaemon(options.client, options)
     : await checkHere(options);
+  const warning = collectorVersionWarning(
+    options.client ?? {},
+    response.version,
+  );
+  if (warning !== undefined) options.note(warning);
 
   options.print(
     await stateText(

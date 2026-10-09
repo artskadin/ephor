@@ -35,6 +35,27 @@ describe("ephor status", () => {
     expect(run.stderr).toBe("");
   });
 
+  // stdout stays the data; the person is told on stderr.
+  it("warns on stderr when the collector runs another ephor", async () => {
+    const state = {
+      ...stateOf({ name: "achilles", status: "ok" }),
+      version: "0.0.0-older",
+    };
+    const collector = await collectorOf(state);
+    cleanups.push(collector.close);
+
+    const run = await ephor(["status", "--json"], {
+      EPHOR_API_URL: collector.url,
+      EPHOR_TOKEN: TOKEN,
+    });
+
+    expect(run.code).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual(state);
+    expect(run.stderr).toContain(
+      "warning: the ephor serve here runs ephor 0.0.0-older",
+    );
+  });
+
   it("prints the table without --json, plain when stdout is a pipe", async () => {
     const collector = await collectorOf(
       stateOf(

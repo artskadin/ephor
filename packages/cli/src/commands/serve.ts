@@ -10,6 +10,7 @@ interface ServeOptions {
   token: string;
   /** Named when there is no token, so the message says where to put one. */
   tokenPath: string;
+  version: string;
   logger: Logger;
 }
 

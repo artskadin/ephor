@@ -40,6 +40,7 @@ function serverOf(options: { token?: string; deps?: ApiDeps } = {}) {
     settings: SETTINGS,
     token: options.token ?? TOKEN,
     logger: silent(),
+    version: "1.2.3",
   });
 
   return app;
@@ -119,6 +120,7 @@ describe("createApiServer", () => {
         probes: ["system", "reachability"],
         queues: QUEUES,
         ssh: SSH_QUEUES,
+        version: "1.2.3",
       });
     });
   });
@@ -137,6 +139,8 @@ describe("createApiServer", () => {
       expect(body.nodes.map((node: { node: string }) => node.node)).toEqual([
         "achilles",
       ]);
+      // A client says so when it runs another ephor.
+      expect(body.version).toBe("1.2.3");
     });
   });
 
@@ -229,6 +233,7 @@ describe("createApiServer", () => {
         startedAt: NOW,
         complete: true,
         pending: [],
+        version: "1.2.3",
       });
       expect(body.nodes.map((node: { node: string }) => node.node)).toEqual([
         "achilles",

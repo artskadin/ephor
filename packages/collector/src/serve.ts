@@ -13,6 +13,8 @@ interface ServeOptions {
   databasePath?: string | undefined;
   /** Refused empty while the API is enabled. */
   token: string;
+  /** The ephor running this, said in the API's answers. */
+  version: string;
   logger: Logger;
 }
 
@@ -72,6 +74,7 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
       api = createApiServer({
         settings: config.api,
         token: options.token,
+        version: options.version,
         logger: logger.child({ component: "api" }),
         deps: {
           storage,

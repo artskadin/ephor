@@ -209,7 +209,8 @@ export async function postCheck(
   return outcome.response;
 }
 
-export function getHealth(deps: ApiDeps): HealthResponse {
+/** The version is the server's to add: the handlers do not know it. */
+export function getHealth(deps: ApiDeps): Omit<HealthResponse, "version"> {
   return {
     ok: true,
     // A clock stepped backwards would report a negative uptime.

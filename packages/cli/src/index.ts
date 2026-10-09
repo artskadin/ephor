@@ -51,6 +51,7 @@ program
       databasePath: process.env.EPHOR_DB,
       token: found?.token ?? "",
       tokenPath: tokenPath(configPath),
+      version: VERSION,
       logger,
     });
   });
@@ -225,7 +226,11 @@ program
   .action(async (options: { json?: boolean; plain?: boolean }) => {
     const client = collectorClient();
 
-    await runStatus({ client, ...outputFrom(options) });
+    await runStatus({
+      client,
+      ...outputFrom(options),
+      note: (line) => void process.stderr.write(`${line}\n`),
+    });
   });
 
 program

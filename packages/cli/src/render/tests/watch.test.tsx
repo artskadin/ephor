@@ -89,6 +89,27 @@ async function until(condition: () => boolean): Promise<void> {
 }
 
 describe("Watch", () => {
+  // An upgrade with serve left running: the footer says so, in its own
+  // lines, and the frame still fits the window.
+  it("says below when the collector runs another ephor", () => {
+    const older = { ...stateOf("ok"), version: "0.0.0-older" };
+    const { lastFrame } = watching(
+      sourceOf(older),
+      undefined,
+      "warn",
+      older,
+      12,
+    );
+    const frame = lastFrame() ?? "";
+    const words = frame.replace(/\s+/g, " ");
+
+    expect(words).toContain(
+      "warning: the ephor serve here runs ephor 0.0.0-older, this command",
+    );
+    expect(words).toContain("restart it to run this one:");
+    expect(frame.split("\n").length).toBeLessThan(12);
+  });
+
   it("draws the store's state with the footer, and follows its updates", async () => {
     const { lastFrame } = watching(sourceOf(stateOf("warn")));
 

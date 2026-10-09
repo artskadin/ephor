@@ -61,6 +61,7 @@ export async function runWatch(options: WatchOptions): Promise<void> {
       <Watch
         store={store}
         apiUrl={options.source.apiUrl}
+        remote={options.source.remote}
         colour={options.colour}
         notifyOn={options.notify ? options.notifyOn : undefined}
         scroll={scroll}
