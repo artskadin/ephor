@@ -28,13 +28,31 @@ afterEach(() => {
 function init(
   configPath = join(directory, "ephor", "config.yaml"),
   environmentToken?: string,
+  offerService = false,
 ): string[] {
   const lines: string[] = [];
-  runInit({ configPath, environmentToken, print: (line) => lines.push(line) });
+  runInit({
+    configPath,
+    environmentToken,
+    offerService,
+    print: (line) => lines.push(line),
+  });
   return lines;
 }
 
 describe("runInit", () => {
+  // Only where systemd is: elsewhere it would offer what cannot run.
+  it("offers the service on Linux alone", () => {
+    const config = join(directory, "ephor", "config.yaml");
+
+    expect(init(config, undefined, true).join("\n")).toContain(
+      "ephor service install",
+    );
+    expect(init(config, undefined, false).join("\n")).not.toContain(
+      "ephor service",
+    );
+  });
+
   it("writes the template and a token only its owner can read", () => {
     const lines = init();
     const config = join(directory, "ephor", "config.yaml");

@@ -10,6 +10,8 @@ interface InitOptions {
   configPath: string;
   /** Said when set: it wins over the file written here. */
   environmentToken: string | undefined;
+  /** systemd is Linux's: elsewhere the line would offer what cannot run. */
+  offerService: boolean;
   print: (line: string) => void;
 }
 
@@ -53,6 +55,11 @@ export function runInit(options: InitOptions): void {
   );
   print("  ephor check    probe every node once, right here");
   print("  ephor serve    keep measuring; `ephor watch` in another tab");
+  if (options.offerService) {
+    print(
+      "  ephor service install    on a server: keep serve running, from boot",
+    );
+  }
 }
 
 function makeDirectory(path: string): void {

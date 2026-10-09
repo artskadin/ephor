@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { type CheckRequest, createLogger, type Logger } from "@ephorate/core";
 import { Command, CommanderError } from "commander";
@@ -82,6 +83,7 @@ program
     runInit({
       configPath,
       environmentToken: process.env.EPHOR_TOKEN,
+      offerService: process.platform === "linux",
       print,
     });
   });
@@ -122,6 +124,39 @@ program
     await runSetupAccess({
       remote: cli.remote,
       nodes,
+      print: (line) => void process.stdout.write(`${line}\n`),
+    });
+  });
+
+const service = program
+  .command("service")
+  .description(
+    "Run `ephor serve` as a systemd user service: started on boot, restarted after a crash",
+  );
+
+service
+  .command("install")
+  .description("Install and start the service here, or rewrite it")
+  .option(...CONFIG_OPTION)
+  .action(async (options: { config?: string }) => {
+    const { runServiceInstall } = await import("./commands/service");
+
+    await runServiceInstall({
+      configPath: resolveConfigPath({ flag: options.config }),
+      nodePath: process.execPath,
+      // The real file: `ephor` on PATH is npm's symlink to it.
+      scriptPath: realpathSync(process.argv[1] ?? ""),
+      print: (line) => void process.stdout.write(`${line}\n`),
+    });
+  });
+
+service
+  .command("uninstall")
+  .description("Stop the service here and remove it")
+  .action(async () => {
+    const { runServiceUninstall } = await import("./commands/service");
+
+    await runServiceUninstall({
       print: (line) => void process.stdout.write(`${line}\n`),
     });
   });

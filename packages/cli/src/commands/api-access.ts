@@ -37,7 +37,7 @@ export function runApiAccess(options: ApiAccessOptions): void {
 
 // From the YAML as written, not the full schema: a config that does not
 // validate yet still says where its API listens.
-function apiPortIn(configPath: string): number {
+export function apiPortIn(configPath: string): number {
   let data: unknown;
   try {
     data = parse(readFileSync(configPath, "utf8"));

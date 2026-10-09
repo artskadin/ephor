@@ -132,7 +132,7 @@ function stop(child: ChildProcess): void {
   child.kill("SIGTERM");
 }
 
-function accepts(port: number): Promise<boolean> {
+export function accepts(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect(port, "127.0.0.1");
     socket.once("connect", () => {
