@@ -75,7 +75,12 @@ program
 
     if (options.remote !== undefined) {
       const { runInitRemote } = await import("./commands/init-remote");
-      await runInitRemote({ remote: options.remote, configPath, print });
+      await runInitRemote({
+        remote: options.remote,
+        configPath,
+        environmentToken: process.env.EPHOR_TOKEN,
+        print,
+      });
       return;
     }
 

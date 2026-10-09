@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DEFAULT_API_PORT } from "@ephorate/core";
 import { parse } from "yaml";
-import { UsageError } from "../exit-code";
-import { findToken, tokenPath } from "../token";
+import { findToken } from "../token";
 
 interface ApiAccessOptions {
   configPath: string;
@@ -12,23 +11,16 @@ interface ApiAccessOptions {
 
 /**
  * What `init --remote` on another machine needs from this one: the API's
- * token and port, and the config they came from, by this machine's own
- * rules. Run over ssh, never typed.
+ * token (null when there is none yet) and port, and the config they came
+ * from, by this machine's own rules. Run over ssh, never typed.
  */
 export function runApiAccess(options: ApiAccessOptions): void {
   const { configPath, environment } = options;
   const found = findToken({ environment, configPath });
 
-  if (found === undefined) {
-    throw new UsageError(
-      `no API token here: ${tokenPath(configPath)} does not exist. Run ` +
-        "`ephor init` here first",
-    );
-  }
-
   options.print(
     JSON.stringify({
-      token: found.token,
+      token: found?.token ?? null,
       apiPort: apiPortIn(configPath),
       configPath,
     }),

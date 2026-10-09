@@ -153,13 +153,6 @@ describe("ephor init --remote", () => {
       { withEphor: false },
       "ephor or node is not on bastion's PATH for commands run over ssh (",
     ],
-    // A unit's EPHOR_CONFIG is not in ssh's environment: say where it goes.
-    [
-      "no token there",
-      { token: false },
-      "on bastion: no API token here",
-      "export EPHOR_CONFIG=<its path> on the first line of ~/.bashrc there",
-    ],
   ])(
     "exits 2 with %s, and writes nothing",
     async (_name, options, ...messages) => {
@@ -185,6 +178,100 @@ describe("ephor init --remote", () => {
     expect(run.stderr).toBe(
       "cannot reach unreachable.test over ssh: ssh: Could not resolve hostname unreachable.test: Name or service not known\n",
     );
+  });
+
+  it("makes the token there when it has none and nothing serves there", async () => {
+    const nobody = await nobodyServing();
+    const { here, there, environment } = setup({
+      apiPort: nobody,
+      token: false,
+    });
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(`bastion: created ${join(there, "token")}`);
+    expect(run.stdout).toContain(
+      `bastion: kept ${join(there, "config.yaml")}: already there`,
+    );
+    expect(run.stdout).not.toContain("next:");
+    const token = readFileSync(join(there, "token"), "utf8").trim();
+    expect(parse(readFileSync(join(here, "cli.yaml"), "utf8"))).toEqual({
+      remote: "bastion",
+      token,
+      apiPort: nobody,
+    });
+  });
+
+  // A unit's EPHOR_CONFIG is not in ssh's environment: a second config
+  // and token at the default path would part the two silently.
+  it("makes nothing when a serve there answers without a token found", async () => {
+    const collector = await collectorOf(stateOf());
+    cleanups.push(collector.close);
+    const { here, there, environment } = setup({
+      apiPort: portOf(collector.url),
+      token: false,
+    });
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain(
+      `answers on its port ${portOf(collector.url)}: it runs with another config`,
+    );
+    expect(run.stderr).toContain(
+      "export EPHOR_CONFIG=<its path> on the first line of ~/.bashrc there",
+    );
+    expect(() => statSync(join(there, "token"))).toThrow();
+    expect(() => statSync(join(here, "cli.yaml"))).toThrow();
+  });
+
+  // Run again, it goes on: nothing there or here is made twice.
+  it("keeps what is done when run again", async () => {
+    const { here, there, environment } = setup({
+      apiPort: await nobodyServing(),
+    });
+    const config = readFileSync(join(there, "config.yaml"), "utf8");
+
+    await ephor(["init", "--remote", "bastion"], environment);
+    const second = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(second.code).toBe(0);
+    expect(second.stdout).toContain(
+      `bastion: kept ${join(there, "config.yaml")}: already there`,
+    );
+    expect(second.stdout).toContain(
+      `kept ${join(here, "cli.yaml")}: it already points here at bastion`,
+    );
+    expect(readFileSync(join(there, "config.yaml"), "utf8")).toBe(config);
+  });
+
+  it("rewrites a cli.yaml for the same remote with the token there now", async () => {
+    const { here, environment } = setup({ apiPort: await nobodyServing() });
+    writeFileSync(join(here, "cli.yaml"), "remote: bastion\ntoken: old\n", {
+      mode: 0o644,
+    });
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(`updated ${join(here, "cli.yaml")}`);
+    expect(run.stdout).toContain("now readable by you only");
+    expect(parse(readFileSync(join(here, "cli.yaml"), "utf8"))).toMatchObject({
+      token: TOKEN,
+    });
+    expect(statSync(join(here, "cli.yaml")).mode & 0o777).toBe(0o600);
+  });
+
+  it("says to remove a cli.yaml it cannot read", async () => {
+    const { here, environment } = setup({ apiPort: 1 });
+    writeFileSync(join(here, "cli.yaml"), "remote: [\n", { mode: 0o600 });
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain("is not YAML");
+    expect(run.stderr).toContain("remove it and run this again");
   });
 
   it("refuses to repoint a cli.yaml already there", async () => {
@@ -220,14 +307,18 @@ describe("ephor api-access", () => {
     });
   });
 
-  it("says to run init when there is no token", async () => {
+  it("says there is no token yet, with the port and config it would use", async () => {
     const run = await ephor([
       "api-access",
       "--config",
       "/nonexistent/config.yaml",
     ]);
 
-    expect(run.code).toBe(2);
-    expect(run.stderr).toContain("Run `ephor init` here first");
+    expect(run.code).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual({
+      token: null,
+      apiPort: 31556,
+      configPath: "/nonexistent/config.yaml",
+    });
   });
 });
