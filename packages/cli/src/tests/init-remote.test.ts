@@ -130,21 +130,83 @@ describe("ephor init --remote", () => {
     });
   });
 
-  // There, the config its own rules find: an EPHOR_CONFIG included.
-  it("points at moving a config here to the one there, and keeps it", async () => {
+  // The nodes go where serve runs; the template there had none to lose.
+  it("copies the config here there when the one there lists no nodes", async () => {
     const { here, there, environment } = setup({
       apiPort: await nobodyServing(),
     });
-    writeFileSync(join(here, "config.yaml"), "nodes: [mine]\n");
+    const template = readFileSync(join(there, "config.yaml"), "utf8");
+    const mine = "nodes:\n  - name: mine\n    host: 203.0.113.10\n";
+    writeFileSync(join(here, "config.yaml"), mine);
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(
+      `copied ${join(here, "config.yaml")} to bastion:${join(there, "config.yaml")}, 1 node`,
+    );
+    expect(readFileSync(join(there, "config.yaml"), "utf8")).toBe(mine);
+    expect(readFileSync(join(there, "config.yaml.bak"), "utf8")).toBe(template);
+    expect(readFileSync(join(here, "config.yaml"), "utf8")).toBe(mine);
+
+    const again = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(again.stdout).toContain(
+      `kept bastion:${join(there, "config.yaml")}: the same as ${join(here, "config.yaml")} here`,
+    );
+    expect(again.stdout).not.toContain("scp");
+  });
+
+  // Not YAML there: it may list nodes, so it is no template to replace.
+  it("copies nothing over a config there that is not YAML", async () => {
+    const { here, there, environment } = setup({
+      apiPort: await nobodyServing(),
+    });
+    const broken = "api:\n\tport: 1\nnodes:\n  - name: theirs\n";
+    writeFileSync(join(there, "config.yaml"), broken);
+    writeFileSync(
+      join(here, "config.yaml"),
+      "nodes:\n  - name: mine\n    host: 203.0.113.10\n",
+    );
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.stdout).toContain("it is not YAML");
+    expect(readFileSync(join(there, "config.yaml"), "utf8")).toBe(broken);
+  });
+
+  it("says so when the config here is not YAML", async () => {
+    const { here, environment } = setup({ apiPort: await nobodyServing() });
+    writeFileSync(join(here, "config.yaml"), "nodes:\n\t- name: mine\n");
 
     const run = await ephor(["init", "--remote", "bastion"], environment);
 
     expect(run.stdout).toContain(
+      `${join(here, "config.yaml")} here is not YAML: nothing copied to bastion`,
+    );
+  });
+
+  it("keeps both configs when each lists nodes, saying how to replace", async () => {
+    const { here, there, environment } = setup({
+      apiPort: await nobodyServing(),
+    });
+    const theirs = `${readFileSync(join(there, "config.yaml"), "utf8")}nodes:\n  - name: theirs\n    host: 203.0.113.11\n`;
+    writeFileSync(join(there, "config.yaml"), theirs);
+    writeFileSync(
+      join(here, "config.yaml"),
+      "nodes:\n  - name: mine\n    host: 203.0.113.10\n",
+    );
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(
+      `kept bastion:${join(there, "config.yaml")}: it lists 1 node`,
+    );
+    expect(run.stdout).toContain(
       `scp ${join(here, "config.yaml")} bastion:${join(there, "config.yaml")}`,
     );
-    expect(readFileSync(join(here, "config.yaml"), "utf8")).toBe(
-      "nodes: [mine]\n",
-    );
+    expect(readFileSync(join(there, "config.yaml"), "utf8")).toBe(theirs);
   });
 
   it.each([
@@ -304,6 +366,8 @@ describe("ephor api-access", () => {
       token: TOKEN,
       apiPort: 41556,
       configPath: join(there, "config.yaml"),
+      nodes: 0,
+      configHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
   });
 
@@ -319,6 +383,8 @@ describe("ephor api-access", () => {
       token: null,
       apiPort: 31556,
       configPath: "/nonexistent/config.yaml",
+      nodes: 0,
+      configHash: null,
     });
   });
 });

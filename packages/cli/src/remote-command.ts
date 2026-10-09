@@ -5,6 +5,8 @@ interface RemoteCommandOptions {
   remote: string;
   /** One line for the remote shell; words in it quoted with `quoteForShell`. */
   command: string;
+  /** Written to the command's stdin, then closed. */
+  input?: string | undefined;
   /** None: the command ends, or ssh ends a dead link by `ServerAlive`. */
   timeoutMs?: number | undefined;
   /** Each line of stderr as it comes: ssh's own and the command's. */
@@ -50,8 +52,17 @@ export function runOverSsh(
         remote,
         command,
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      {
+        stdio: [
+          options.input === undefined ? "ignore" : "pipe",
+          "pipe",
+          "pipe",
+        ],
+      },
     );
+    // ssh gone before reading it all must not take this process along.
+    child.stdin?.on("error", () => undefined);
+    child.stdin?.end(options.input);
 
     let stdout = "";
     let stderr = "";

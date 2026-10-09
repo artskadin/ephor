@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DEFAULT_API_PORT } from "@ephorate/core";
 import { stringify } from "yaml";
@@ -10,9 +10,11 @@ import { RemoteCollector } from "../remote-collector";
 import {
   BASHRC_FIRST_LINE,
   notOnPathMessage,
+  quoteForShell,
   runOverSsh,
 } from "../remote-command";
 import { lastLine, openTunnel } from "../tunnel";
+import { contentHashOf, nodeCountIn } from "./api-access";
 
 interface InitRemoteOptions {
   /** The ssh alias, or `user@host`, of the machine running `ephor serve`. */
@@ -31,6 +33,8 @@ const AccessSchema = z
     token: z.string().min(1).nullable(),
     apiPort: z.number().int().min(1).max(65535),
     configPath: z.string().min(1),
+    nodes: z.number().int().min(0).nullable(),
+    configHash: z.string().nullable(),
   })
   .strict();
 
@@ -79,6 +83,8 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
     );
   }
 
+  await moveConfig(options, access);
+
   if (
     existing !== undefined &&
     existing.token === token &&
@@ -112,19 +118,93 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
   }
 
   print(await collectorAnswer(options, { ...access, token }));
+}
 
-  if (existsSync(configPath)) {
-    print("");
+/**
+ * The nodes go where `serve` runs: this machine's config is copied there
+ * when the one there lists none (`ephor init`'s template, kept as .bak).
+ * Both with nodes: nothing touched, a hint.
+ */
+async function moveConfig(
+  options: InitRemoteOptions,
+  access: {
+    configPath: string;
+    nodes: number | null;
+    configHash: string | null;
+  },
+): Promise<void> {
+  const { remote, configPath, print } = options;
+  const here = nodeCountIn(configPath);
+  const there = `${remote}:${access.configPath}`;
+
+  if (here === null) {
+    print(`${configPath} here is not YAML: nothing copied to ${remote}`);
+    return;
+  }
+  if (here === 0) return;
+
+  const replaceHint = `To replace it with this one: scp ${configPath} ${there}`;
+  if (access.nodes === null) {
     print(
-      `${configPath} here is not used while ${cliPath} names ${remote}. ` +
-        `To move it there, replacing the one \`ephor init\` wrote:`,
+      `kept ${there}: it is not YAML, so whether it lists nodes cannot be ` +
+        `told; fix it there. ${replaceHint}`,
     );
-    print(`  scp ${configPath} ${remote}:${access.configPath}`);
+    return;
+  }
+  if (access.nodes > 0) {
     print(
-      `its \`ssh:\` entries then resolve on ${remote}, from its ~/.ssh; ` +
-        "restart `ephor serve` there to read it.",
+      access.configHash === contentHashOf(configPath)
+        ? `kept ${there}: the same as ${configPath} here`
+        : `kept ${there}: it lists ${nodesText(access.nodes)}, ${configPath} ` +
+            `here lists ${nodesText(here)}; serve there reads its own. ${replaceHint}`,
+    );
+    return;
+  }
+
+  const text = readFileSync(configPath);
+  const result = await runOverSsh({
+    remote,
+    command: `sh -c ${quoteForShell(copyScript(access.configPath, text.length))}`,
+    input: text.toString("utf8"),
+    timeoutMs: STEP_TIMEOUT_MS,
+    ssh: options.ssh,
+  });
+  if (result.code !== 0) {
+    throw new UsageError(
+      `cannot copy ${configPath} to ${there}: ${
+        lastLine(result.stderr) ?? `exit code ${result.code}`
+      }`,
     );
   }
+  print(
+    `copied ${configPath} to ${there}, ${nodesText(here)} (its template kept ` +
+      `as ${access.configPath}.bak). Its \`ssh:\` entries now resolve on ` +
+      `${remote}; a serve already running there reads it once restarted`,
+  );
+}
+
+/**
+ * Takes the config on stdin and puts it in place only if every byte came:
+ * a link cut mid-way ends `cat` with exit 0. Written through a symlink.
+ */
+export function copyScript(path: string, bytes: number): string {
+  return [
+    "set -e",
+    `file=${quoteForShell(path)}`,
+    'cat > "$file.new"',
+    `if [ "$(wc -c < "$file.new" | tr -d ' ')" -ne ${bytes} ]; then`,
+    '  rm -f "$file.new"',
+    '  echo "the copy arrived cut short: $file kept as it was" >&2',
+    "  exit 1",
+    "fi",
+    'if [ -e "$file" ]; then cp "$file" "$file.bak"; fi',
+    'cat "$file.new" > "$file"',
+    'rm -f "$file.new"',
+  ].join("\n");
+}
+
+function nodesText(count: number): string {
+  return count === 1 ? "1 node" : `${count} nodes`;
 }
 
 async function askForAccess(
