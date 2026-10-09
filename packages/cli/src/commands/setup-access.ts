@@ -16,6 +16,7 @@ import {
 } from "../access-scripts";
 import { UsageError } from "../exit-code";
 import { notOnPathMessage, quoteForShell, runOverSsh } from "../remote-command";
+import { olderEphorMessage } from "../remote-version";
 import { lastLine } from "../tunnel";
 
 interface SetupAccessOptions {
@@ -41,17 +42,32 @@ const OK = "ok";
 
 type Target = z.infer<typeof TargetsSchema>["nodes"][number];
 
+export async function runSetupAccess(
+  options: SetupAccessOptions,
+): Promise<void> {
+  const { total, failed } = await giveAccess(options);
+  if (total === 0) {
+    throw new UsageError(
+      `no node in the config on ${options.remote} has \`ssh:\`: nothing to set up`,
+    );
+  }
+  if (failed > 0) {
+    throw new UsageError(`${failed} of ${total} nodes not set up`);
+  }
+}
+
 /**
  * Gives the collector on `remote` its own ssh access to its nodes, through
  * the access this machine has: its key in each node's authorized_keys,
  * each node's host keys and Host block beside it. Prints a line a node,
- * in the config's order.
+ * in the config's order; a node not set up is counted, not thrown.
  */
-export async function runSetupAccess(
+export async function giveAccess(
   options: SetupAccessOptions,
-): Promise<void> {
+): Promise<{ total: number; failed: number }> {
   const { remote, print } = options;
   const targets = chosen(await askForTargets(remote), options.nodes, remote);
+  if (targets.length === 0) return { total: 0, failed: 0 };
   const key = await collectorKey(remote);
   print(
     `giving ${remote} access to ${targets.map((target) => target.node).join(", ")}`,
@@ -89,9 +105,7 @@ export async function runSetupAccess(
   for (const { node } of targets) print(`${node}: ${outcomes.get(node)}`);
 
   const failed = [...outcomes.values()].filter((line) => line !== OK).length;
-  if (failed > 0) {
-    throw new UsageError(`${failed} of ${targets.length} nodes not set up`);
-  }
+  return { total: targets.length, failed };
 }
 
 async function askForTargets(remote: string): Promise<Target[]> {
@@ -108,20 +122,16 @@ async function askForTargets(remote: string): Promise<Target[]> {
     throw new UsageError(`cannot reach ${remote} over ssh: ${said}`);
   }
   if (result.code === 127) throw new UsageError(notOnPathMessage(remote, said));
-  if (said.includes("unknown command 'access-targets'")) {
-    throw new UsageError(
-      `ephor on ${remote} is older than this one: update it there (npm i -g ephorate)`,
-    );
+  // The whole of stderr: commander's "(Did you mean …?)" comes last.
+  if (result.stderr.includes("unknown command 'access-targets'")) {
+    throw new UsageError(await olderEphorMessage(remote));
   }
   if (result.code !== 0) throw new UsageError(`on ${remote}: ${said}`);
 
   try {
     return TargetsSchema.parse(JSON.parse(lastLine(result.stdout) ?? "")).nodes;
   } catch {
-    throw new UsageError(
-      `\`${command}\` on ${remote} answered something else than its nodes: ` +
-        "is ephor there as new as here?",
-    );
+    throw new UsageError(await olderEphorMessage(remote));
   }
 }
 
@@ -130,14 +140,7 @@ function chosen(
   names: readonly string[],
   remote: string,
 ): Target[] {
-  if (names.length === 0) {
-    if (targets.length === 0) {
-      throw new UsageError(
-        `no node in the config on ${remote} has \`ssh:\`: nothing to set up`,
-      );
-    }
-    return targets;
-  }
+  if (names.length === 0) return targets;
 
   const unknown = names.filter(
     (name) => !targets.some((target) => target.node === name),
@@ -211,7 +214,7 @@ async function install(
   if (result.code === 255) {
     throw new UsageError(
       `lost the ssh link to ${remote} while it logged in to the nodes: ` +
-        "run setup-access again",
+        "run this again",
     );
   }
   if (result.code !== 0) {

@@ -13,8 +13,10 @@ import {
   quoteForShell,
   runOverSsh,
 } from "../remote-command";
+import { olderEphorMessage, versionWarning } from "../remote-version";
 import { lastLine, openTunnel } from "../tunnel";
 import { contentHashOf, nodeCountIn } from "./api-access";
+import { giveAccess } from "./setup-access";
 
 interface InitRemoteOptions {
   /** The ssh alias, or `user@host`, of the machine running `ephor serve`. */
@@ -35,11 +37,13 @@ const AccessSchema = z
     configPath: z.string().min(1),
     nodes: z.number().int().min(0).nullable(),
     configHash: z.string().nullable(),
+    version: z.string().min(1),
   })
   .strict();
 
 // A login script waiting for input would hold a step forever.
 const STEP_TIMEOUT_MS = 30_000;
+const SERVICE_TIMEOUT_MS = 60_000;
 
 /**
  * Sets up the collector on `remote` and points the commands typed here
@@ -58,6 +62,8 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
   }
 
   let access = await askForAccess(options);
+  const versions = versionWarning(remote, access.version);
+  if (versions !== undefined) print(versions);
   if (access.token === null && (await isServedThere(options, access.apiPort))) {
     throw new UsageError(
       `${remote} has no token beside ${access.configPath}, yet an \`ephor ` +
@@ -83,7 +89,41 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
     );
   }
 
-  await moveConfig(options, access);
+  const nodesThere = await moveConfig(options, access);
+
+  // Every step is tried: what one could not do is said once, at the end.
+  const unfinished: string[] = [];
+  if (nodesThere === 0 || nodesThere === null) {
+    // serve refuses a config without nodes, and so does access-targets.
+    unfinished.push(
+      nodesThere === 0
+        ? `no nodes in ${remote}:${access.configPath}: list yours there ` +
+            `(ssh ${remote}, edit it)`
+        : `${remote}:${access.configPath} is not YAML: fix it there`,
+    );
+  } else {
+    try {
+      const reached = await giveAccess({ remote, nodes: [], print });
+      if (reached.total === 0) {
+        print(
+          `${remote}: no node in its config has \`ssh:\`: reachability ` +
+            "only, no ssh access to set up",
+        );
+      } else if (reached.failed > 0) {
+        unfinished.push(
+          `${reached.failed} of ${reached.total} nodes not reachable over ssh ` +
+            `from ${remote}`,
+        );
+      }
+    } catch (error) {
+      if (!(error instanceof UsageError)) throw error;
+      print(error.message);
+      unfinished.push(`no ssh access set up for ${remote}`);
+    }
+
+    const service = await installService(options, access.version);
+    if (service !== undefined) unfinished.push(service);
+  }
 
   if (
     existing !== undefined &&
@@ -118,12 +158,71 @@ export async function runInitRemote(options: InitRemoteOptions): Promise<void> {
   }
 
   print(await collectorAnswer(options, { ...access, token }));
+
+  if (unfinished.length > 0) {
+    // One item a line: a command to copy must stand on a line of its own.
+    throw new UsageError(
+      [
+        "not done yet:",
+        ...unfinished.map((item) => `  - ${item}`),
+        `the lines above say why; then run \`ephor init --remote ${remote}\` again`,
+      ].join("\n"),
+    );
+  }
+}
+
+/**
+ * `serve` there as a service, restarted so it reads a config just copied.
+ * No systemd there (a container, another init) is no failure: the user
+ * keeps it running their way. `undefined` when nothing is left undone.
+ */
+async function installService(
+  options: InitRemoteOptions,
+  versionThere: string,
+): Promise<string | undefined> {
+  const { remote, print } = options;
+  const result = await runOverSsh({
+    remote,
+    command: "ephor service install",
+    // Its own wait for serve is 15 s, after systemctl's steps.
+    timeoutMs: SERVICE_TIMEOUT_MS,
+    ssh: options.ssh,
+  });
+  for (const line of result.stdout.trimEnd().split("\n")) {
+    if (line.trim() !== "") print(`${remote}: ${line}`);
+  }
+  if (result.code === 0) return undefined;
+
+  const said = lastLine(result.stderr) ?? `exit code ${result.code}`;
+  if (
+    said.includes("needs systemd") ||
+    said.includes("no systemd user manager")
+  ) {
+    print(
+      `${remote}: no systemd there to run it as a service: keep ` +
+        "`ephor serve` running there your own way",
+    );
+    return undefined;
+  }
+  // The whole of stderr: commander's "(Did you mean …?)" comes last.
+  if (result.stderr.includes("unknown command 'service'")) {
+    print(await olderEphorMessage(remote, options.ssh, versionThere));
+    return `ephor here and on ${remote} do not fit: the update above`;
+  }
+  if (result.timedOut) {
+    return `no answer from \`ephor service install\` on ${remote} within ${SERVICE_TIMEOUT_MS / 1000} s`;
+  }
+  if (result.code === 255) {
+    return `lost the ssh link to ${remote} during \`ephor service install\``;
+  }
+  print(`${remote}: ${said}`);
+  return `ephor serve does not run as a service on ${remote}`;
 }
 
 /**
  * The nodes go where `serve` runs: this machine's config is copied there
  * when the one there lists none (`ephor init`'s template, kept as .bak).
- * Both with nodes: nothing touched, a hint.
+ * Both with nodes: nothing touched, a hint. The nodes there after it.
  */
 async function moveConfig(
   options: InitRemoteOptions,
@@ -132,16 +231,16 @@ async function moveConfig(
     nodes: number | null;
     configHash: string | null;
   },
-): Promise<void> {
+): Promise<number | null> {
   const { remote, configPath, print } = options;
   const here = nodeCountIn(configPath);
   const there = `${remote}:${access.configPath}`;
 
   if (here === null) {
     print(`${configPath} here is not YAML: nothing copied to ${remote}`);
-    return;
+    return access.nodes;
   }
-  if (here === 0) return;
+  if (here === 0) return access.nodes;
 
   const replaceHint = `To replace it with this one: scp ${configPath} ${there}`;
   if (access.nodes === null) {
@@ -149,7 +248,7 @@ async function moveConfig(
       `kept ${there}: it is not YAML, so whether it lists nodes cannot be ` +
         `told; fix it there. ${replaceHint}`,
     );
-    return;
+    return null;
   }
   if (access.nodes > 0) {
     print(
@@ -158,7 +257,7 @@ async function moveConfig(
         : `kept ${there}: it lists ${nodesText(access.nodes)}, ${configPath} ` +
             `here lists ${nodesText(here)}; serve there reads its own. ${replaceHint}`,
     );
-    return;
+    return access.nodes;
   }
 
   const text = readFileSync(configPath);
@@ -181,6 +280,7 @@ async function moveConfig(
       `as ${access.configPath}.bak). Its \`ssh:\` entries now resolve on ` +
       `${remote}; a serve already running there reads it once restarted`,
   );
+  return here;
 }
 
 /**
@@ -217,10 +317,7 @@ async function askForAccess(
     // The last line: a login script there may print before ephor does.
     return AccessSchema.parse(JSON.parse(lastLine(stdout) ?? ""));
   } catch {
-    throw new UsageError(
-      `\`${command}\` on ${options.remote} answered something else than the ` +
-        "API's token, port and config: is ephor there as new as here?",
-    );
+    throw new UsageError(await olderEphorMessage(options.remote, options.ssh));
   }
 }
 
@@ -252,10 +349,8 @@ async function runThere(
   if (result.code === 127) {
     throw new UsageError(notOnPathMessage(remote, said));
   }
-  if (said.includes(`unknown command '${command.split(" ")[1]}'`)) {
-    throw new UsageError(
-      `ephor on ${remote} is older than this one: update it there (npm i -g ephorate)`,
-    );
+  if (result.stderr.includes(`unknown command '${command.split(" ")[1]}'`)) {
+    throw new UsageError(await olderEphorMessage(remote, options.ssh));
   }
   throw new UsageError(`on ${remote}: ${said}`);
 }
@@ -269,10 +364,10 @@ async function collectorAnswer(
 
   try {
     const state = await collector.state();
-    return `the collector on ${options.remote} answers: ${state.nodes.length} nodes`;
+    return `the collector on ${options.remote} answers: ${nodesText(state.nodes.length)}`;
   } catch (error) {
     if (error instanceof ApiError && error.failure === "refused") {
-      return `no \`ephor serve\` on ${options.remote} yet: start it there, then \`ephor status\` here`;
+      return `no \`ephor serve\` on ${options.remote} answers yet: \`ephor serve\` there, or \`ephor service install\` where systemd is`;
     }
     return `the collector on ${options.remote} did not answer yet: ${
       error instanceof Error ? error.message : String(error)

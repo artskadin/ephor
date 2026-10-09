@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { DEFAULT_API_PORT } from "@ephorate/core";
 import { parse } from "yaml";
 import { findToken } from "../token";
+import { VERSION } from "../version";
 
 interface ApiAccessOptions {
   configPath: string;
@@ -13,8 +14,8 @@ interface ApiAccessOptions {
 /**
  * What `init --remote` on another machine needs from this one: the API's
  * token (null when there is none yet) and port, the config they came
- * from and how many nodes it lists, by this machine's own rules. Run over
- * ssh, never typed.
+ * from and how many nodes it lists, and this ephor's version, by this
+ * machine's own rules. Run over ssh, never typed.
  */
 export function runApiAccess(options: ApiAccessOptions): void {
   const { configPath, environment } = options;
@@ -27,6 +28,7 @@ export function runApiAccess(options: ApiAccessOptions): void {
       configPath,
       nodes: nodeCountIn(configPath),
       configHash: contentHashOf(configPath),
+      version: VERSION,
     }),
   );
 }

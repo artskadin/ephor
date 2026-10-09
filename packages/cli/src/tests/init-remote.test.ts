@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -10,12 +11,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { VERSION } from "../version";
 import { fakeEphorDirectory, fakeSshDirectory } from "./fake-ssh";
 import { BINARY, ephor } from "./run-binary";
 import { collectorOf, stateOf, TOKEN } from "./test-server";
 
 const fakeSsh = fakeSshDirectory();
 const fakeEphor = fakeEphorDirectory(BINARY);
+
+// `service install` "there" runs on this machine: on Linux it would put a
+// real service in the developer's systemd. This one answers no.
+const noSystemd = mkdtempSync(join(tmpdir(), "ephor-no-systemd-"));
+writeFileSync(
+  join(noSystemd, "systemctl"),
+  "#!/bin/sh\necho 'Failed to connect to bus: No medium found' >&2\nexit 1\n",
+);
+chmodSync(join(noSystemd, "systemctl"), 0o755);
 const cleanups: (() => Promise<void> | void)[] = [];
 
 afterEach(async () => {
@@ -31,17 +42,21 @@ function directory(prefix: string): string {
 /**
  * Here and "there": two config directories; ssh runs the remote's
  * commands on this machine, with `ephor` on its PATH unless left out.
+ * There lists one node, reached without ssh, unless told it lists none.
  */
 function setup(options: {
   apiPort: number;
   withEphor?: boolean;
   token?: boolean;
+  nodesThere?: boolean;
 }) {
   const here = directory("ephor-here-");
   const there = directory("ephor-there-");
   writeFileSync(
     join(there, "config.yaml"),
-    `api:\n  port: ${options.apiPort}\n`,
+    `api:\n  port: ${options.apiPort}\n${
+      options.nodesThere === false ? "" : HECTOR
+    }`,
   );
   if (options.token ?? true) {
     writeFileSync(join(there, "token"), `${TOKEN}\n`, { mode: 0o600 });
@@ -51,6 +66,7 @@ function setup(options: {
     EPHOR_CONFIG: join(here, "config.yaml"),
     FAKE_REMOTE_CONFIG: join(there, "config.yaml"),
     PATH: [
+      noSystemd,
       fakeSsh,
       ...(options.withEphor === false ? [] : [fakeEphor]),
       "/usr/bin",
@@ -62,6 +78,8 @@ function setup(options: {
 }
 
 const portOf = (url: string) => Number(new URL(url).port);
+
+const HECTOR = "nodes:\n  - name: hector\n    host: 203.0.113.12\n";
 
 /**
  * A port held for the test whose every connection is reset: what a
@@ -95,7 +113,14 @@ describe("ephor init --remote", () => {
     expect(run.stdout).toContain(
       `created ${path}: commands here now ask the collector on bastion`,
     );
-    expect(run.stdout).toContain("no `ephor serve` on bastion yet");
+    expect(run.stdout).toContain("no `ephor serve` on bastion answers yet");
+    // No systemd there is no failure: serve is kept running another way.
+    expect(run.stdout).toContain(
+      "bastion: no systemd there to run it as a service: keep `ephor serve` running there your own way",
+    );
+    expect(run.stdout).toContain(
+      "bastion: no node in its config has `ssh:`: reachability only",
+    );
     expect(run.stdout).not.toContain(TOKEN);
   });
 
@@ -108,7 +133,7 @@ describe("ephor init --remote", () => {
     const init = await ephor(["init", "--remote", "bastion"], environment);
     const status = await ephor(["status", "--json"], environment);
 
-    expect(init.stdout).toContain("the collector on bastion answers: 1 nodes");
+    expect(init.stdout).toContain("the collector on bastion answers: 1 node");
     expect(status.code).toBe(0);
     expect(JSON.parse(status.stdout)).toEqual(state);
   });
@@ -116,7 +141,7 @@ describe("ephor init --remote", () => {
   // The API on its default port there: cli.yaml leaves the port out.
   it("leaves the default port out, and reads past a login banner", async () => {
     const { here, there, environment } = setup({ apiPort: 1 });
-    writeFileSync(join(there, "config.yaml"), "nodes: []\n");
+    writeFileSync(join(there, "config.yaml"), HECTOR);
 
     const run = await ephor(["init", "--remote", "bastion"], {
       ...environment,
@@ -134,6 +159,7 @@ describe("ephor init --remote", () => {
   it("copies the config here there when the one there lists no nodes", async () => {
     const { here, there, environment } = setup({
       apiPort: await nobodyServing(),
+      nodesThere: false,
     });
     const template = readFileSync(join(there, "config.yaml"), "utf8");
     const mine = "nodes:\n  - name: mine\n    host: 203.0.113.10\n";
@@ -189,6 +215,7 @@ describe("ephor init --remote", () => {
   it("keeps both configs when each lists nodes, saying how to replace", async () => {
     const { here, there, environment } = setup({
       apiPort: await nobodyServing(),
+      nodesThere: false,
     });
     const theirs = `${readFileSync(join(there, "config.yaml"), "utf8")}nodes:\n  - name: theirs\n    host: 203.0.113.11\n`;
     writeFileSync(join(there, "config.yaml"), theirs);
@@ -336,6 +363,117 @@ describe("ephor init --remote", () => {
     expect(run.stderr).toContain("remove it and run this again");
   });
 
+  // serve refuses a config without nodes: nothing more to set up there.
+  it("exits 2 saying to list the nodes there when none is listed anywhere", async () => {
+    const { here, there, environment } = setup({
+      apiPort: await nobodyServing(),
+      nodesThere: false,
+    });
+
+    const run = await ephor(["init", "--remote", "bastion"], environment);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain(
+      `not done yet:\n  - no nodes in bastion:${join(there, "config.yaml")}: list yours there`,
+    );
+    expect(run.stderr).toContain("run `ephor init --remote bastion` again");
+    expect(statSync(join(here, "cli.yaml")).mode & 0o777).toBe(0o600);
+  });
+
+  // Commander puts "(Did you mean …?)" after its error: not the last line.
+  it("says to update an ephor there that has no service command", async () => {
+    const { environment } = setup({ apiPort: await nobodyServing() });
+    const older = directory("ephor-older-");
+    writeFileSync(
+      join(older, "ephor"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = service ]; then',
+        "  printf \"error: unknown command 'service'\\n(Did you mean serve?)\\n\" >&2",
+        "  exit 1",
+        "fi",
+        `exec "${process.execPath}" "${BINARY}" "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(older, "ephor"), 0o755);
+
+    const run = await ephor(["init", "--remote", "bastion"], {
+      ...environment,
+      PATH: `${older}:${environment.PATH}`,
+    });
+
+    // `--version` there is this build's: the same number, another build.
+    expect(run.code).toBe(2);
+    expect(run.stdout).toContain(
+      `bastion has ephor ${VERSION} as this computer does, yet a different build`,
+    );
+    expect(run.stderr).toContain(
+      "  - ephor here and on bastion do not fit: the update above",
+    );
+  });
+
+  it("says both versions and the command to update with, when they differ", async () => {
+    const { environment } = setup({ apiPort: await nobodyServing() });
+    const older = directory("ephor-older-");
+    writeFileSync(
+      join(older, "ephor"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = --version ]; then echo 0.0.0-older; exit 0; fi',
+        'if [ "$1" = api-access ]; then',
+        `  "${process.execPath}" "${BINARY}" "$@" | sed 's/"version":"[^"]*"/"version":"0.0.0-older"/'`,
+        "  exit 0",
+        "fi",
+        'if [ "$1" = service ]; then',
+        "  printf \"error: unknown command 'service'\\n(Did you mean serve?)\\n\" >&2",
+        "  exit 1",
+        "fi",
+        `exec "${process.execPath}" "${BINARY}" "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(older, "ephor"), 0o755);
+
+    const run = await ephor(["init", "--remote", "bastion"], {
+      ...environment,
+      PATH: `${older}:${environment.PATH}`,
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stdout).toContain(
+      `bastion has ephor 0.0.0-older, this computer ephor ${VERSION}. Update it on bastion, then run this again:\n  ssh bastion npm i -g ephorate@${VERSION}\n`,
+    );
+  });
+
+  it("warns, and goes on, when ephor there is another version", async () => {
+    const { environment } = setup({ apiPort: await nobodyServing() });
+    const other = directory("ephor-other-");
+    writeFileSync(
+      join(other, "ephor"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = api-access ]; then',
+        `  "${process.execPath}" "${BINARY}" "$@" | sed 's/"version":"[^"]*"/"version":"0.0.0-older"/'`,
+        "  exit 0",
+        "fi",
+        `exec "${process.execPath}" "${BINARY}" "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(other, "ephor"), 0o755);
+
+    const run = await ephor(["init", "--remote", "bastion"], {
+      ...environment,
+      PATH: `${other}:${environment.PATH}`,
+    });
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(
+      `warning: bastion has ephor 0.0.0-older, this computer ephor ${VERSION}. It works, but keep them the same; update it on bastion:\n  ssh bastion npm i -g ephorate@${VERSION}`,
+    );
+  });
+
   it("refuses to repoint a cli.yaml already there", async () => {
     const { here, environment } = setup({ apiPort: 1 });
     writeFileSync(join(here, "cli.yaml"), "remote: old\ntoken: x\n", {
@@ -368,6 +506,7 @@ describe("ephor api-access", () => {
       configPath: join(there, "config.yaml"),
       nodes: 0,
       configHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      version: VERSION,
     });
   });
 
@@ -385,6 +524,7 @@ describe("ephor api-access", () => {
       configPath: "/nonexistent/config.yaml",
       nodes: 0,
       configHash: null,
+      version: VERSION,
     });
   });
 });

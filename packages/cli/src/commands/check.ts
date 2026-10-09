@@ -12,6 +12,7 @@ import {
 import { ApiError, isCheckResponse } from "../api-client";
 import { UsageError } from "../exit-code";
 import { notOnPathMessage, quoteForShell, runOverSsh } from "../remote-command";
+import { olderEphorMessage } from "../remote-version";
 import { stateText } from "../render/state-text";
 import { lastLine } from "../tunnel";
 
@@ -269,10 +270,7 @@ async function checkOverSsh(
     const answer = jsonIn(result.stdout);
     if (isCheckResponse(answer)) return answer;
 
-    throw new UsageError(
-      `\`${command}\` on ${remote} answered something else than a check ` +
-        "result: is ephor there as new as here?",
-    );
+    throw new UsageError(await olderEphorMessage(remote));
   }
 
   const said = lastLine(result.stderr) ?? `exit code ${result.code}`;
