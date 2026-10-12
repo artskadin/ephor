@@ -188,6 +188,107 @@ describe("Scheduler", () => {
     expect(probeNames()).not.toContain("slow");
   });
 
+  describe("a probe with no interval", () => {
+    const WITH_MANUAL: ProbeDescriptor[] = [
+      ...PROBES,
+      {
+        name: "manual",
+        requiresExecutor: false,
+        enabledByDefault: true,
+        defaults: { interval: null, timeout: 10, retries: 0, concurrency: 50 },
+      },
+    ];
+
+    const nodesWith = (manual: Record<string, unknown> = {}) =>
+      resolveConfig(
+        parseConfig(
+          {
+            probes: { manual },
+            nodes: [{ name: "pupa", host: "203.0.113.10" }],
+          },
+          WITH_MANUAL,
+        ),
+        WITH_MANUAL,
+      );
+
+    beforeEach(() => scheduler.setNodes(nodesWith()));
+
+    it("never runs on its own", () => {
+      runFor(100 * MINUTE);
+
+      expect(probeNames()).not.toContain("manual");
+      expect(countOf("fast")).toBe(100);
+    });
+
+    it("runs when forced, by name or with everything else", () => {
+      scheduler.runNow("pupa", "manual");
+      expect(probeNames()).toEqual(["manual"]);
+
+      for (const task of dispatched) scheduler.complete(task);
+      dispatched = [];
+
+      scheduler.runNow();
+      expect(probeNames().sort()).toEqual(["fast", "manual", "slow"]);
+    });
+
+    it("runs once per forced run, not again after it", () => {
+      scheduler.runNow("pupa", "manual");
+      for (const task of dispatched) scheduler.complete(task);
+      dispatched = [];
+
+      runFor(10 * MINUTE);
+
+      expect(probeNames()).not.toContain("manual");
+    });
+
+    // Forced mid-run, it has no slot to fall back on: the forced key alone
+    // must carry it to exactly one more run.
+    it("runs once more when forced while it is still running", async () => {
+      scheduler.runNow("pupa", "manual");
+      const [running] = dispatched;
+      if (!running) throw new Error("expected the forced run to dispatch");
+      dispatched = [];
+
+      const run = scheduler.runNow("pupa", "manual");
+      expect(run.deferredProbes).toEqual(new Set(["manual"]));
+
+      scheduler.complete(running);
+      scheduler.tick();
+      expect(probeNames()).toEqual(["manual"]);
+
+      for (const task of dispatched) scheduler.complete(task);
+      await expect(run.finished).resolves.toBeUndefined();
+
+      dispatched = [];
+      runFor(10 * MINUTE);
+      expect(probeNames()).not.toContain("manual");
+    });
+
+    it("keeps a schedule when the config gives it one", () => {
+      scheduler.setNodes(nodesWith({ interval: "5m" }));
+
+      runFor(10 * MINUTE);
+
+      expect(countOf("manual")).toBeGreaterThanOrEqual(1);
+      expect(countOf("manual")).toBeLessThanOrEqual(2);
+    });
+
+    // Its slot from the old schedule is long past: kept, the pair would run
+    // on the first tick instead of at its own offset.
+    it("joins the schedule at its offset when given an interval again", () => {
+      scheduler.setNodes(nodesWith({ interval: "5m" }));
+      runFor(10 * MINUTE);
+      scheduler.setNodes(nodesWith());
+      runFor(10 * MINUTE);
+      dispatched = [];
+
+      scheduler.setNodes(nodesWith({ interval: "5m" }));
+      scheduler.tick();
+
+      expect(probeNames()).not.toContain("manual");
+    });
+  });
+
   describe("runNow", () => {
     it("ignores the offset and runs immediately", () => {
       scheduler.runNow();

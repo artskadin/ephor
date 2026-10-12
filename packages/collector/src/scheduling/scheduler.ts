@@ -149,14 +149,20 @@ export class Scheduler {
         continue;
       }
 
-      const slot = intervalSlotAt(now, settings.interval * 1000, key);
       const forced = this.forcedKeys.delete(key);
 
-      if (!forced && !this.isDue(key, slot)) {
-        continue;
+      // No interval: only a forced run dispatches it. No slot either, so one
+      // given an interval later waits for its own offset.
+      if (settings.interval === null) {
+        this.lastDispatchedSlot.delete(key);
+        if (!forced) continue;
+      } else {
+        const slot = intervalSlotAt(now, settings.interval * 1000, key);
+        if (!forced && !this.isDue(key, slot)) continue;
+
+        this.lastDispatchedSlot.set(key, slot);
       }
 
-      this.lastDispatchedSlot.set(key, slot);
       this.inFlight.add(key);
       this.markDispatched(key);
       due.push(task);

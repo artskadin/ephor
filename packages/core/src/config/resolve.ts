@@ -13,8 +13,8 @@ export interface ResolvedProbe {
   name: string;
   enabled: boolean;
   disabledReason?: ProbeDisabledReason | undefined;
-  /** Seconds. */
-  interval: number;
+  /** Seconds; `null` when the probe runs only when asked for. */
+  interval: number | null;
   /** Seconds. */
   timeout: number;
   retries: number;

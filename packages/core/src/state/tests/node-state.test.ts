@@ -483,6 +483,102 @@ describe("buildNodeState", () => {
     });
   });
 
+  // The fixture's speed ships with no interval: it runs only when asked for,
+  // so its silence and its age are no news of the node.
+  describe("a probe run only when asked for", () => {
+    const withSpeed = (speed: Record<string, unknown> = {}) =>
+      soloConfig({
+        probes: { speed: { enabled: true, ...speed } },
+        thresholds: {
+          "speed.download_mbps": { warn: 500, worseWhen: "below" },
+        },
+      });
+
+    const monthOld = NOW - 30 * 86_400;
+    const others = QUIET.filter((entry) => !entry.metric.startsWith("speed."));
+
+    it("is listed but neither unknown nor waited for before its first run", () => {
+      const state = firstOf(withSpeed(), others);
+
+      expect(state.probes).toContain("speed");
+      expect(state.status).toBe("ok");
+      expect(state.reasons).toEqual([]);
+    });
+
+    it("ages without going stale, and says it has no interval", () => {
+      const state = firstOf(withSpeed(), [
+        ...others,
+        point("speed.up", { ok: true, ts: monthOld }),
+        point("speed.download_mbps", { value: 900, ts: monthOld }),
+      ]);
+      const view = viewOf(state, "speed.download_mbps");
+
+      expect(view.status).toBe("ok");
+      expect(view.ageSeconds).toBe(30 * 86_400);
+      expect(view.expectedEverySeconds).toBeNull();
+      expect(state.status).toBe("ok");
+    });
+
+    // The run found a problem; hiding it as the value ages would turn the
+    // node green with nothing fixed.
+    it("keeps warning about what its last run found, however old", () => {
+      const state = firstOf(withSpeed(), [
+        ...others,
+        point("speed.up", { ok: true, ts: monthOld }),
+        point("speed.download_mbps", { value: 300, ts: monthOld }),
+      ]);
+
+      expect(viewOf(state, "speed.download_mbps").status).toBe("warn");
+      expect(state.status).toBe("warn");
+      expect(state.reasons).toEqual([
+        "speed.download_mbps is 300, below the warn threshold of 500",
+      ]);
+    });
+
+    it("drops a metric its last run no longer wrote", () => {
+      const state = firstOf(withSpeed(), [
+        ...others,
+        point("speed.up", { ok: true }),
+        point("speed.download_mbps", { value: 900 }),
+        point("speed.upload_mbps", { value: 400, ts: NOW - 60 }),
+      ]);
+
+      expect(state.metrics.map((view) => view.metric)).not.toContain(
+        "speed.upload_mbps",
+      );
+    });
+
+    // A failed run measured nothing: what the one before it measured stays.
+    it("keeps the last values through a failed run", () => {
+      const state = firstOf(withSpeed(), [
+        ...others,
+        point("speed.up", { ok: false, meta: { errorKind: "timeout" } }),
+        point("speed.download_mbps", { value: 900, ts: monthOld }),
+        point("speed.upload_mbps", { value: 400, ts: monthOld }),
+      ]);
+
+      expect(viewOf(state, "speed.download_mbps").value).toBe(900);
+      expect(viewOf(state, "speed.upload_mbps").value).toBe(400);
+      expect(state.reasons).toEqual(["speed probe failing: timeout"]);
+    });
+
+    it("is judged like any other once the config gives it an interval", () => {
+      const silent = firstOf(withSpeed({ interval: "24h" }), others);
+      const aged = firstOf(withSpeed({ interval: "24h" }), [
+        ...others,
+        point("speed.up", { ok: true, ts: NOW - 3 * 86_400 }),
+        point("speed.download_mbps", { value: 900, ts: NOW - 3 * 86_400 }),
+      ]);
+
+      expect(silent.status).toBe("unknown");
+      expect(silent.reasons).toEqual(["speed has not reported yet"]);
+      expect(aged.status).toBe("stale");
+      expect(aged.reasons).toEqual([
+        "speed last reported 3d ago, expected every 1d",
+      ]);
+    });
+  });
+
   describe("a probe that could not run", () => {
     const failing: MetricPoint[] = [
       point("system.up", {

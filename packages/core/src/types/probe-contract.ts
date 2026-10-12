@@ -9,6 +9,7 @@ export interface ProbeContext {
   domain?: string | undefined;
   ports: readonly Port[];
   executor?: CommandRunner | undefined;
+  /** Every point of a run carries it: older ones read as dropped metrics. */
   startedAt: number;
   timeoutMs: number;
   /** Already validated against the probe's own `settings` shape. */
@@ -24,7 +25,8 @@ interface CommandRunner {
 
 /** Used when neither the config nor the node overrides them; seconds. */
 interface ProbeDefaults {
-  interval: number;
+  /** `null`: runs only when asked for, until the config sets an interval. */
+  interval: number | null;
   timeout: number;
   retries: number;
   /** A backstop for forced runs, not a throttle; ssh has its own limits. */

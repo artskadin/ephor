@@ -151,6 +151,18 @@ describe("Collector: acknowledgements after a write", () => {
     toMetrics: () => [],
   };
 
+  // Enabled, never asked for in the test below: with no interval it may not
+  // run for months, and the check must not wait for it.
+  const manualProbe: Probe<Record<string, never>> = {
+    descriptor: {
+      ...FAST,
+      name: "manual",
+      defaults: { ...FAST.defaults, interval: null },
+    },
+    run: async () => ({ ok: true, data: {}, durationMs: 1 }),
+    toMetrics: () => [],
+  };
+
   async function gaugedCollector(
     target: SqliteStorage = new SqliteStorage(":memory:"),
     logger: Logger = createLogger({ level: "silent" }),
@@ -159,6 +171,7 @@ describe("Collector: acknowledgements after a write", () => {
     registry.register(fastProbe);
     registry.register(gaugeProbe);
     registry.register(idleProbe);
+    registry.register(manualProbe);
 
     const config = parseConfig(
       {
@@ -240,7 +253,7 @@ describe("Collector: acknowledgements after a write", () => {
   });
 
   // A restart after downtime: the first probe back sees the others stale.
-  it("waits for every enabled probe after the start", async () => {
+  it("waits for every scheduled probe after the start", async () => {
     const collector = await gaugedCollector();
     const longAgo = nowSeconds() - 3600;
     await db().write([

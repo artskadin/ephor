@@ -145,6 +145,27 @@ describe("resolveNode", () => {
     expect(probes.get("speed")?.enabled).toBe(true);
   });
 
+  it("keeps a probe with no default interval unscheduled until one is set", () => {
+    const unscheduled = firstNodeProbes({
+      probes: { speed: { enabled: true } },
+      nodes: [{ name: "solo", host: "203.0.113.10", ssh: "solo" }],
+    });
+    const scheduled = firstNodeProbes({
+      probes: { speed: { enabled: true } },
+      nodes: [
+        {
+          name: "solo",
+          host: "203.0.113.10",
+          ssh: "solo",
+          probes: { speed: { interval: "7d" } },
+        },
+      ],
+    });
+
+    expect(unscheduled.get("speed")?.interval).toBeNull();
+    expect(scheduled.get("speed")?.interval).toBe(7 * 86_400);
+  });
+
   it("distinguishes 'switched off' from 'cannot run here'", () => {
     const probes = firstNodeProbes({
       probes: { reachability: { enabled: false } },

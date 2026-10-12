@@ -31,8 +31,8 @@ export const TEST_PROBES: ProbeDescriptor[] = [
   {
     name: "speed",
     requiresExecutor: true,
-    // Costly probes ship off.
+    // Costly probes ship off, and with no schedule.
     enabledByDefault: false,
-    defaults: { interval: 3601, timeout: 121, retries: 0, concurrency: 3 },
+    defaults: { interval: null, timeout: 121, retries: 0, concurrency: 3 },
   },
 ];

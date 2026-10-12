@@ -234,11 +234,12 @@ export class Collector {
 
     const points = await this.options.storage.latest(name);
 
-    // Until every enabled probe has run since the start or a wake, a stale
-    // value may be the collector's own absence, not news of the node.
+    // Until every scheduled probe has run since the start or a wake, a stale
+    // value may be the collector's own absence, not news of the node. A probe
+    // run only when asked for may not run for months, and never goes stale.
     const awakeSince = Math.floor(this.wakeWatch.awakeSince / 1000);
     for (const [probe, settings] of node.probes) {
-      if (!settings.enabled) continue;
+      if (!settings.enabled || settings.interval === null) continue;
       const up = points.find((point) => point.metric === `${probe}.up`);
       if (up === undefined || up.ts < awakeSince) return;
     }

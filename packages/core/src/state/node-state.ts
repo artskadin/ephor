@@ -45,8 +45,8 @@ export interface MetricView {
   meta?: Record<string, unknown> | undefined;
   ts?: number | undefined;
   ageSeconds?: number | undefined;
-  /** The probe's interval, for "expected every 30s". */
-  expectedEverySeconds: number;
+  /** For "expected every 30s"; `null`: the probe runs only when asked for. */
+  expectedEverySeconds: number | null;
   breached?: ThresholdLevel | undefined;
 }
 
@@ -163,6 +163,9 @@ function buildNodeStateFor(
     );
 
     if (forProbe.length === 0) {
+      // Nobody promised a run: not having one is no news.
+      if (probe.interval === null) continue;
+
       worsenTo("unknown");
       reasons.push(`${name} has not reported yet`);
       continue;
@@ -187,7 +190,7 @@ function buildNodeStateFor(
     }
 
     // One line per silent probe, not one per value.
-    if (staleAges.length > 0) {
+    if (staleAges.length > 0 && probe.interval !== null) {
       const oldest = Math.max(...staleAges);
       reasons.push(
         `${name} last reported ${formatDuration(oldest)} ago, ` +
@@ -253,9 +256,13 @@ const RETIREMENT_INTERVALS = 10;
 function isRetired(
   point: MetricPoint,
   lastMeasurement: number,
-  intervalSeconds: number,
+  intervalSeconds: number | null,
 ): boolean {
   if (point.metric.endsWith(PROBE_LIVENESS_SUFFIX)) return false;
+
+  // Without a schedule there is no window to warn in: a run stamps all its
+  // points with one second, so an older one is what the last run dropped.
+  if (intervalSeconds === null) return point.ts < lastMeasurement;
 
   return lastMeasurement - point.ts > intervalSeconds * RETIREMENT_INTERVALS;
 }
@@ -268,7 +275,8 @@ function buildMetricView(
 ): MetricView {
   // A clock running ahead gives a point from the future.
   const ageSeconds = Math.max(0, now - point.ts);
-  const stale = ageSeconds > probe.interval * 2;
+  // A probe run only when asked for ages without going stale.
+  const stale = probe.interval !== null && ageSeconds > probe.interval * 2;
 
   const view: MetricView = {
     metric: point.metric,
