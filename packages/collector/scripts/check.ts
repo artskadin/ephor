@@ -18,7 +18,7 @@ const request: CheckRequest = {};
 if (node !== undefined) request.node = node;
 if (probe !== undefined) request.probe = probe;
 
-const registry = createRegistry();
+const registry = createRegistry({ isSingleRun: true });
 const config = await loadConfig(configPath, registry.descriptors());
 const startedAt = Date.now();
 

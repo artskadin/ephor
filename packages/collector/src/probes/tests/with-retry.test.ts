@@ -16,6 +16,7 @@ const CONTEXT: ProbeContext = {
   ports: [],
   startedAt: 0,
   timeoutMs: 20,
+  intervalSeconds: 60,
   settings: {},
 };
 

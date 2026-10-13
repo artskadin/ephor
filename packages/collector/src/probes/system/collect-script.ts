@@ -11,7 +11,63 @@ export const LISTENING_PORTS_SNIPPET = String.raw`
   fi
 `;
 
-export const SYSTEM_COLLECT_SCRIPT = String.raw`
+// One reading of the default route's byte counters as JSON, or `null`: a
+// failure here must not cost the rest of the result. The root is an
+// argument for the tests.
+export const NETWORK_READING_SNIPPET = String.raw`
+  network_reading() {
+    root=$1
+    # The main table, not ip route get: a WARP tunnel's policy rule would
+    # win there. Mask 0: an OpenVPN 0.0.0.0/1 is no default.
+    interface=$(awk 'NR > 1 && $2 == "00000000" && $8 == "00000000" &&
+      (best == "" || $7 < metric) { best = $1; metric = $7 }
+      END { print best }' "$root/net/route" 2>/dev/null || true)
+    # IPv6 only without IPv4; lo holds IPv6's reject routes. The metric is
+    # hex: compared as text, or 000003e8 would read as 3e8, 300 000 000.
+    if [ -z "$interface" ]; then
+      interface=$(awk '$1 == "00000000000000000000000000000000" && $2 == "00" &&
+        $10 != "lo" && (best == "" || "" $6 < "" metric) { best = $10; metric = $6 }
+        END { print best }' "$root/net/ipv6_route" 2>/dev/null || true)
+    fi
+    # print, not printf %d: Debian's mawk stops that at 2147483647.
+    counters=$(awk -v name="$interface" \
+      '{ sub(/:/, " ") } $1 == name { print $2, $10; exit }' \
+      "$root/net/dev" 2>/dev/null || true)
+    uptime_now=$(awk '{ print $1 }' "$root/uptime" 2>/dev/null || true)
+    boot_id=$(cat "$root/sys/kernel/random/boot_id" 2>/dev/null || true)
+    set -- $counters
+    if [ -z "$interface" ] || [ -z "$boot_id" ] || [ -z "$uptime_now" ] ||
+      [ $# -ne 2 ]; then
+      printf null
+      return
+    fi
+    # All of it goes into JSON unescaped: only the characters expected.
+    case "$interface$boot_id" in *[!A-Za-z0-9_.@-]*) printf null; return ;; esac
+    case "$uptime_now" in *[!0-9.]*) printf null; return ;; esac
+    case "$1$2" in *[!0-9]*) printf null; return ;; esac
+    printf '{"interface":"%s","bootId":"%s","uptimeSeconds":%s,"receivedBytes":%s,"sentBytes":%s}' \
+      "$interface" "$boot_id" "$uptime_now" "$1" "$2"
+  }
+`;
+
+/**
+ * With no earlier reading to compare against, a second one this many
+ * seconds after the first gives the rate within the run.
+ */
+export function systemCollectScript(secondReadAfterSeconds: number): string {
+  const secondRead =
+    secondReadAfterSeconds > 0
+      ? String.raw`
+  if [ "$network" != null ]; then
+    sleep ${secondReadAfterSeconds}
+    second_reading=$(network_reading /proc)
+    if [ "$second_reading" != null ]; then
+      network="$network,$second_reading"
+    fi
+  fi`
+      : "";
+
+  return String.raw`
   set -eu
 
   read -r load1 load5 load15 _ < /proc/loadavg
@@ -30,6 +86,11 @@ export const SYSTEM_COLLECT_SCRIPT = String.raw`
 
 ${LISTENING_PORTS_SNIPPET}
 
+${NETWORK_READING_SNIPPET}
+
+  network=$(network_reading /proc)${secondRead}
+  if [ "$network" != null ]; then network="[$network]"; fi
+
   printf '{'
   printf '"load1":%s,' "$load1"
   printf '"load5":%s,' "$load5"
@@ -41,6 +102,8 @@ ${LISTENING_PORTS_SNIPPET}
   printf '"hostName":"%s",' "$host_name"
   printf '"diskTotalBytes":%s,' "$disk_total"
   printf '"diskUsedBytes":%s,' "$disk_used"
-  printf '"listeningPorts":%s' "$listening_ports"
+  printf '"listeningPorts":%s,' "$listening_ports"
+  printf '"network":%s' "$network"
   printf '}'
 `;
+}

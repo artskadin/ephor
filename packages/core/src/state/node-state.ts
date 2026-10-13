@@ -172,7 +172,7 @@ function buildNodeStateFor(
       continue;
     }
 
-    const staleAges: number[] = [];
+    const staleViews: MetricView[] = [];
     const lastMeasurement = lastMeasurementTs(forProbe);
 
     for (const point of forProbe) {
@@ -182,19 +182,31 @@ function buildNodeStateFor(
       metrics.push(view);
       worsenTo(view.status);
 
-      if (view.status === "stale" && view.ageSeconds !== undefined) {
-        staleAges.push(view.ageSeconds);
-      }
+      if (view.status === "stale") staleViews.push(view);
 
       const reason = reasonFor(view, node.thresholds.get(point.metric));
       if (reason !== undefined) reasons.push(reason);
     }
 
-    // One line per silent probe, not one per value.
-    if (staleAges.length > 0 && probe.interval !== null) {
-      const oldest = Math.max(...staleAges);
+    // One line per silent probe, not one per value. A probe that answered
+    // on time, and succeeded, but left values behind (a traffic rate needs
+    // two readings) names those: "system last reported" would be untrue.
+    if (staleViews.length > 0 && probe.interval !== null) {
+      const oldest = Math.max(
+        ...staleViews.map((view) => view.ageSeconds ?? 0),
+      );
+      const liveness = metrics.find(
+        (view) => view.metric === `${name}${PROBE_LIVENESS_SUFFIX}`,
+      );
+      const hasAnsweredWell =
+        liveness !== undefined &&
+        liveness.ok === true &&
+        liveness.status !== "stale";
+      const lateSubject = hasAnsweredWell
+        ? `${staleViews.map((view) => view.metric).join(", ")} last measured`
+        : `${name} last reported`;
       reasons.push(
-        `${name} last reported ${formatDuration(oldest)} ago, ` +
+        `${lateSubject} ${formatDuration(oldest)} ago, ` +
           `expected every ${formatDuration(probe.interval)}`,
       );
     }

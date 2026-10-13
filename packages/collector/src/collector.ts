@@ -170,6 +170,7 @@ export class Collector {
       executor: createExecutor(nodeConfig, timeoutMs, this.sshGates),
       startedAt,
       timeoutMs,
+      intervalSeconds: resolvedProbe.interval,
       settings: resolvedProbe.settings,
     };
 

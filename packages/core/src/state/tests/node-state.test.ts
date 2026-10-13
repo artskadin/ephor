@@ -350,7 +350,10 @@ describe("buildNodeState", () => {
       expect(viewOf(state, "system.ports").severity).toBe("warn");
       expect(state.status).toBe("stale");
       expect(state.reasons).toHaveLength(1);
-      expect(state.reasons[0]).toMatch(/^system last reported/);
+      // system itself answered just now: the late values are named.
+      expect(state.reasons[0]).toMatch(
+        /^system\.disk_percent, system\.ports last measured 4d 15h ago/,
+      );
 
       // Fresh, the same readings are the status.
       const fresh = firstOf(
@@ -386,6 +389,38 @@ describe("buildNodeState", () => {
 
       expect(viewOf(state, "speed.download_mbps").status).toBe("ok");
       expect(state.status).toBe("ok");
+    });
+
+    // A traffic rate needs two readings: after a gap the probe answers
+    // with load and memory, and the rate comes one run later.
+    it("names the late values, not the probe, when the probe answered", () => {
+      const state = firstOf(soloConfig(), [
+        ...QUIET,
+        point("system.load_percent", { value: 3 }),
+        point("system.received_mbps", { value: 300, ts: NOW - 300 }),
+        point("system.sent_mbps", { value: 290, ts: NOW - 300 }),
+      ]);
+
+      expect(state.status).toBe("stale");
+      expect(state.reasons).toEqual([
+        "system.received_mbps, system.sent_mbps last measured 5m ago, " +
+          "expected every 1m",
+      ]);
+    });
+
+    // Its `.up` is written on failure too: a node whose ssh is down has a
+    // fresh one, and its values did not lag, the probe failed.
+    it("names the probe, not its values, when its fresh run failed", () => {
+      const state = firstOf(soloConfig(), [
+        ...QUIET.filter((entry) => entry.metric !== "system.up"),
+        point("system.up", { ok: false, meta: { errorKind: "unreachable" } }),
+        point("system.load_percent", { value: 3, ts: NOW - 300 }),
+        point("system.received_mbps", { value: 300, ts: NOW - 300 }),
+      ]);
+
+      expect(state.reasons).toContain(
+        "system last reported 5m ago, expected every 1m",
+      );
     });
 
     it("names the probe and both durations once, not once per value", () => {

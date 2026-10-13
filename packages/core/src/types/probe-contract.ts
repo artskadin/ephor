@@ -12,6 +12,8 @@ export interface ProbeContext {
   /** Every point of a run carries it: older ones read as dropped metrics. */
   startedAt: number;
   timeoutMs: number;
+  /** Its schedule on this node; `null` when it runs only when asked for. */
+  intervalSeconds: number | null;
   /** Already validated against the probe's own `settings` shape. */
   settings: Readonly<Record<string, unknown>>;
 }

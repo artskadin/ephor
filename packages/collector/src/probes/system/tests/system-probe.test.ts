@@ -1,6 +1,10 @@
 import { type ProbeContext, parseConfig } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
-import { SystemProbe, systemProbeDescriptor } from "../system-probe";
+import {
+  SystemProbe,
+  systemProbeDescriptor,
+  trafficBetween,
+} from "../system-probe";
 
 const SNAPSHOT = {
   hostName: "achilles",
@@ -13,6 +17,8 @@ const SNAPSHOT = {
   memAvailableKb: 500,
   diskTotalBytes: 1000,
   diskUsedBytes: 100,
+  network: null,
+  traffic: undefined,
 };
 
 /** The node's ports as the config schema resolves them. */
@@ -28,6 +34,7 @@ function contextWith(ports: unknown[]): ProbeContext {
     ports: config.nodes[0]?.ports ?? [],
     startedAt: 1_800_000_000,
     timeoutMs: 1000,
+    intervalSeconds: 60,
     settings: {},
   };
 }
@@ -134,5 +141,196 @@ describe("SystemProbe.run on a failed ssh", () => {
       ok: false,
       error: { kind: "unreachable" },
     });
+  });
+});
+
+describe("trafficBetween", () => {
+  const reading = (
+    uptimeSeconds: number,
+    receivedBytes: number,
+    sentBytes: number,
+    bootId = "boot-a",
+  ) => ({ interface: "ens3", bootId, uptimeSeconds, receivedBytes, sentBytes });
+
+  it("gives the mean over the time between, in Mbit/s each way", () => {
+    // 2.25 GB in and 1.5 GB out in a minute; counters past 2^31 already.
+    const earlier = reading(1000, 167_000_000_000, 151_000_000_000);
+    const later = reading(1060, 169_250_000_000, 152_500_000_000);
+
+    expect(trafficBetween(earlier, later, 120)).toEqual({
+      receivedMbps: 300,
+      sentMbps: 200,
+    });
+  });
+
+  // After a long absence a rebooted node's counter may have outgrown the old.
+  it("gives none across a reboot, even when the counter grew past it", () => {
+    const beforeReboot = reading(1000, 5_000, 5_000, "boot-a");
+    const afterReboot = reading(1050, 9_000_000, 9_000_000, "boot-b");
+
+    expect(trafficBetween(beforeReboot, afterReboot, 120)).toBeUndefined();
+  });
+
+  it("gives none over a reset counter or another interface", () => {
+    const earlier = reading(1000, 9_000, 9_000);
+    const elsewhere = { ...reading(1060, 9_500, 9_500), interface: "eth1" };
+
+    expect(
+      trafficBetween(earlier, reading(1060, 8_000, 9_500), 120),
+    ).toBeUndefined();
+    expect(trafficBetween(earlier, elsewhere, 120)).toBeUndefined();
+  });
+
+  // A laptop's collector waking after a night: not the last minute's load.
+  it("does not pass a mean of hours for the last minute", () => {
+    expect(
+      trafficBetween(reading(0, 0, 0), reading(28_800, 9, 9), 120),
+    ).toBeUndefined();
+    expect(
+      trafficBetween(reading(0, 0, 0), reading(28_800, 9, 9), null),
+    ).toBeDefined();
+  });
+
+  it("gives none over seconds", () => {
+    expect(
+      trafficBetween(reading(1000, 0, 0), reading(1002, 9, 9), 120),
+    ).toBeUndefined();
+  });
+});
+
+describe("SystemProbe traffic over runs", () => {
+  /** A node whose script answers each call's `network` field as given. */
+  function nodeAnswering(network: (call: number) => unknown) {
+    const scripts: string[] = [];
+    let call = 0;
+    const executor = {
+      run: async (script: string) => {
+        scripts.push(script);
+        call += 1;
+        const stdout = JSON.stringify({ ...SNAPSHOT, network: network(call) });
+        return { stdout, stderr: "", exitCode: 0 };
+      },
+    };
+    return { scripts, executor };
+  }
+
+  const at = (uptimeSeconds: number, bytes: number, bootId = "boot-a") => ({
+    interface: "ens3",
+    bootId,
+    uptimeSeconds,
+    receivedBytes: bytes,
+    sentBytes: bytes,
+  });
+
+  async function trafficOf(probe: SystemProbe, executor: unknown) {
+    const outcome = await probe.run({
+      ...contextWith([]),
+      executor: executor as ProbeContext["executor"],
+    });
+    if (!outcome.ok) throw new Error("the run failed");
+    return outcome.data.traffic;
+  }
+
+  // A daemon never waits on a node: its first run has no value yet.
+  it("in a daemon, measures each run against the previous one", async () => {
+    const probe = new SystemProbe();
+    const node = nodeAnswering((call) => [
+      at(1000 + 60 * call, 750_000_000 * call),
+    ]);
+
+    const first = await trafficOf(probe, node.executor);
+    const second = await trafficOf(probe, node.executor);
+
+    expect(node.scripts.join("\n")).not.toContain("sleep");
+    expect(first).toBeUndefined();
+    expect(second).toEqual({ receivedMbps: 100, sentMbps: 100 });
+  });
+
+  it("in a check with no daemon, reads twice within its one run", async () => {
+    const probe = new SystemProbe({ readsTwicePerRun: true });
+    const node = nodeAnswering(() => [at(1000, 0), at(1005, 62_500_000)]);
+
+    expect(await trafficOf(probe, node.executor)).toEqual({
+      receivedMbps: 100,
+      sentMbps: 100,
+    });
+    expect(node.scripts[0]).toContain("sleep 5");
+  });
+
+  // A forced check right after a scheduled run: seconds say little, and the
+  // next scheduled run still gets its full minute.
+  it("keeps the earlier base when a run comes seconds after the last", async () => {
+    const probe = new SystemProbe();
+    const uptimes = [1000, 1002, 1060];
+    const node = nodeAnswering((call) => [
+      at(uptimes[call - 1] ?? 0, 7_500_000 * (call === 3 ? 100 : call)),
+    ]);
+
+    await trafficOf(probe, node.executor);
+    const tooSoon = await trafficOf(probe, node.executor);
+    const next = await trafficOf(probe, node.executor);
+
+    expect(tooSoon).toBeUndefined();
+    expect(next).toEqual({ receivedMbps: 99, sentMbps: 99 });
+  });
+
+  // After a reboot the new reading is the base: the run after measures.
+  it("starts again from the first reading after a reboot", async () => {
+    const probe = new SystemProbe();
+    const node = nodeAnswering((call) =>
+      call === 1
+        ? [at(5000, 9_000_000_000, "boot-a")]
+        : [at(60 * call, 750_000_000 * call, "boot-b")],
+    );
+
+    await trafficOf(probe, node.executor);
+    const afterReboot = await trafficOf(probe, node.executor);
+    const next = await trafficOf(probe, node.executor);
+
+    expect(afterReboot).toBeUndefined();
+    expect(next).toEqual({ receivedMbps: 100, sentMbps: 100 });
+  });
+
+  // A reading that vanished during the second read, or a broken one.
+  it("passes over a reading that is not one, without failing the run", async () => {
+    const probe = new SystemProbe({ readsTwicePerRun: true });
+    const node = nodeAnswering(() => [at(1000, 0), null]);
+
+    expect(await trafficOf(probe, node.executor)).toBeUndefined();
+  });
+
+  it("forgets a node whose counters it could not read", async () => {
+    const probe = new SystemProbe();
+    const node = nodeAnswering((call) =>
+      call === 2 ? null : [at(1000 + 60 * call, 0)],
+    );
+
+    await trafficOf(probe, node.executor);
+    const unreadable = await trafficOf(probe, node.executor);
+    const afterwards = await trafficOf(probe, node.executor);
+
+    expect(unreadable).toBeUndefined();
+    expect(afterwards).toBeUndefined();
+  });
+
+  // A value-less point would read as ok over a warn: none is written, and
+  // the last value stands until the next one.
+  it("writes both directions when measured, and nothing when not", () => {
+    const probe = new SystemProbe();
+    const pointsFor = (
+      traffic: { receivedMbps: number; sentMbps: number } | undefined,
+    ) =>
+      probe
+        .toMetrics(
+          { ...SNAPSHOT, listeningPorts: "", traffic },
+          contextWith([]),
+        )
+        .filter((point) => point.metric.endsWith("_mbps"));
+
+    expect(pointsFor({ receivedMbps: 300, sentMbps: 200 })).toMatchObject([
+      { metric: "system.received_mbps", value: 300 },
+      { metric: "system.sent_mbps", value: 200 },
+    ]);
+    expect(pointsFor(undefined)).toEqual([]);
   });
 });

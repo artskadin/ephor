@@ -6,7 +6,7 @@ import type {
   ProbeError,
   ProbeOutcome,
 } from "@ephorate/core";
-import { SYSTEM_COLLECT_SCRIPT } from "./collect-script";
+import { systemCollectScript } from "./collect-script";
 
 export const systemProbeDescriptor: ProbeDescriptor = {
   name: "system",
@@ -34,12 +34,58 @@ interface SystemSnapshot {
   diskUsedBytes: number;
   /** Comma-separated; null when `ss` is missing or failed on the node. */
   listeningPorts: string | null;
+  /** One reading, or two a few seconds apart; null without an interface. */
+  network: unknown[] | null;
 }
 
-export class SystemProbe implements Probe<SystemSnapshot> {
-  readonly descriptor = systemProbeDescriptor;
+/** The default-route interface's byte counters, by the node's own clock. */
+interface NetworkReading {
+  interface: string;
+  bootId: string;
+  uptimeSeconds: number;
+  receivedBytes: number;
+  sentBytes: number;
+}
 
-  async run(context: ProbeContext): Promise<ProbeOutcome<SystemSnapshot>> {
+interface Traffic {
+  receivedMbps: number;
+  sentMbps: number;
+}
+
+interface SystemResult extends SystemSnapshot {
+  /**
+   * None when there is nothing fair to compare: nothing is written, and the
+   * last value stands (a value-less point would read as ok over a warn).
+   */
+  traffic: Traffic | undefined;
+}
+
+// About as long as reachability takes beside it in a check, and well under
+// the 15 s timeout with a 3 s login through a jump host.
+const SECOND_READ_AFTER_SECONDS = 5;
+// Under the second read's 5 s, so its pair always counts: the node's uptime
+// counts in hundredths, and 5 s of sleep can read as 4.99.
+const SHORTEST_WINDOW_SECONDS = 4;
+
+interface SystemProbeOptions {
+  /**
+   * A check with no daemon runs once, with no earlier reading ever: the
+   * script reads twice. A daemon never waits on a node.
+   */
+  readsTwicePerRun?: boolean;
+}
+
+export class SystemProbe implements Probe<SystemResult> {
+  readonly descriptor = systemProbeDescriptor;
+  /** By node name: what the next run measures traffic against. */
+  private readonly previousReadings = new Map<string, NetworkReading>();
+  private readonly readsTwicePerRun: boolean;
+
+  constructor(options: SystemProbeOptions = {}) {
+    this.readsTwicePerRun = options.readsTwicePerRun ?? false;
+  }
+
+  async run(context: ProbeContext): Promise<ProbeOutcome<SystemResult>> {
     const startedAt = Date.now();
 
     if (!context.executor) {
@@ -51,7 +97,10 @@ export class SystemProbe implements Probe<SystemSnapshot> {
     }
 
     try {
-      const result = await context.executor.run(SYSTEM_COLLECT_SCRIPT, {
+      const script = systemCollectScript(
+        this.readsTwicePerRun ? SECOND_READ_AFTER_SECONDS : 0,
+      );
+      const result = await context.executor.run(script, {
         timeoutMs: context.timeoutMs,
       });
 
@@ -67,9 +116,16 @@ export class SystemProbe implements Probe<SystemSnapshot> {
         };
       }
 
+      const snapshot = parseSnapshot(result.stdout);
+      const traffic = this.measureTraffic(
+        context.nodeName,
+        (snapshot.network ?? []).filter(isNetworkReading),
+        context.intervalSeconds,
+      );
+
       return {
         ok: true,
-        data: parseSnapshot(result.stdout),
+        data: { ...snapshot, traffic },
         durationMs: Date.now() - startedAt,
       };
     } catch (cause) {
@@ -81,7 +137,36 @@ export class SystemProbe implements Probe<SystemSnapshot> {
     }
   }
 
-  toMetrics(snapshot: SystemSnapshot, context: ProbeContext): MetricPoint[] {
+  /** Two readings of this run, else this one against the previous run's. */
+  private measureTraffic(
+    nodeName: string,
+    readings: readonly NetworkReading[],
+    intervalSeconds: number | null,
+  ): Traffic | undefined {
+    const previous = this.previousReadings.get(nodeName);
+    const [first, second] = readings;
+
+    if (first === undefined) {
+      this.previousReadings.delete(nodeName);
+      return undefined;
+    }
+    if (second !== undefined) {
+      this.previousReadings.set(nodeName, second);
+      return trafficBetween(first, second, null);
+    }
+    // A forced check seconds after a run: the base stays for the next run.
+    if (previous !== undefined && isTooSoon(previous, first)) return undefined;
+
+    this.previousReadings.set(nodeName, first);
+    if (previous === undefined) return undefined;
+
+    // Older than two runs: the mean of hours would pass for the last minute.
+    const longestWindowSeconds =
+      intervalSeconds === null ? null : intervalSeconds * 2;
+    return trafficBetween(previous, first, longestWindowSeconds);
+  }
+
+  toMetrics(snapshot: SystemResult, context: ProbeContext): MetricPoint[] {
     const base = { ts: context.startedAt, node: context.nodeName };
 
     // Percent: raw load and bytes are not comparable between machines.
@@ -114,8 +199,77 @@ export class SystemProbe implements Probe<SystemSnapshot> {
         value: Math.floor(snapshot.uptimeSeconds),
       },
       { ...base, ...comparePorts(snapshot.listeningPorts, context) },
+      ...(snapshot.traffic === undefined
+        ? []
+        : [
+            {
+              ...base,
+              metric: "system.received_mbps",
+              value: snapshot.traffic.receivedMbps,
+            },
+            {
+              ...base,
+              metric: "system.sent_mbps",
+              value: snapshot.traffic.sentMbps,
+            },
+          ]),
     ];
   }
+}
+
+function isTooSoon(earlier: NetworkReading, later: NetworkReading): boolean {
+  const seconds = later.uptimeSeconds - earlier.uptimeSeconds;
+
+  return (
+    later.bootId === earlier.bootId &&
+    seconds >= 0 &&
+    seconds < SHORTEST_WINDOW_SECONDS
+  );
+}
+
+// None across a reboot (another boot id: the counter may even have grown
+// past the old one), a moved route, a reset counter or too long a window.
+export function trafficBetween(
+  earlier: NetworkReading,
+  later: NetworkReading,
+  longestWindowSeconds: number | null,
+): Traffic | undefined {
+  const seconds = later.uptimeSeconds - earlier.uptimeSeconds;
+  const receivedBytes = later.receivedBytes - earlier.receivedBytes;
+  const sentBytes = later.sentBytes - earlier.sentBytes;
+
+  if (
+    later.bootId !== earlier.bootId ||
+    later.interface !== earlier.interface ||
+    receivedBytes < 0 ||
+    sentBytes < 0 ||
+    seconds < SHORTEST_WINDOW_SECONDS ||
+    (longestWindowSeconds !== null && seconds > longestWindowSeconds)
+  ) {
+    return undefined;
+  }
+
+  const megabitsPerSecond = (bytes: number) =>
+    roundToTenth((bytes * 8) / seconds / 1_000_000);
+
+  return {
+    receivedMbps: megabitsPerSecond(receivedBytes),
+    sentMbps: megabitsPerSecond(sentBytes),
+  };
+}
+
+// From the wire: a reading missing a field would read as NaN Mbit/s.
+function isNetworkReading(value: unknown): value is NetworkReading {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.interface === "string" &&
+    typeof candidate.bootId === "string" &&
+    typeof candidate.uptimeSeconds === "number" &&
+    typeof candidate.receivedBytes === "number" &&
+    typeof candidate.sentBytes === "number"
+  );
 }
 
 // ssh exits 255 for its own failure, else with the script's code: measured,

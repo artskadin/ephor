@@ -43,6 +43,7 @@ const CONTEXT = {
   ports: [],
   startedAt: 0,
   timeoutMs: 1000,
+  intervalSeconds: 300,
   settings: SETTINGS,
 };
 

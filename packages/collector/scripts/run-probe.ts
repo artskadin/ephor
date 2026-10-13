@@ -17,7 +17,7 @@ const nodeName = process.argv[3];
 const configPath = process.argv[4] ?? "../../examples/config.local.yaml";
 
 const logger = createLogger({ level: "debug" });
-const registry = createRegistry();
+const registry = createRegistry({ isSingleRun: true });
 
 const config = await loadConfig(configPath, registry.descriptors());
 const resolved = resolveConfig(config, registry.descriptors());
@@ -64,6 +64,7 @@ const outcome = await probe.run({
   ),
   startedAt: Math.floor(startedAt / 1000),
   timeoutMs,
+  intervalSeconds: resolvedProbe.interval,
   settings: resolvedProbe.settings,
 });
 
