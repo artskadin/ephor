@@ -106,10 +106,10 @@ export function StatusTable({
         keys={keys}
       />
       {rows.map((row) => (
-        <Box key={row.node} flexDirection="column">
+        <Box key={row.nodeName} flexDirection="column">
           <Line
             cells={[
-              { text: row.name.text, tint: tint(row.name.status) },
+              { text: row.nameCell.text, tint: tint(row.nameCell.status) },
               ...row.values.map((cell) => ({
                 text: cell.text,
                 tint: tint(cell.status),
@@ -158,7 +158,7 @@ export function wrappedHeight(text: string, columns: number): number {
 export function nodeHeights(
   state: StateResponse,
   columns: number,
-): { node: string; height: number }[] {
+): { nodeName: string; height: number }[] {
   return layoutTable(state).rows.map((row) => {
     let height = 1;
     if (row.ages.some((cell) => cell.text !== "")) height += 1;
@@ -169,7 +169,7 @@ export function nodeHeights(
       height += wrappedHeight(indented(row.reasons), columns);
     }
 
-    return { node: row.node, height };
+    return { nodeName: row.nodeName, height };
   });
 }
 
@@ -207,7 +207,7 @@ function layoutTable(state: StateResponse): Layout {
 
   // From the plain text, so colour cannot move a column.
   const widths = [
-    Math.max("NODE".length, ...rows.map((row) => row.name.text.length)),
+    Math.max("NODE".length, ...rows.map((row) => row.nameCell.text.length)),
     ...columns.map((column, index) =>
       Math.max(
         column.title.length,
@@ -230,7 +230,7 @@ function worstFirst(left: NodeState, right: NodeState): number {
   const byStatus = STATUS_RANK[right.status] - STATUS_RANK[left.status];
   if (byStatus !== 0) return byStatus;
 
-  return left.node < right.node ? -1 : left.node > right.node ? 1 : 0;
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
 }
 
 interface PaintedCell {
@@ -292,8 +292,8 @@ function PaintedText({ text, tint }: PaintedCell): ReactElement {
 }
 
 interface Row {
-  node: string;
-  name: { text: string; status: MetricStatus };
+  nodeName: string;
+  nameCell: { text: string; status: MetricStatus };
   values: { text: string; status: MetricStatus }[];
   ages: { text: string; status: MetricStatus }[];
   acknowledgement?: string;
@@ -312,9 +312,9 @@ function buildRow(
   );
 
   const row: Row = {
-    node: node.node,
-    name: {
-      text: `${node.status === "ok" ? "" : "! "}${node.node}`,
+    nodeName: node.name,
+    nameCell: {
+      text: `${node.status === "ok" ? "" : "! "}${node.name}`,
       status: node.status,
     },
     values: cells.map((cell) =>

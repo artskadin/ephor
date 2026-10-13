@@ -63,7 +63,11 @@ export function Watch(props: WatchProps): ReactElement {
   const total = heights.length;
   const tail =
     (outage
-      ? `collector at ${apiUrl} unreachable since ` +
+      ? `collector at ${apiUrl} ` +
+        (outage.isUnreadable
+          ? "answers in a form this ephor cannot read"
+          : "unreachable") +
+        " since " +
         `${clock(outage.sinceMs)}, last update ${clock(updatedMs)}: ` +
         outage.message
       : `collector at ${apiUrl} · updated ${clock(updatedMs)} · q to quit`) +
@@ -84,7 +88,7 @@ export function Watch(props: WatchProps): ReactElement {
     columns,
   );
   const fleet = {
-    names: heights.map((each) => each.node),
+    names: heights.map((each) => each.nodeName),
     heights: heights.map((each) => each.height),
     budget: props.rows - 1 - 1 - footerHeight - 1,
   };

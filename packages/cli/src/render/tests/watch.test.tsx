@@ -18,7 +18,7 @@ function stateOf(status: "ok" | "warn"): StateResponse {
     now: NOW_MS / 1000,
     nodes: [
       {
-        node: "achilles",
+        name: "achilles",
         status,
         reachability: "ok",
         probes: ["reachability"],
@@ -170,7 +170,7 @@ describe("Watch over a fleet taller than the window", () => {
   const fleet: StateResponse = {
     now: NOW_MS / 1000,
     nodes: Array.from({ length: 30 }, (_, index) => ({
-      node: `node-${String(index).padStart(2, "0")}`,
+      name: `node-${String(index).padStart(2, "0")}`,
       status: index < 2 ? ("critical" as const) : ("warn" as const),
       reachability: "ok" as const,
       probes: ["reachability"],

@@ -51,7 +51,8 @@ export interface MetricView {
 }
 
 export interface NodeState {
-  node: string;
+  /** The node's name in config.yaml. */
+  name: string;
   status: MetricStatus;
   /** `null` when the probe is switched off for this node. */
   reachability: Verdict | null;
@@ -225,7 +226,7 @@ function buildNodeStateFor(
   }
 
   return {
-    node: node.config.name,
+    name: node.config.name,
     status,
     reachability,
     probes: [...enabledProbes.keys()],

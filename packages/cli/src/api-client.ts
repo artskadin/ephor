@@ -8,6 +8,7 @@ import {
   type RemovedAcknowledgementResponse,
   type StateResponse,
 } from "@ephorate/core";
+import { incompatibleCollectorText, versionIn } from "./remote-version";
 
 /** `refused` alone means "is `ephor serve` running there?". */
 type ApiFailure =
@@ -18,7 +19,9 @@ type ApiFailure =
   | "timeout"
   | "unauthorized"
   | "rejected"
-  | "bad-answer";
+  | "bad-answer"
+  /** An ephor collector, answering in a form this client cannot read. */
+  | "incompatible";
 
 export class ApiError extends Error {
   constructor(
@@ -62,6 +65,7 @@ export class ApiClient {
 
   async state(): Promise<StateResponse> {
     const answer = await this.request("GET", "/api/state");
+    if (namesNodesTheOldWay(answer)) throw this.incompatibleCollector(answer);
 
     if (!isStateResponse(answer)) {
       throw this.badAnswer("/api/state", "is not a state");
@@ -79,6 +83,7 @@ export class ApiClient {
       Math.max(CHECK_TIMEOUT_MS, this.options.timeoutMs ?? 0),
     );
 
+    if (namesNodesTheOldWay(answer)) throw this.incompatibleCollector(answer);
     if (!isCheckResponse(answer)) {
       throw this.badAnswer("/api/check", "is not a check result");
     }
@@ -233,6 +238,18 @@ export class ApiClient {
     );
   }
 
+  private incompatibleCollector(answer: unknown): ApiError {
+    const version = versionIn((answer as { version?: unknown }).version);
+    const collector = {
+      remote: this.options.tunnel?.remote,
+      apiUrl: this.options.apiUrl,
+    };
+    return new ApiError(
+      "incompatible",
+      incompatibleCollectorText(collector, version),
+    );
+  }
+
   private badAnswer(path: string, what: string, cause?: unknown): ApiError {
     return new ApiError(
       "bad-answer",
@@ -241,6 +258,23 @@ export class ApiClient {
       cause === undefined ? undefined : { cause },
     );
   }
+}
+
+// Until 2026-10-13 a node's name came as `node`, now `name`: an older
+// serve's answer would draw a table of nameless nodes.
+export function namesNodesTheOldWay(answer: unknown): boolean {
+  const nodes = (answer as { nodes?: unknown } | null)?.nodes;
+
+  return (
+    Array.isArray(nodes) &&
+    nodes.some(
+      (node) =>
+        typeof node === "object" &&
+        node !== null &&
+        "node" in node &&
+        !("name" in node),
+    )
+  );
 }
 
 /** Enough to tell another program on the port from a collector; no schema. */

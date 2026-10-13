@@ -296,7 +296,7 @@ function reportedIn(outcome: CheckOutcome): string[] {
 
   return outcome.response.nodes
     .filter((node) => node.metrics.some((view) => view.metric === "fast.up"))
-    .map((node) => node.node);
+    .map((node) => node.name);
 }
 
 describe("checkWithoutDaemon", () => {
@@ -358,7 +358,7 @@ describe("checkWithoutDaemon", () => {
       response: {
         complete: true,
         pending: [],
-        nodes: [{ node: "pupa", status: "warn" }],
+        nodes: [{ name: "pupa", status: "warn" }],
       },
     });
   });

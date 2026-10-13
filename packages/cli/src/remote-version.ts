@@ -65,6 +65,44 @@ export function collectorVersionWarning(
         `${here}, an older install:\n  npm i -g ephorate@${there}`;
 }
 
+/**
+ * For a collector whose answer this client cannot use: which side to
+ * update and how. `version` as the collector said it, when it did.
+ */
+export function incompatibleCollectorText(
+  collector: { remote?: string | undefined; apiUrl?: string | undefined },
+  version: string | undefined,
+  here = VERSION,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const { remote, apiUrl } = collector;
+  if (remote !== undefined) {
+    return `${incompatibilityText(remote, version, here)}\n${restartThereLine(remote)}`;
+  }
+
+  const who =
+    apiUrl !== undefined && !isLoopback(apiUrl)
+      ? `The collector at ${apiUrl}`
+      : "The ephor serve here";
+  if (version !== undefined && compareVersions(version, here) > 0) {
+    return (
+      `${who} runs ephor ${version}, this command ephor ${here}. Update ` +
+      `this computer:\n  npm i -g ephorate@${version}`
+    );
+  }
+
+  // Unknown or equal reads as older: such an answer came from older code.
+  const runs =
+    version === undefined
+      ? "an ephor older than this command"
+      : version === here
+        ? `ephor ${version} as this command does, but an older build`
+        : `ephor ${version}, older than this command's ${here}`;
+  return apiUrl !== undefined && !isLoopback(apiUrl)
+    ? `${who} runs ${runs}. Update it there and restart its serve:\n  npm i -g ephorate@${here}`
+    : `${who} runs ${runs}. Restart it onto the ephor installed here:\n${restartHereLine(platform)}`;
+}
+
 /** A serve on this machine, restarted onto the ephor installed now. */
 export function restartHereLine(
   platform: NodeJS.Platform = process.platform,

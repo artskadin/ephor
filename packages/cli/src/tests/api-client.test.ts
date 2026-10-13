@@ -162,6 +162,28 @@ describe("ApiClient.state", () => {
     }
   });
 
+  // Before 2026-10-13 a serve named its nodes `node`; read as is, the
+  // table would draw rows with no name.
+  it("says to update an older serve when it names nodes the old way", async () => {
+    const url = await serverAnswering(
+      200,
+      JSON.stringify({
+        now: 0,
+        version: "0.0.0-old",
+        nodes: [{ node: "achilles", status: "ok" }],
+      }),
+    );
+
+    const failure = await failureOf(
+      new ApiClient({ apiUrl: url, token: TOKEN }),
+    );
+
+    expect(failure.failure).toBe("incompatible");
+    expect(failure.message).toContain(
+      "runs ephor 0.0.0-old, older than this command",
+    );
+  });
+
   it("names the address and the daemon when nobody answers there", async () => {
     const url = await closedPortUrl();
 

@@ -730,7 +730,7 @@ describe("nodeHeights", () => {
       ).split("\n");
       const heights = nodeHeights(state, columns);
 
-      expect(heights.map((each) => each.node)).toEqual([
+      expect(heights.map((each) => each.nodeName)).toEqual([
         "german",
         "hector",
         "antilochus",
@@ -743,8 +743,8 @@ describe("nodeHeights", () => {
       // Each node starts exactly where the heights before it say: a
       // wrapped reason may start a line without a space, so no guessing.
       let line = 1;
-      for (const { node, height } of heights) {
-        expect(drawn[line]?.replace(/^! /, "").split(" ")[0]).toBe(node);
+      for (const { nodeName, height } of heights) {
+        expect(drawn[line]?.replace(/^! /, "").split(" ")[0]).toBe(nodeName);
         line += height;
       }
     },

@@ -158,7 +158,7 @@ export function stateOf(
   return {
     now: NOW,
     nodes: nodes.map(({ name, status }) => ({
-      node: name,
+      name,
       status,
       reachability: "ok",
       probes: ["system", "reachability"],

@@ -1,5 +1,6 @@
 import type { NodeState, StateResponse } from "@ephorate/core";
 import { afterEach, describe, expect, it } from "vitest";
+import { ApiError } from "../../api-client";
 import { type WatchSource, WatchStore } from "../watch-store";
 
 const NOW_MS = 1_800_000_000_000;
@@ -9,7 +10,7 @@ function stateOf(status: "ok" | "warn"): StateResponse {
     now: NOW_MS / 1000,
     nodes: [
       {
-        node: "achilles",
+        name: "achilles",
         status,
         reachability: "ok",
         probes: ["reachability"],
@@ -101,7 +102,11 @@ describe("WatchStore", () => {
 
     expect(store.read().state.nodes[0]?.status).toBe("warn");
     expect(store.read().outage).toEqual(first);
-    expect(first).toEqual({ sinceMs: NOW_MS + 1000, message: "gone" });
+    expect(first).toEqual({
+      sinceMs: NOW_MS + 1000,
+      message: "gone",
+      isUnreadable: false,
+    });
     expect(store.read().updatedMs).toBe(NOW_MS);
   });
 
@@ -185,6 +190,25 @@ describe("WatchStore", () => {
     expect(sent).toEqual([]);
   });
 
+  it("says a collector that answers unreadably needs an update", async () => {
+    const sent: [string, string][] = [];
+    const source = sourceOf(
+      new ApiError("incompatible", "The ephor serve here runs ephor 0.0.0"),
+    );
+    const store = storeOf(
+      source,
+      () => NOW_MS,
+      async (title, body) => {
+        sent.push([title, body]);
+      },
+    );
+
+    await until(() => sent.length >= 1);
+
+    expect(sent[0]?.[0]).toBe("ephor: collector needs an update");
+    expect(store.read().outage?.isUnreadable).toBe(true);
+  });
+
   // With the collector gone no node can turn stale in `watch`: the loss
   // and the return are news of their own, at any level.
   it("says when the collector goes silent and when it answers again", async () => {
@@ -225,7 +249,7 @@ describe("WatchStore", () => {
       ...stateOf("ok"),
       nodes: Array.from({ length: 8 }, (_, index) => ({
         ...node,
-        node: `node-${index}`,
+        name: `node-${index}`,
       })),
     };
     const next: StateResponse = {
@@ -268,7 +292,7 @@ describe("WatchStore with acknowledged nodes", () => {
       now: NOW_MS / 1000,
       nodes: statuses.map((status, index) => ({
         ...base,
-        node: `node-${index}`,
+        name: `node-${index}`,
         status,
         reasons: [],
         ...(acknowledged.includes(index)

@@ -13,21 +13,18 @@ import {
   type StateResponse,
   selectProbeNames,
 } from "@ephorate/core";
-import { ApiError, isCheckResponse } from "../api-client";
+import { ApiError, isCheckResponse, namesNodesTheOldWay } from "../api-client";
 import { UsageError } from "../exit-code";
 import { notOnPathMessage, quoteForShell, runOverSsh } from "../remote-command";
 import {
   collectorVersionWarning,
-  incompatibilityText,
+  incompatibleCollectorText,
   olderEphorMessage,
-  restartHereLine,
-  restartThereLine,
   versionIn,
 } from "../remote-version";
 import { notRunText } from "../render/not-run-text";
 import { stateText } from "../render/state-text";
 import { lastLine } from "../tunnel";
-import { VERSION } from "../version";
 
 /** What `ApiClient` offers; an interface so a test can stand one in. */
 export interface CollectorClient {
@@ -143,22 +140,20 @@ async function olderServeMessage(
   client: CollectorClient,
   serveError: string,
 ): Promise<string> {
-  const { remote, apiUrl } = client;
-  if (remote !== undefined) {
-    const version = await client
-      .state()
-      .then((state) => versionIn(state.version))
-      .catch(() => undefined);
-    return (
-      `${serveError}\n${incompatibilityText(remote, version)}\n` +
-      restartThereLine(remote)
-    );
-  }
+  // Such a serve also names its nodes the old way: its state then fails,
+  // and that failure already says which side to update.
+  const howToUpdate = await client.state().then(
+    (state) => incompatibleCollectorText(client, versionIn(state.version)),
+    (error: unknown) =>
+      error instanceof ApiError && error.failure === "incompatible"
+        ? error.message
+        : incompatibleCollectorText(client, undefined),
+  );
 
-  const olderServeText = `${serveError}\nThat \`ephor serve\` is older than this command: it takes one --probe and no --skip`;
-  return isLoopback(apiUrl)
-    ? `${olderServeText}. Restart it onto the ephor installed here, or give one probe:\n${restartHereLine()}`
-    : `${olderServeText}. Give one probe, or update it there (npm i -g ephorate@${VERSION}) and restart its serve`;
+  return (
+    `${serveError}\nThat \`ephor serve\` takes one --probe and no --skip: ` +
+    `give one probe, or update it.\n${howToUpdate}`
+  );
 }
 
 // Measured: a tunnel's ssh killed mid-POST reads as refused, as no serve
@@ -194,7 +189,7 @@ async function awaitPending(
   const { request, note } = options;
   const deadline = Date.now() + CHECK_MAX_WAIT_SECONDS * 1000;
   const baseline = new Map(
-    response.nodes.map((node) => [node.node, node] as const),
+    response.nodes.map((node) => [node.name, node] as const),
   );
   let pending = response.pending;
   let state: StateResponse = response;
@@ -218,7 +213,7 @@ async function awaitPending(
     // A pending node missing from the state stays pending: silently done
     // would be a lie.
     pending = pending.filter((name) => {
-      const latestNode = state.nodes.find((node) => node.node === name);
+      const latestNode = state.nodes.find((node) => node.name === name);
       const baselineNode = baseline.get(name);
 
       return !(
@@ -337,7 +332,7 @@ async function checkOverSsh(
 
   if (result.code === 0) {
     const answer = jsonIn(result.stdout);
-    if (isCheckResponse(answer)) return answer;
+    if (isCheckResponse(answer) && !namesNodesTheOldWay(answer)) return answer;
 
     throw new UsageError(await olderEphorMessage(remote));
   }
@@ -386,6 +381,6 @@ function onlyTheNodeAsked(
 
   return {
     ...response,
-    nodes: response.nodes.filter((node) => node.node === request.node),
+    nodes: response.nodes.filter((node) => node.name === request.node),
   };
 }

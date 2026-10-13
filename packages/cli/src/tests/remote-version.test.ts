@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectorVersionWarning,
   incompatibilityText,
+  incompatibleCollectorText,
   versionWarning,
 } from "../remote-version";
 
@@ -145,5 +146,55 @@ describe("versions here and there", () => {
       "the collector at http://198.51.100.7:31556 runs ephor 0.1.0",
     );
     expect(warning).not.toContain("here");
+  });
+});
+
+describe("incompatibleCollectorText", () => {
+  const here = { apiUrl: "http://127.0.0.1:31556" };
+  const elsewhere = { apiUrl: "http://198.51.100.7:31556" };
+
+  it("asks a serve here running older code to restart", () => {
+    const text = incompatibleCollectorText(here, "0.9.0", "1.0.0", "linux");
+
+    expect(text).toContain(
+      "The ephor serve here runs ephor 0.9.0, older than this command's 1.0.0",
+    );
+    expect(text).toContain("systemctl --user restart ephor");
+  });
+
+  // Two dev builds read 0.0.0 alike: "older" is all the answer proves.
+  it("calls an equal number an older build, and no number an older ephor", () => {
+    expect(incompatibleCollectorText(here, "1.0.0", "1.0.0")).toContain(
+      "runs ephor 1.0.0 as this command does, but an older build",
+    );
+    expect(incompatibleCollectorText(here, undefined, "1.0.0")).toContain(
+      "runs an ephor older than this command",
+    );
+  });
+
+  it("names the update there for a collector at another address", () => {
+    expect(incompatibleCollectorText(elsewhere, "0.9.0", "1.0.0")).toBe(
+      "The collector at http://198.51.100.7:31556 runs ephor 0.9.0, older " +
+        "than this command's 1.0.0. Update it there and restart its serve:\n" +
+        "  npm i -g ephorate@1.0.0",
+    );
+  });
+
+  it("sends a newer collector's update to this computer", () => {
+    expect(incompatibleCollectorText(elsewhere, "1.1.0", "1.0.0")).toBe(
+      "The collector at http://198.51.100.7:31556 runs ephor 1.1.0, this " +
+        "command ephor 1.0.0. Update this computer:\n  npm i -g ephorate@1.1.0",
+    );
+  });
+
+  it("names the remote, its update and its restart", () => {
+    const text = incompatibleCollectorText(
+      { remote: "bastion", apiUrl: "http://127.0.0.1:40000" },
+      "0.9.0",
+      "1.0.0",
+    );
+
+    expect(text).toContain("ssh bastion npm i -g ephorate@1.0.0");
+    expect(text).toContain("ssh bastion systemctl --user restart ephor");
   });
 });

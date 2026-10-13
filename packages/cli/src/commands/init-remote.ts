@@ -377,6 +377,9 @@ async function collectorAnswer(
     if (error instanceof ApiError && error.failure === "refused") {
       return `no \`ephor serve\` on ${options.remote} answers yet: \`ephor serve\` there, or \`ephor service install\` where systemd is`;
     }
+    if (error instanceof ApiError && error.failure === "incompatible") {
+      return `the collector on ${options.remote} answers, but this ephor cannot read it: ${error.message}`;
+    }
     return `the collector on ${options.remote} did not answer yet: ${
       error instanceof Error ? error.message : String(error)
     }`;

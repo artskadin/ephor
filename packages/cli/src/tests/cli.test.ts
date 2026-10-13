@@ -98,7 +98,7 @@ describe("ephor status", () => {
       .map((line) => line.replace(/^! /, "").split(" ")[0]);
     expect(names).toEqual(["german", "antilochus", "achilles"]);
     expect(
-      (JSON.parse(json.stdout) as typeof state).nodes.map((node) => node.node),
+      (JSON.parse(json.stdout) as typeof state).nodes.map((node) => node.name),
     ).toEqual(["achilles", "german", "antilochus"]);
   });
 
@@ -344,7 +344,7 @@ describe("ephor check with nothing serving on the remote", () => {
     expect(run.stderr).toContain("bastion: checking every node: every probe");
     const response = JSON.parse(run.stdout) as CheckResponse;
     expect(response).toMatchObject({ complete: true, pending: [] });
-    expect(response.nodes.map((node) => node.node)).toEqual(["achilles"]);
+    expect(response.nodes.map((node) => node.name)).toEqual(["achilles"]);
     expect(response.nodes[0]?.reasons.join("\n")).toContain(
       "Could not resolve hostname unreachable.test",
     );
@@ -422,6 +422,39 @@ describe("ephor check with nothing serving on the remote", () => {
     expect(run.stderr).toContain("bastion: error: unknown option '--skip'");
     expect(run.stderr).toContain("bastion has ephor 0.0.0-old");
     expect(run.stderr).toContain("ssh bastion npm i -g ephorate@");
+  });
+
+  // Its JSON parses as a check, but would draw rows with no names.
+  it("says to update ephor there when it names nodes the old way", async () => {
+    const older = mkdtempSync(join(tmpdir(), "ephor-older-remote-"));
+    cleanups.push(async () => rmSync(older, { recursive: true }));
+    const oldAnswer = JSON.stringify({
+      now: 0,
+      nodes: [{ node: "achilles", status: "ok" }],
+      startedAt: 0,
+      complete: true,
+      pending: [],
+    });
+    writeFileSync(
+      join(older, "ephor"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then echo 0.0.0-old; exit 0; fi',
+        `echo '${oldAnswer}'`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const environment = await setup({ withEphor: false });
+
+    const run = await ephor(["check"], {
+      ...environment,
+      PATH: `${older}:${environment.PATH}`,
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain("bastion has ephor 0.0.0-old");
   });
 
   it("exits 2 saying where PATH goes when ephor is not on it there", async () => {

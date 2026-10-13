@@ -242,7 +242,7 @@ describe("postCheck", () => {
     // The wait was time: the answer's clock is that much past its start.
     expect(response?.now).toBe(NOW + (world.sleeps[0] ?? 0) / 1000);
     // The state is still answered: the caller sees what there is so far.
-    expect(response?.nodes.map((node) => node.node)).toEqual([
+    expect(response?.nodes.map((node) => node.name)).toEqual([
       "achilles",
       "antilochus",
       "german",

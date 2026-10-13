@@ -30,7 +30,7 @@ describe("getState", () => {
       ]),
     );
 
-    expect(state.nodes.map((node) => node.node)).toEqual(["achilles"]);
+    expect(state.nodes.map((node) => node.name)).toEqual(["achilles"]);
     expect(
       state.nodes[0]?.metrics.find(
         (view) => view.metric === "system.disk_percent",
@@ -45,7 +45,7 @@ describe("getState", () => {
       depsOf([{ ts: NOW, node: "retired", metric: "system.up", ok: true }]),
     );
 
-    expect(state.nodes.map((node) => node.node)).not.toContain("retired");
+    expect(state.nodes.map((node) => node.name)).not.toContain("retired");
   });
 
   it("ages values against the clock it was given, not the wall clock", async () => {
@@ -72,7 +72,7 @@ describe("getNode", () => {
     );
 
     expect(found?.now).toBe(NOW);
-    expect(found?.node.node).toBe("achilles");
+    expect(found?.node.name).toBe("achilles");
     expect(
       found?.node.metrics.find((view) => view.metric === "system.up")
         ?.ageSeconds,

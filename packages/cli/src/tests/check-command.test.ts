@@ -103,13 +103,31 @@ describe("runCheck against an older serve", () => {
   it("asks to restart a serve on this machine onto the new install", async () => {
     const message = await messageFor(olderServe("http://127.0.0.1:31556"));
 
-    expect(message).toContain("it takes one --probe and no --skip");
+    expect(message).toContain("takes one --probe and no --skip");
     expect(message).toContain("Restart it onto the ephor installed here");
+  });
+
+  // A serve that refuses `skip` also names its nodes the old way, so its
+  // state fails too; that failure's words say which side to update.
+  it("passes on what the failed state said about updating", async () => {
+    const message = await messageFor({
+      ...olderServe("http://127.0.0.1:31556"),
+      state: () =>
+        Promise.reject(
+          new ApiError(
+            "incompatible",
+            "The ephor serve here runs ephor 0.0.0-old",
+          ),
+        ),
+    });
+
+    expect(message).toContain("give one probe, or update it");
+    expect(message).toContain("runs ephor 0.0.0-old");
   });
 
   it("asks to update a collector at another address there", async () => {
     const message = await messageFor(olderServe("http://203.0.113.7:31556"));
 
-    expect(message).toContain("update it there (npm i -g ephorate@");
+    expect(message).toContain("Update it there and restart its serve");
   });
 });

@@ -136,7 +136,7 @@ describe("createApiServer", () => {
 
       expect(response.statusCode).toBe(200);
       expect(body.now).toBe(NOW);
-      expect(body.nodes.map((node: { node: string }) => node.node)).toEqual([
+      expect(body.nodes.map((node: { name: string }) => node.name)).toEqual([
         "achilles",
       ]);
       // A client says so when it runs another ephor.
@@ -153,7 +153,7 @@ describe("createApiServer", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().node.node).toBe("achilles");
+      expect(response.json().node.name).toBe("achilles");
       expect(response.json().now).toBe(NOW);
     });
 
@@ -235,7 +235,7 @@ describe("createApiServer", () => {
         pending: [],
         version: "1.2.3",
       });
-      expect(body.nodes.map((node: { node: string }) => node.node)).toEqual([
+      expect(body.nodes.map((node: { name: string }) => node.name)).toEqual([
         "achilles",
       ]);
     });

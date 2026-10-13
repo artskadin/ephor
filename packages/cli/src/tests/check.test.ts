@@ -58,7 +58,7 @@ describe("ephor check", () => {
     expect(run.code).toBe(0);
     const response = JSON.parse(run.stdout) as CheckResponse;
     expect(response).toMatchObject({ complete: true, pending: [] });
-    expect(response.nodes.map((node) => node.node)).toEqual([
+    expect(response.nodes.map((node) => node.name)).toEqual([
       "achilles",
       "antilochus",
     ]);
@@ -82,7 +82,7 @@ describe("ephor check", () => {
 
     const json = await check(["antilochus", "--json"]);
     const response = JSON.parse(json.stdout) as CheckResponse;
-    expect(response.nodes.map((node) => node.node)).toEqual([
+    expect(response.nodes.map((node) => node.name)).toEqual([
       "achilles",
       "antilochus",
     ]);
@@ -206,7 +206,7 @@ describe("ephor check through the daemon", () => {
     return {
       now: ts,
       nodes: ["achilles", "antilochus"].map((name) => ({
-        node: name,
+        name,
         status: "ok",
         reachability: "ok",
         probes: ["system", "reachability"],
@@ -244,7 +244,7 @@ describe("ephor check through the daemon", () => {
     ]);
     const response = JSON.parse(run.stdout) as CheckResponse;
     expect(response.complete).toBe(true);
-    expect(response.nodes.map((node) => node.node)).toEqual([
+    expect(response.nodes.map((node) => node.name)).toEqual([
       "achilles",
       "antilochus",
     ]);
@@ -399,7 +399,7 @@ describe("ephor check through the daemon", () => {
     expect(run.code).toBe(2);
     expect(run.stderr).toContain('Unrecognized key: "skip"');
     expect(run.stderr).toContain(
-      "is older than this command: it takes one --probe and no --skip",
+      "takes one --probe and no --skip: give one probe, or update it",
     );
   });
 
@@ -413,7 +413,7 @@ describe("ephor check through the daemon", () => {
     expect(run.stderr).toContain("ran once here, nothing recorded");
     expect(run.stderr).toContain("checking every node: every probe");
     const response = JSON.parse(run.stdout) as CheckResponse;
-    expect(response.nodes.map((node) => node.node)).toEqual([
+    expect(response.nodes.map((node) => node.name)).toEqual([
       "achilles",
       "antilochus",
     ]);

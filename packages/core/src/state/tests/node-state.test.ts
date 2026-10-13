@@ -112,7 +112,7 @@ describe("buildNodeState", () => {
       [],
     );
 
-    expect(states.map((state) => state.node)).toEqual(["first", "second"]);
+    expect(states.map((state) => state.name)).toEqual(["first", "second"]);
   });
 
   // The table must not warn about a node the user switched off on purpose;
@@ -128,7 +128,7 @@ describe("buildNodeState", () => {
       [point("system.load_percent", { value: 1, node: "retired" })],
     );
 
-    expect(states.map((state) => state.node)).toEqual(["watched"]);
+    expect(states.map((state) => state.name)).toEqual(["watched"]);
   });
 
   it("ignores points belonging to a node that is not configured", () => {

@@ -20,8 +20,8 @@ export function transitionsBetween(
   previous: StateResponse,
   next: StateResponse,
 ): Transition[] {
-  const before = new Map(previous.nodes.map((node) => [node.node, node]));
-  const after = new Map(next.nodes.map((node) => [node.node, node]));
+  const before = new Map(previous.nodes.map((node) => [node.name, node]));
+  const after = new Map(next.nodes.map((node) => [node.name, node]));
   const transitions: Transition[] = [];
 
   for (const name of new Set([...before.keys(), ...after.keys()])) {

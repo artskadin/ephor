@@ -15,7 +15,7 @@ function node(
   ...reasons: string[]
 ): NodeState {
   return {
-    node: name,
+    name,
     status,
     reachability: "ok",
     probes: ["reachability"],
@@ -195,7 +195,7 @@ describe("an acknowledged node", () => {
   const acknowledged = (state: NodeState, untilOk: boolean): NodeState => ({
     ...state,
     acknowledged: {
-      node: state.node,
+      node: state.name,
       since: 1_799_990_000,
       status: "warn",
       untilOk,

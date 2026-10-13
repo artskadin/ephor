@@ -1,4 +1,5 @@
 import type { StateResponse } from "@ephorate/core";
+import { ApiError } from "../api-client";
 import type { Notify } from "../notify/desktop-notifier";
 import {
   describeTransition,
@@ -21,6 +22,8 @@ export interface WatchSource {
 interface Outage {
   sinceMs: number;
   message: string;
+  /** It answered, in a form this ephor cannot read: not unreachable. */
+  isUnreadable: boolean;
 }
 
 interface WatchSnapshot {
@@ -118,12 +121,19 @@ export class WatchStore {
       // answers no node can turn stale here, so the loss is its own news.
       if (this.snapshot.outage === undefined) {
         const message = error instanceof Error ? error.message : String(error);
+        const isUnreadable =
+          error instanceof ApiError && error.failure === "incompatible";
         this.publish({
           ...this.snapshot,
-          outage: { sinceMs: now(), message },
+          outage: { sinceMs: now(), message, isUnreadable },
         });
         void this.announce([
-          { title: "ephor: collector unreachable", body: firstLine(message) },
+          {
+            title: isUnreadable
+              ? "ephor: collector needs an update"
+              : "ephor: collector unreachable",
+            body: firstLine(message),
+          },
         ]);
       }
     }
