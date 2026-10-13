@@ -23,48 +23,48 @@ const config = await loadConfig(configPath, registry.descriptors());
 const resolved = resolveConfig(config, registry.descriptors());
 
 const target = nodeName
-  ? resolved.find((node) => node.node.name === nodeName)
+  ? resolved.find((node) => node.config.name === nodeName)
   : resolved[0];
 
 if (!target) {
   throw new Error(
     `No such node: ${nodeName ?? "(first)"}. Available: ${resolved
-      .map((node) => node.node.name)
+      .map((node) => node.config.name)
       .join(", ")}`,
   );
 }
 
 const probe = registry.get(probeName);
-const settings = target.probes.get(probeName);
+const resolvedProbe = target.probes.get(probeName);
 
-if (!probe || !settings) {
+if (!probe || !resolvedProbe) {
   throw new Error(
     `No such probe: ${probeName}. Available: ${registry.names().join(", ")}`,
   );
 }
 
-const timeoutMs = settings.timeout * 1000;
+const timeoutMs = resolvedProbe.timeout * 1000;
 const startedAt = Date.now();
 
 logger.info("running probe", {
   probe: probeName,
-  node: target.node.name,
-  host: target.node.host,
+  node: target.config.name,
+  host: target.config.host,
 });
 
 const outcome = await probe.run({
-  nodeName: target.node.name,
-  host: target.node.host,
-  domain: target.node.domain,
-  ports: target.node.ports,
+  nodeName: target.config.name,
+  host: target.config.host,
+  domain: target.config.domain,
+  ports: target.config.ports,
   executor: createExecutor(
-    target.node,
+    target.config,
     timeoutMs,
     new SshGates({ inspect: inspectSshOptions, logger }),
   ),
   startedAt: Math.floor(startedAt / 1000),
   timeoutMs,
-  settings: settings.settings,
+  settings: resolvedProbe.settings,
 });
 
 console.dir(outcome, { depth: null });

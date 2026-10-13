@@ -31,26 +31,33 @@ export const CheckRequestSchema = z
 
 export type CheckRequest = z.infer<typeof CheckRequestSchema>;
 
-/** Of `available`, in its order, those the request asks for. */
-export function probesAsked(
+/** Of `availableProbeNames`, in its order, those the request asks for. */
+export function selectProbeNames(
   request: CheckRequest,
-  available: readonly string[],
+  availableProbeNames: readonly string[],
 ): string[] {
-  const { probe, probes, skip } = request;
+  const { skip } = request;
+  const requested = requestedProbeNames(request);
 
-  if (probe !== undefined) return available.filter((name) => name === probe);
-  if (probes !== undefined) {
-    return available.filter((name) => probes.includes(name));
+  if (requested.length > 0) {
+    return availableProbeNames.filter((name) => requested.includes(name));
   }
   if (skip !== undefined) {
-    return available.filter((name) => !skip.includes(name));
+    return availableProbeNames.filter((name) => !skip.includes(name));
   }
 
-  return [...available];
+  return [...availableProbeNames];
+}
+
+/** The probes named in `probe` or `probes`; none when all, or a skip. */
+export function requestedProbeNames(request: CheckRequest): string[] {
+  const { probe, probes = [] } = request;
+
+  return probe === undefined ? probes : [probe];
 }
 
 /** `every probe`, `system, speed`, `every probe but speed`. */
-export function describeProbesAsked(request: CheckRequest): string {
+export function describeProbeSelection(request: CheckRequest): string {
   const { probe, probes, skip } = request;
 
   if (probe !== undefined) return probe;
@@ -60,8 +67,8 @@ export function describeProbesAsked(request: CheckRequest): string {
   return "every probe";
 }
 
-/** Every name the request gives, to check against the registry. */
-export function probesNamed(request: CheckRequest): string[] {
+/** Every name the request gives, skipped ones too: all must exist. */
+export function probeNamesInRequest(request: CheckRequest): string[] {
   const { probe, probes = [], skip = [] } = request;
 
   return [...(probe === undefined ? [] : [probe]), ...probes, ...skip];

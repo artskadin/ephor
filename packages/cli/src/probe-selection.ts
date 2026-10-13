@@ -15,27 +15,30 @@ export function collectProbeNames(
 }
 
 /** One name goes as `probe`: an older serve knows only that field. */
-export function checkRequestFrom(
+export function buildCheckRequest(
   node: string | undefined,
   flags: { probe?: readonly string[]; skip?: readonly string[] },
 ): CheckRequest {
-  const probes = namesOf("--probe", flags.probe);
-  const skip = namesOf("--skip", flags.skip);
+  const probeNames = parseProbeNames("--probe", flags.probe);
+  const skippedProbeNames = parseProbeNames("--skip", flags.skip);
   const request: CheckRequest = {};
   if (node !== undefined) request.node = node;
 
-  if (probes !== undefined && skip !== undefined) {
+  if (probeNames !== undefined && skippedProbeNames !== undefined) {
     throw new UsageError("--probe and --skip together: give one of them");
   }
-  const [only, ...more] = probes ?? [];
-  if (only !== undefined && more.length === 0) request.probe = only;
-  else if (probes !== undefined) request.probes = probes;
-  if (skip !== undefined) request.skip = skip;
+  const [onlyProbeName] = probeNames ?? [];
+  if (probeNames?.length === 1 && onlyProbeName !== undefined) {
+    request.probe = onlyProbeName;
+  } else if (probeNames !== undefined) {
+    request.probes = probeNames;
+  }
+  if (skippedProbeNames !== undefined) request.skip = skippedProbeNames;
 
   return request;
 }
 
-function namesOf(
+function parseProbeNames(
   flag: string,
   given: readonly string[] | undefined,
 ): string[] | undefined {

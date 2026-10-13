@@ -386,6 +386,10 @@ describe("ephor check with nothing serving on the remote", () => {
     expect(named.stderr).toContain(
       "bastion: checking every node: system, reachability",
     );
+    // The answer there says what did not run; it reaches this side intact.
+    expect((JSON.parse(named.stdout) as CheckResponse).notRun).toEqual([
+      { node: "achilles", probe: "reachability", disabledReason: "config" },
+    ]);
     expect(skipped.code).toBe(0);
     expect(skipped.stderr).toContain(
       "bastion: checking every node: every probe but reachability",

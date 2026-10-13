@@ -24,14 +24,14 @@ export class TaskExecutor {
     const touched = new Set<ProbeQueue>();
 
     for (const task of tasks) {
-      const queue = this.queueFor(task.probe);
+      const queue = this.queueFor(task.probeName);
 
       // Not thrown: this runs inside the scheduler's interval callback, and
       // a throw would leave the task in flight forever.
       if (!queue) {
         this.options.logger.error("no concurrency limit for probe, skipping", {
-          probe: task.probe,
-          node: task.node.node.name,
+          probe: task.probeName,
+          node: task.node.config.name,
         });
         this.options.onTaskFinished(task);
         continue;
@@ -41,8 +41,8 @@ export class TaskExecutor {
         .run(() => this.options.handler(task))
         .catch((cause: unknown) => {
           this.options.logger.error("unhandled error while running a probe", {
-            probe: task.probe,
-            node: task.node.node.name,
+            probe: task.probeName,
+            node: task.node.config.name,
             cause,
           });
         })

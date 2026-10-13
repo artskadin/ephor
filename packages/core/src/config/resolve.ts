@@ -7,23 +7,31 @@ import {
 } from "./schema";
 
 /** `no-executor`: needs commands on the node and has no way in. */
-type ProbeDisabledReason = "no-executor" | "config";
+export type ProbeDisabledReason = "no-executor" | "config";
 
-export interface ResolvedProbe {
+/** How the probe runs on the node: timing, and its own config keys. */
+interface ProbeParameters {
   name: string;
-  enabled: boolean;
-  disabledReason?: ProbeDisabledReason | undefined;
   /** Seconds; `null` when the probe runs only when asked for. */
   interval: number | null;
   /** Seconds. */
   timeout: number;
   retries: number;
-  /** Validated by the probe's own shape. */
+  /** Its own keys (reachability's `regions`), checked by its shape. */
   settings: Readonly<Record<string, unknown>>;
 }
 
+/** Off always says why. */
+export type ResolvedProbe =
+  | (ProbeParameters & { enabled: true })
+  | (ProbeParameters & {
+      enabled: false;
+      disabledReason: ProbeDisabledReason;
+    });
+
 export interface ResolvedNode {
-  node: Node;
+  /** The node's section of config.yaml, as parsed. */
+  config: Node;
   probes: ReadonlyMap<string, ResolvedProbe>;
   /** By metric id, the node's own entries over the global ones. */
   thresholds: ReadonlyMap<string, Threshold>;
@@ -50,9 +58,8 @@ export function resolveNode(
       descriptor.enabledByDefault;
     const canRun = !descriptor.requiresExecutor || hasExecutor;
 
-    const resolved: ResolvedProbe = {
+    const parameters: ProbeParameters = {
       name: descriptor.name,
-      enabled: enabledByConfig && canRun,
       // No shared layer for `interval`: `probeDefaults` refuses it.
       interval:
         nodeSection?.interval ??
@@ -71,14 +78,23 @@ export function resolveNode(
       settings: probeSpecificSettings(globalSection),
     };
 
-    if (!resolved.enabled) {
-      resolved.disabledReason = enabledByConfig ? "no-executor" : "config";
-    }
-
-    probes.set(descriptor.name, resolved);
+    probes.set(
+      descriptor.name,
+      enabledByConfig && canRun
+        ? { ...parameters, enabled: true }
+        : {
+            ...parameters,
+            enabled: false,
+            disabledReason: enabledByConfig ? "no-executor" : "config",
+          },
+    );
   }
 
-  return { node, probes, thresholds: resolveThresholds(config, node) };
+  return {
+    config: node,
+    probes,
+    thresholds: resolveThresholds(config, node),
+  };
 }
 
 // A node's entry replaces the global one whole: merging `{ warn: 90 }` into

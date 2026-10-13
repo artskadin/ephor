@@ -2,7 +2,7 @@ import { createRegistry } from "@ephorate/collector";
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../exit-code";
 import {
-  checkRequestFrom,
+  buildCheckRequest,
   collectProbeNames,
   PROBE_NAMES,
 } from "../probe-selection";
@@ -23,32 +23,32 @@ describe("collectProbeNames", () => {
   });
 });
 
-describe("checkRequestFrom", () => {
+describe("buildCheckRequest", () => {
   it("sends one name as `probe`, which an older serve knows", () => {
-    expect(checkRequestFrom("achilles", { probe: ["system"] })).toEqual({
+    expect(buildCheckRequest("achilles", { probe: ["system"] })).toEqual({
       node: "achilles",
       probe: "system",
     });
     expect(
-      checkRequestFrom(undefined, { probe: ["system", "system"] }),
+      buildCheckRequest(undefined, { probe: ["system", "system"] }),
     ).toEqual({ probe: "system" });
   });
 
   it("sends several as `probes` and a skip as `skip`", () => {
-    expect(checkRequestFrom(undefined, { probe: ["system", "speed"] })).toEqual(
-      { probes: ["system", "speed"] },
-    );
-    expect(checkRequestFrom(undefined, { skip: ["speed"] })).toEqual({
+    expect(
+      buildCheckRequest(undefined, { probe: ["system", "speed"] }),
+    ).toEqual({ probes: ["system", "speed"] });
+    expect(buildCheckRequest(undefined, { skip: ["speed"] })).toEqual({
       skip: ["speed"],
     });
-    expect(checkRequestFrom(undefined, {})).toEqual({});
+    expect(buildCheckRequest(undefined, {})).toEqual({});
   });
 
   it("refuses both flags at once, and an empty name", () => {
     expect(() =>
-      checkRequestFrom(undefined, { probe: ["system"], skip: ["speed"] }),
+      buildCheckRequest(undefined, { probe: ["system"], skip: ["speed"] }),
     ).toThrow(UsageError);
-    expect(() => checkRequestFrom(undefined, { skip: ["speed", ""] })).toThrow(
+    expect(() => buildCheckRequest(undefined, { skip: ["speed", ""] })).toThrow(
       /--skip takes probe names, separated by commas/,
     );
   });

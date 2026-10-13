@@ -4,7 +4,7 @@ import { intervalSlotAt } from "./jitter";
 
 export interface Task {
   node: ResolvedNode;
-  probe: string;
+  probeName: string;
 }
 
 export interface ForcedRun {
@@ -35,7 +35,7 @@ interface SchedulerOptions {
 interface Pair {
   task: Task;
   key: string;
-  settings: ResolvedProbe;
+  resolvedProbe: ResolvedProbe;
 }
 
 export class Scheduler {
@@ -101,27 +101,27 @@ export class Scheduler {
   // is for these pairs alone: the whole queue would hold `check achilles
   // system` hostage to a reachability wave on other nodes.
   runNow(nodeName?: string, probeNames?: readonly string[]): ForcedRun {
-    const forced: { task: Task; key: string }[] = [];
+    const forcedPairs: { task: Task; key: string }[] = [];
     const deferredProbes = new Set<string>();
 
     for (const { task, key } of this.pairs(nodeName, probeNames)) {
       this.forcedKeys.add(key);
-      forced.push({ task, key });
+      forcedPairs.push({ task, key });
 
-      if (this.inFlight.has(key)) deferredProbes.add(task.probe);
+      if (this.inFlight.has(key)) deferredProbes.add(task.probeName);
     }
 
     // Before the tick, so the tick can move dispatched keys to running.
-    const waiter = this.awaitRun(forced.map((entry) => entry.key));
+    const waiter = this.awaitRun(forcedPairs.map((entry) => entry.key));
 
     this.tick();
 
     return {
-      tasks: forced.map((entry) => entry.task),
+      tasks: forcedPairs.map((entry) => entry.task),
       deferredProbes,
       finished: waiter.finished,
       unfinished: () =>
-        forced
+        forcedPairs
           .filter(
             ({ key }) => waiter.waiting.has(key) || waiter.running.has(key),
           )
@@ -143,22 +143,22 @@ export class Scheduler {
     const now = this.options.clock.now();
     const due: Task[] = [];
 
-    for (const { task, key, settings } of this.pairs()) {
+    for (const { task, key, resolvedProbe } of this.pairs()) {
       // A probe slower than its interval must not queue copies of itself.
       if (this.inFlight.has(key)) {
         continue;
       }
 
-      const forced = this.forcedKeys.delete(key);
+      const wasForced = this.forcedKeys.delete(key);
 
       // No interval: only a forced run dispatches it. No slot either, so one
       // given an interval later waits for its own offset.
-      if (settings.interval === null) {
+      if (resolvedProbe.interval === null) {
         this.lastDispatchedSlot.delete(key);
-        if (!forced) continue;
+        if (!wasForced) continue;
       } else {
-        const slot = intervalSlotAt(now, settings.interval * 1000, key);
-        if (!forced && !this.isDue(key, slot)) continue;
+        const slot = intervalSlotAt(now, resolvedProbe.interval * 1000, key);
+        if (!wasForced && !this.isDue(key, slot)) continue;
 
         this.lastDispatchedSlot.set(key, slot);
       }
@@ -179,15 +179,17 @@ export class Scheduler {
     probeNames?: readonly string[],
   ): Generator<Pair> {
     for (const node of this.nodes) {
-      if (nodeName !== undefined && node.node.name !== nodeName) continue;
+      if (nodeName !== undefined && node.config.name !== nodeName) continue;
 
-      for (const [probe, settings] of node.probes) {
-        if (!settings.enabled) continue;
-        if (probeNames !== undefined && !probeNames.includes(probe)) continue;
+      for (const [probeName, resolvedProbe] of node.probes) {
+        if (!resolvedProbe.enabled) continue;
+        if (probeNames !== undefined && !probeNames.includes(probeName)) {
+          continue;
+        }
 
-        const task = { node, probe };
+        const task = { node, probeName };
 
-        yield { task, key: pairKey(task), settings };
+        yield { task, key: pairKey(task), resolvedProbe };
       }
     }
   }
@@ -241,5 +243,5 @@ export class Scheduler {
 // A separator neither part can contain, written as an escape: a raw control
 // byte makes git treat the file as binary.
 function pairKey(task: Task): string {
-  return `${task.node.node.name}\u0000${task.probe}`;
+  return `${task.node.config.name}\u0000${task.probeName}`;
 }

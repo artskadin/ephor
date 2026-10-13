@@ -56,7 +56,7 @@ export async function getNode(
   deps: ApiDeps,
   name: string,
 ): Promise<NodeResponse | undefined> {
-  const node = deps.nodes.find((candidate) => candidate.node.name === name);
+  const node = deps.nodes.find((candidate) => candidate.config.name === name);
   if (!node) return undefined;
 
   const now = deps.now();
@@ -86,7 +86,7 @@ export async function putAcknowledgement(
   name: string,
   request: AcknowledgeRequest,
 ): Promise<Acknowledged> {
-  const node = deps.nodes.find((candidate) => candidate.node.name === name);
+  const node = deps.nodes.find((candidate) => candidate.config.name === name);
   if (!node) return { kind: "unknown-node" };
 
   const since = deps.now();
@@ -128,7 +128,7 @@ export async function deleteAcknowledgement(
   deps: ApiDeps,
   name: string,
 ): Promise<Unacknowledged> {
-  if (!deps.nodes.some((candidate) => candidate.node.name === name)) {
+  if (!deps.nodes.some((candidate) => candidate.config.name === name)) {
     return { kind: "unknown-node" };
   }
 

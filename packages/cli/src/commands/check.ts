@@ -4,13 +4,14 @@ import {
   type CheckRequest,
   type CheckResponse,
   ConfigError,
-  describeProbesAsked,
+  describeProbeSelection,
   type Logger,
   loadConfig,
   type NodeState,
-  probesAsked,
-  probesNamed,
+  probeNamesInRequest,
+  requestedProbeNames,
   type StateResponse,
+  selectProbeNames,
 } from "@ephorate/core";
 import { ApiError, isCheckResponse } from "../api-client";
 import { UsageError } from "../exit-code";
@@ -23,6 +24,7 @@ import {
   restartThereLine,
   versionIn,
 } from "../remote-version";
+import { notRunText } from "../render/not-run-text";
 import { stateText } from "../render/state-text";
 import { lastLine } from "../tunnel";
 import { VERSION } from "../version";
@@ -75,6 +77,13 @@ export async function runCheck(options: CheckOptions): Promise<void> {
       options,
     ),
   );
+
+  if (!options.json) {
+    const checkedNodeCount =
+      request.node === undefined ? response.nodes.length : 1;
+    const notRunLine = notRunText(response.notRun, checkedNodeCount);
+    if (notRunLine !== undefined) options.print(notRunLine);
+  }
 }
 
 // A refused connection is the one failure that means "no daemon": then
@@ -132,7 +141,7 @@ const OLDER_SERVE = /Unrecognized key: "(probes|skip)"/;
 
 async function olderServeMessage(
   client: CollectorClient,
-  said: string,
+  serveError: string,
 ): Promise<string> {
   const { remote, apiUrl } = client;
   if (remote !== undefined) {
@@ -141,15 +150,15 @@ async function olderServeMessage(
       .then((state) => versionIn(state.version))
       .catch(() => undefined);
     return (
-      `${said}\n${incompatibilityText(remote, version)}\n` +
+      `${serveError}\n${incompatibilityText(remote, version)}\n` +
       restartThereLine(remote)
     );
   }
 
-  const older = `${said}\nThat \`ephor serve\` is older than this command: it takes one --probe and no --skip`;
+  const olderServeText = `${serveError}\nThat \`ephor serve\` is older than this command: it takes one --probe and no --skip`;
   return isLoopback(apiUrl)
-    ? `${older}. Restart it onto the ephor installed here, or give one probe:\n${restartHereLine()}`
-    : `${older}. Give one probe, or update it there (npm i -g ephorate@${VERSION}) and restart its serve`;
+    ? `${olderServeText}. Restart it onto the ephor installed here, or give one probe:\n${restartHereLine()}`
+    : `${olderServeText}. Give one probe, or update it there (npm i -g ephorate@${VERSION}) and restart its serve`;
 }
 
 // Measured: a tunnel's ssh killed mid-POST reads as refused, as no serve
@@ -209,10 +218,14 @@ async function awaitPending(
     // A pending node missing from the state stays pending: silently done
     // would be a lie.
     pending = pending.filter((name) => {
-      const now = state.nodes.find((node) => node.node === name);
-      const before = baseline.get(name);
+      const latestNode = state.nodes.find((node) => node.node === name);
+      const baselineNode = baseline.get(name);
 
-      return !(now && before && hasReportedSince(now, before, request));
+      return !(
+        latestNode &&
+        baselineNode &&
+        hasReportedSince(latestNode, baselineNode, request)
+      );
     });
   }
 
@@ -221,19 +234,24 @@ async function awaitPending(
     startedAt: response.startedAt,
     complete: pending.length === 0,
     pending,
+    notRun: response.notRun,
   };
 }
 
 /** A probe not enabled on the node cannot report, so it does not count. */
 function hasReportedSince(
-  node: NodeState,
-  before: NodeState,
+  latestNode: NodeState,
+  baselineNode: NodeState,
   request: CheckRequest,
 ): boolean {
-  return probesAsked(request, node.probes).every((name) => {
-    const metric = `${name}.up`;
-    const previous = before.metrics.find((view) => view.metric === metric)?.ts;
-    const current = node.metrics.find((view) => view.metric === metric)?.ts;
+  return selectProbeNames(request, latestNode.probes).every((probeName) => {
+    const metric = `${probeName}.up`;
+    const previous = baselineNode.metrics.find(
+      (view) => view.metric === metric,
+    )?.ts;
+    const current = latestNode.metrics.find(
+      (view) => view.metric === metric,
+    )?.ts;
 
     return (
       current !== undefined && (previous === undefined || current > previous)
@@ -258,11 +276,13 @@ async function checkHere(options: CheckOptions): Promise<CheckResponse> {
   const nodeNames = config.nodes.map((node) => node.name);
   if (
     (request.node === undefined || nodeNames.includes(request.node)) &&
-    probesNamed(request).every((name) => registry.names().includes(name)) &&
-    probesAsked(request, registry.names()).length > 0
+    probeNamesInRequest(request).every((name) =>
+      registry.names().includes(name),
+    ) &&
+    selectProbeNames(request, registry.names()).length > 0
   ) {
     options.note(
-      `checking ${request.node ?? "every node"}: ${describeProbesAsked(request)}`,
+      `checking ${request.node ?? "every node"}: ${describeProbeSelection(request)}`,
     );
   }
 
@@ -297,11 +317,13 @@ async function checkOverSsh(
   remote: string,
   options: CheckOptions,
 ): Promise<CheckResponse> {
-  const { node, probe, probes, skip } = options.request;
-  const named = probe === undefined ? probes : [probe];
+  const { node, skip } = options.request;
+  const namedProbeNames = requestedProbeNames(options.request);
   const command = [
     "ephor check --json",
-    ...(named === undefined ? [] : ["--probe", quoteForShell(named.join(","))]),
+    ...(namedProbeNames.length === 0
+      ? []
+      : ["--probe", quoteForShell(namedProbeNames.join(","))]),
     ...(skip === undefined ? [] : ["--skip", quoteForShell(skip.join(","))]),
     // `--`: a node name starting with a dash is not an option there.
     ...(node === undefined ? [] : ["--", quoteForShell(node)]),
@@ -320,7 +342,7 @@ async function checkOverSsh(
     throw new UsageError(await olderEphorMessage(remote));
   }
 
-  const said = lastLine(result.stderr) ?? `exit code ${result.code}`;
+  const lastStderrLine = lastLine(result.stderr) ?? `exit code ${result.code}`;
 
   // ssh's own failure, or the command there killed by a signal; its words
   // went by above.
@@ -331,7 +353,7 @@ async function checkOverSsh(
     );
   }
   if (result.code === 127) {
-    throw new UsageError(notOnPathMessage(remote, said));
+    throw new UsageError(notOnPathMessage(remote, lastStderrLine));
   }
   // Measured, an ephor there before --skip and comma lists: "unknown option
   // '--skip'", and `unknown probe "system,reachability"`.

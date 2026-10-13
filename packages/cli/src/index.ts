@@ -9,7 +9,7 @@ import { runStatus } from "./commands/status";
 import { resolveConfigPath } from "./config-path";
 import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code";
 import {
-  checkRequestFrom,
+  buildCheckRequest,
   collectProbeNames,
   PROBE_NAMES,
 } from "./probe-selection";
@@ -211,7 +211,7 @@ program
         plain?: boolean;
       },
     ) => {
-      const request = checkRequestFrom(node, options);
+      const request = buildCheckRequest(node, options);
       const { runCheck } = await import("./commands/check");
 
       const configPath = resolveConfigPath({ flag: options.config });

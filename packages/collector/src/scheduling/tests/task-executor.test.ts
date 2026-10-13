@@ -5,7 +5,7 @@ import { TaskExecutor } from "../task-executor";
 import { deferred } from "./deferred";
 
 const NODE: ResolvedNode = {
-  node: {
+  config: {
     name: "solo",
     host: "203.0.113.10",
     tags: [],
@@ -19,8 +19,8 @@ const NODE: ResolvedNode = {
   thresholds: new Map(),
 };
 
-function taskFor(probe: string): Task {
-  return { probe, node: NODE };
+function taskFor(probeName: string): Task {
+  return { probeName, node: NODE };
 }
 
 /** Captured as parsed records, so assertions name fields, not substrings. */

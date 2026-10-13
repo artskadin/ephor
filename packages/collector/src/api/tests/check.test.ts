@@ -18,7 +18,8 @@ const FLEET = {
   ],
 };
 
-const pairOf = (task: Task): string => `${task.node.node.name}/${task.probe}`;
+const pairOf = (task: Task): string =>
+  `${task.node.config.name}/${task.probeName}`;
 
 /**
  * A check in progress. The real scheduler picks the pairs; the test says
@@ -78,8 +79,8 @@ function finish(
   for (const task of world.dispatched) {
     world.points.push({
       ts: world.clock.now,
-      node: task.node.node.name,
-      metric: `${task.probe}.up`,
+      node: task.node.config.name,
+      metric: `${task.probeName}.up`,
       ok: outcome.ok ?? true,
     });
     world.scheduler.complete(task);
@@ -266,7 +267,7 @@ describe("postCheck", () => {
 
     const answer = postCheck(world.deps, {});
     for (const task of world.dispatched) {
-      if (task.node.node.name === "achilles") world.scheduler.complete(task);
+      if (task.node.config.name === "achilles") world.scheduler.complete(task);
     }
     const response = await answer;
 
@@ -282,7 +283,7 @@ describe("postCheck", () => {
 
     const answer = postCheck(world.deps, { node: "achilles" });
     for (const task of world.dispatched) {
-      if (task.probe === "system") world.scheduler.complete(task);
+      if (task.probeName === "system") world.scheduler.complete(task);
     }
     const response = await answer;
 

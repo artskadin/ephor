@@ -125,10 +125,10 @@ export function buildNodeState(input: NodeStateInput): NodeState[] {
   return input.nodes.map((node) => {
     const state = buildNodeStateFor(
       node,
-      byNode.get(node.node.name) ?? [],
+      byNode.get(node.config.name) ?? [],
       input.now,
     );
-    const acknowledgement = acknowledged.get(node.node.name);
+    const acknowledgement = acknowledged.get(node.config.name);
     if (acknowledgement !== undefined) state.acknowledged = acknowledgement;
 
     return state;
@@ -225,7 +225,7 @@ function buildNodeStateFor(
   }
 
   return {
-    node: node.node.name,
+    node: node.config.name,
     status,
     reachability,
     probes: [...enabledProbes.keys()],

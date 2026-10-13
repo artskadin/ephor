@@ -80,7 +80,7 @@ export class Collector {
       clock: systemClock,
       retentionSeconds: options.config.storage.retention,
       runAt: options.config.storage.pruneAt,
-      nodeNames: this.resolvedNodes.map((node) => node.node.name),
+      nodeNames: this.resolvedNodes.map((node) => node.config.name),
       logger: options.logger.child({ component: "pruner" }),
     });
 
@@ -113,7 +113,7 @@ export class Collector {
 
     return {
       ...run,
-      budgetMs: waitBudgetMs(run, (probe) => this.queueState(probe)),
+      budgetMs: waitBudgetMs(run, (probeName) => this.queueState(probeName)),
     };
   }
 
@@ -146,37 +146,37 @@ export class Collector {
   }
 
   private async runProbe(task: Task): Promise<void> {
-    const probe = this.options.registry.get(task.probe);
-    const settings = task.node.probes.get(task.probe);
-    const node = task.node.node;
+    const probe = this.options.registry.get(task.probeName);
+    const resolvedProbe = task.node.probes.get(task.probeName);
+    const nodeConfig = task.node.config;
 
-    if (!probe || !settings) {
+    if (!probe || !resolvedProbe) {
       this.options.logger.error("task names a probe that is not resolved", {
-        node: node.name,
-        probe: task.probe,
+        node: nodeConfig.name,
+        probe: task.probeName,
       });
 
       return;
     }
 
-    const timeoutMs = settings.timeout * 1000;
+    const timeoutMs = resolvedProbe.timeout * 1000;
     const startedAt = Math.floor(Date.now() / 1000);
 
     const context: ProbeContext = {
-      nodeName: node.name,
-      host: node.host,
-      domain: node.domain,
-      ports: node.ports,
-      executor: createExecutor(node, timeoutMs, this.sshGates),
+      nodeName: nodeConfig.name,
+      host: nodeConfig.host,
+      domain: nodeConfig.domain,
+      ports: nodeConfig.ports,
+      executor: createExecutor(nodeConfig, timeoutMs, this.sshGates),
       startedAt,
       timeoutMs,
-      settings: settings.settings,
+      settings: resolvedProbe.settings,
     };
 
-    const outcome = await runWithRetry(probe, context, settings.retries);
+    const outcome = await runWithRetry(probe, context, resolvedProbe.retries);
 
     const logger = this.options.logger.child({
-      node: node.name,
+      node: nodeConfig.name,
       probe: probe.descriptor.name,
     });
 
@@ -186,7 +186,7 @@ export class Collector {
       points.push(...probe.toMetrics(outcome.data, context));
       points.push({
         ts: startedAt,
-        node: node.name,
+        node: nodeConfig.name,
         metric: `${probe.descriptor.name}.up`,
         ok: true,
         meta: { durationMs: outcome.durationMs },
@@ -199,7 +199,7 @@ export class Collector {
     } else {
       points.push({
         ts: startedAt,
-        node: node.name,
+        node: nodeConfig.name,
         metric: `${probe.descriptor.name}.up`,
         ok: false,
         meta: {
@@ -225,7 +225,7 @@ export class Collector {
   }
 
   private async settleAcknowledgement(node: ResolvedNode): Promise<void> {
-    const name = node.node.name;
+    const name = node.config.name;
     const now = Math.floor(Date.now() / 1000);
     const acknowledgement = (
       await this.options.storage.acknowledgements(now)
@@ -238,9 +238,9 @@ export class Collector {
     // value may be the collector's own absence, not news of the node. A probe
     // run only when asked for may not run for months, and never goes stale.
     const awakeSince = Math.floor(this.wakeWatch.awakeSince / 1000);
-    for (const [probe, settings] of node.probes) {
-      if (!settings.enabled || settings.interval === null) continue;
-      const up = points.find((point) => point.metric === `${probe}.up`);
+    for (const [probeName, resolvedProbe] of node.probes) {
+      if (!resolvedProbe.enabled || resolvedProbe.interval === null) continue;
+      const up = points.find((point) => point.metric === `${probeName}.up`);
       if (up === undefined || up.ts < awakeSince) return;
     }
 

@@ -70,7 +70,7 @@ describe("Collector.runNow", () => {
 
     const run = collector.runNow("pupa");
 
-    expect(run.tasks.map((task) => task.node.node.name)).toEqual(["pupa"]);
+    expect(run.tasks.map((task) => task.node.config.name)).toEqual(["pupa"]);
     await run.finished;
 
     const points = await storage?.latest("pupa");

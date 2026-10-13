@@ -3,12 +3,14 @@ import {
   type CheckRequest,
   type CheckResponse,
   type Config,
-  describeProbesAsked,
+  describeProbeSelection,
   type Logger,
-  probesAsked,
-  probesNamed,
+  type ProbeNotRun,
+  probeNamesInRequest,
   type ResolvedNode,
+  requestedProbeNames,
   type Storage,
+  selectProbeNames,
 } from "@ephorate/core";
 import { type CheckRun, Collector } from "./collector";
 import type { ProbeRegistry } from "./probes/registry";
@@ -21,7 +23,7 @@ export interface CheckDeps {
   probeNames: readonly string[];
   /** Unix seconds. */
   now: () => number;
-  forceRun: (node?: string, probes?: readonly string[]) => CheckRun;
+  forceRun: (nodeName?: string, probeNames?: readonly string[]) => CheckRun;
 }
 
 /** Without a cap the check waits for every forced pair, however long. */
@@ -47,33 +49,33 @@ export async function checkOnce(
 ): Promise<CheckOutcome> {
   if (
     request.node !== undefined &&
-    !deps.nodes.some((node) => node.node.name === request.node)
+    !deps.nodes.some((node) => node.config.name === request.node)
   ) {
     return { kind: "unknown-node", node: request.node };
   }
 
-  const unknown = probesNamed(request).find(
+  const unknownProbe = probeNamesInRequest(request).find(
     (name) => !deps.probeNames.includes(name),
   );
-  if (unknown !== undefined) {
+  if (unknownProbe !== undefined) {
     return {
       kind: "invalid",
-      reason: `unknown probe "${unknown}". Available: ${deps.probeNames.join(", ")}`,
+      reason: `unknown probe "${unknownProbe}". Available: ${deps.probeNames.join(", ")}`,
     };
   }
 
   // Before forcing: a probe stamps its points with a second at or after this.
   const startedAt = deps.now();
-  const asked = probesAsked(request, deps.probeNames);
-  const run = deps.forceRun(request.node, asked);
+  const probeNamesToRun = selectProbeNames(request, deps.probeNames);
+  const run = deps.forceRun(request.node, probeNamesToRun);
 
   if (run.tasks.length === 0) {
     return {
       kind: "invalid",
       reason:
-        asked.length === 0
+        probeNamesToRun.length === 0
           ? "nothing to check: every probe is skipped"
-          : explainNothingToRun(deps.nodes, request, asked),
+          : explainNothingToRun(deps.nodes, request, probeNamesToRun),
     };
   }
 
@@ -96,7 +98,8 @@ export async function checkOnce(
       }),
       startedAt,
       complete: unfinished.length === 0,
-      pending: [...new Set(unfinished.map((task) => task.node.node.name))],
+      pending: [...new Set(unfinished.map((task) => task.node.config.name))],
+      notRun: listProbesNotRun(deps.nodes, request, probeNamesToRun),
     },
   };
 }
@@ -130,13 +133,51 @@ export async function checkWithoutDaemon(
         nodes: collector.nodes,
         probeNames: options.registry.names(),
         now: () => Math.floor(Date.now() / 1000),
-        forceRun: (node, probes) => collector.runNow(node, probes),
+        forceRun: (nodeName, probeNames) =>
+          collector.runNow(nodeName, probeNames),
       },
       options.request,
     );
   } finally {
     await storage.close();
   }
+}
+
+// A probe off on a node is news only when it was named, or is on for
+// another node: one off everywhere (speed until switched on) stays quiet.
+function listProbesNotRun(
+  nodes: readonly ResolvedNode[],
+  request: CheckRequest,
+  probeNamesToRun: readonly string[],
+): ProbeNotRun[] {
+  const namedProbeNames = requestedProbeNames(request);
+  const checkedNodes =
+    request.node === undefined
+      ? nodes
+      : nodes.filter((node) => node.config.name === request.node);
+  const isWorthReporting = (probeName: string, node: ResolvedNode): boolean =>
+    namedProbeNames.includes(probeName) ||
+    nodes.some(
+      (other) =>
+        other !== node && other.probes.get(probeName)?.enabled === true,
+    );
+
+  // By probe, then node: a reader groups by probe.
+  return probeNamesToRun.flatMap((probeName) =>
+    checkedNodes.flatMap((node): ProbeNotRun[] => {
+      const resolvedProbe = node.probes.get(probeName);
+      if (resolvedProbe === undefined || resolvedProbe.enabled) return [];
+      if (!isWorthReporting(probeName, node)) return [];
+
+      return [
+        {
+          node: node.config.name,
+          probe: probeName,
+          disabledReason: resolvedProbe.disabledReason,
+        },
+      ];
+    }),
+  );
 }
 
 // The timer is cancelled once the run wins, so a three-second check leaves
@@ -170,26 +211,29 @@ async function waitFor(
 function explainNothingToRun(
   nodes: readonly ResolvedNode[],
   request: CheckRequest,
-  asked: readonly string[],
+  probeNamesToRun: readonly string[],
 ): string {
   const nodeName = request.node;
-  const [one, ...more] = asked;
-  const verb = more.length > 0 && request.probes ? "are" : "is";
-  const what = `${describeProbesAsked(request)} ${verb} disabled on ${nodeName ?? "every node"}`;
+  const onlyProbeName =
+    probeNamesToRun.length === 1 ? probeNamesToRun[0] : undefined;
+  const verb = probeNamesToRun.length > 1 && request.probes ? "are" : "is";
+  const disabledText = `${describeProbeSelection(request)} ${verb} disabled on ${nodeName ?? "every node"}`;
 
-  if (nodeName === undefined || one === undefined || more.length > 0) {
+  // A reason only for one probe on one node: several could differ.
+  if (nodeName === undefined || onlyProbeName === undefined) {
     return nodeName === undefined && request.probe === undefined
-      ? `nothing to check: ${what}`
-      : what;
+      ? `nothing to check: ${disabledText}`
+      : disabledText;
   }
 
-  const probe = nodes
-    .find((candidate) => candidate.node.name === nodeName)
-    ?.probes.get(one);
-  const reason =
-    probe?.disabledReason === "no-executor"
+  const resolvedProbe = nodes
+    .find((candidate) => candidate.config.name === nodeName)
+    ?.probes.get(onlyProbeName);
+  const reasonText =
+    resolvedProbe?.enabled === false &&
+    resolvedProbe.disabledReason === "no-executor"
       ? `it needs ssh access and ${nodeName} has none`
       : "switched off in the config";
 
-  return `${what}: ${reason}`;
+  return `${disabledText}: ${reasonText}`;
 }

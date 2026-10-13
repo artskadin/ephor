@@ -64,7 +64,7 @@ describe("Scheduler", () => {
   }
 
   function probeNames(): string[] {
-    return dispatched.map((task) => task.probe);
+    return dispatched.map((task) => task.probeName);
   }
 
   function countOf(probe: string): number {
@@ -124,7 +124,7 @@ describe("Scheduler", () => {
       perTick.push(dispatched.length - before);
     }
 
-    const nodesSeen = new Set(dispatched.map((task) => task.node.node.name));
+    const nodesSeen = new Set(dispatched.map((task) => task.node.config.name));
 
     // Every node is reached within the interval...
     expect(nodesSeen.size).toBe(12);
@@ -164,7 +164,9 @@ describe("Scheduler", () => {
     dispatched = [];
     runFor(2 * MINUTE);
 
-    expect(dispatched.map((task) => task.node.node.name)).not.toContain("lupa");
+    expect(dispatched.map((task) => task.node.config.name)).not.toContain(
+      "lupa",
+    );
     // Re-adding it starts the schedule over rather than resuming a stale slot.
     scheduler.setNodes(nodesFor(["pupa", "lupa"]));
     dispatched = [];
@@ -301,7 +303,7 @@ describe("Scheduler", () => {
 
       scheduler.runNow("pupa");
 
-      expect(dispatched.map((task) => task.node.node.name)).toEqual([
+      expect(dispatched.map((task) => task.node.config.name)).toEqual([
         "pupa",
         "pupa",
       ]);
@@ -345,7 +347,7 @@ describe("Scheduler", () => {
     }
 
     const pairOf = (task: Task): string =>
-      `${task.node.node.name}/${task.probe}`;
+      `${task.node.config.name}/${task.probeName}`;
 
     it("hands back the pairs it forced, in config order", () => {
       scheduler.setNodes(nodesFor(["pupa", "lupa"]));

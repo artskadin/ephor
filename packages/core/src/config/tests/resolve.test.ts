@@ -241,7 +241,7 @@ describe("resolveConfig", () => {
 
     const resolved = resolveConfig(config, TEST_PROBES);
 
-    expect(resolved.map((node) => node.node.name)).toEqual(["pupa"]);
+    expect(resolved.map((node) => node.config.name)).toEqual(["pupa"]);
   });
 });
 

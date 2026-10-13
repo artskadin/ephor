@@ -29,15 +29,15 @@ const nodes = resolveConfig(
 );
 
 function nodeNamed(name: string): ResolvedNode {
-  const node = nodes.find((candidate) => candidate.node.name === name);
+  const node = nodes.find((candidate) => candidate.config.name === name);
   if (!node) throw new Error(`no node ${name}`);
 
   return node;
 }
 
-const taskOf = (probe: string, node = "achilles"): Task => ({
+const taskOf = (probeName: string, node = "achilles"): Task => ({
   node: nodeNamed(node),
-  probe,
+  probeName,
 });
 
 const runOf = (tasks: Task[], deferredProbes: string[] = []): ForcedRun => ({

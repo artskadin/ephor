@@ -1,3 +1,4 @@
+import type { ProbeDisabledReason } from "../config/resolve";
 import type { NodeState } from "../state/node-state";
 import type { Acknowledgement } from "../storage/types";
 import type { MetricPoint } from "../types/metrics";
@@ -68,6 +69,15 @@ export interface CheckResponse extends StateResponse {
   complete: boolean;
   /** Forced pairs still running. Poll `/api/state`, never post again. */
   pending: string[];
+  /** Asked for, but off on these nodes. A serve before it sends none. */
+  notRun?: ProbeNotRun[] | undefined;
+}
+
+/** Only for a probe named, or one in use on other nodes: else noise. */
+export interface ProbeNotRun {
+  node: string;
+  probe: string;
+  disabledReason: ProbeDisabledReason;
 }
 
 export interface MetricsResponse {

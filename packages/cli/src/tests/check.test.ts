@@ -134,6 +134,23 @@ describe("ephor check", () => {
     );
   });
 
+  // reachability is off for every node here: named, it is news.
+  it("says under the table which probes asked for did not run, and why", async () => {
+    const table = await check(["--probe", "system,reachability", "--plain"]);
+    const json = await check(["--probe", "system,reachability", "--json"]);
+    const unnamed = await check(["--plain"]);
+
+    expect(table.code).toBe(0);
+    expect(table.stdout.trimEnd().split("\n").at(-1)).toBe(
+      "not run: reachability on every node (off in the config)",
+    );
+    expect((JSON.parse(json.stdout) as CheckResponse).notRun).toEqual([
+      { node: "achilles", probe: "reachability", disabledReason: "config" },
+      { node: "antilochus", probe: "reachability", disabledReason: "config" },
+    ]);
+    expect(unnamed.stdout).not.toContain("not run");
+  });
+
   it("exits 2 when --skip leaves nothing enabled to run", async () => {
     const run = await check(["--skip", "system"]);
 
@@ -298,12 +315,20 @@ describe("ephor check through the daemon", () => {
         startedAt,
         complete: false,
         pending: ["achilles", "antilochus"],
+        notRun: [
+          { node: "antilochus", probe: "speed", disabledReason: "config" },
+        ],
       },
-      statesInOrder: [systemOnly],
+      // One poll for each of the two runs below.
+      statesInOrder: [systemOnly, systemOnly],
     });
     cleanups.push(collector.close);
 
     const run = await ephor(["check", "--skip", "reachability", "--json"], {
+      EPHOR_API_URL: collector.url,
+      EPHOR_TOKEN: TOKEN,
+    });
+    const table = await ephor(["check", "--skip", "reachability", "--plain"], {
       EPHOR_API_URL: collector.url,
       EPHOR_TOKEN: TOKEN,
     });
@@ -312,9 +337,18 @@ describe("ephor check through the daemon", () => {
     expect(collector.requests.map((request) => request.url)).toEqual([
       "/api/check",
       "/api/state",
+      "/api/check",
+      "/api/state",
     ]);
     const response = JSON.parse(run.stdout) as CheckResponse;
     expect(response).toMatchObject({ complete: true, pending: [] });
+    // The state polled has no such field: the check's answer carries it.
+    expect(response.notRun).toEqual([
+      { node: "antilochus", probe: "speed", disabledReason: "config" },
+    ]);
+    expect(table.stdout).toContain(
+      "not run: speed on antilochus (off in the config)",
+    );
   }, 20_000);
 
   it("exits 2 with the daemon's words for a node it does not have", async () => {

@@ -6,9 +6,10 @@ export {
   CHECK_MAX_WAIT_SECONDS,
   type CheckRequest,
   CheckRequestSchema,
-  describeProbesAsked,
-  probesAsked,
-  probesNamed,
+  describeProbeSelection,
+  probeNamesInRequest,
+  requestedProbeNames,
+  selectProbeNames,
 } from "./api/check-request";
 export {
   METRICS_QUERY_DEFAULT_LIMIT,
@@ -23,6 +24,7 @@ export type {
   HealthResponse,
   MetricsResponse,
   NodeResponse,
+  ProbeNotRun,
   QueueState,
   RemovedAcknowledgementResponse,
   SshQueues,

@@ -1,4 +1,5 @@
 import {
+  type CheckRequest,
   type Config,
   createLogger,
   type Logger,
@@ -35,10 +36,13 @@ const FLEET = {
  * The real scheduler over the fleet, and only what a check needs — no
  * sleep among them, so a wait can come from nowhere but the run itself.
  */
-function worldOf() {
+function worldOf(
+  fleet: Record<string, unknown> = FLEET,
+  options: { completeAtOnce?: boolean } = {},
+) {
   const points: MetricPoint[] = [];
-  const nodes = resolveConfig(parseConfig(FLEET, TEST_PROBES), TEST_PROBES);
-  const { scheduler, dispatched } = schedulerOf(nodes);
+  const nodes = resolveConfig(parseConfig(fleet, TEST_PROBES), TEST_PROBES);
+  const { scheduler, dispatched } = schedulerOf(nodes, options);
 
   const deps: CheckDeps = {
     storage: storageOf(points),
@@ -95,11 +99,11 @@ describe("checkOnce", () => {
     const skipped = worldOf();
     void checkOnce(skipped.deps, { node: "achilles", skip: ["system"] });
 
-    expect(named.dispatched.map((task) => task.probe)).toEqual([
+    expect(named.dispatched.map((task) => task.probeName)).toEqual([
       "system",
       "reachability",
     ]);
-    expect(skipped.dispatched.map((task) => task.probe)).toEqual([
+    expect(skipped.dispatched.map((task) => task.probeName)).toEqual([
       "reachability",
     ]);
   });
@@ -143,6 +147,70 @@ describe("checkOnce", () => {
     });
   });
 
+  describe("what did not run", () => {
+    async function notRunOf(
+      request: CheckRequest,
+      fleet: Record<string, unknown> = FLEET,
+    ) {
+      const { deps } = worldOf(fleet, { completeAtOnce: true });
+      const outcome = await checkOnce(deps, request);
+      if (outcome.kind !== "ran") throw new Error(`refused: ${outcome.kind}`);
+
+      return outcome.response.notRun;
+    }
+
+    // achilles runs system, so german lacking it is news, with the reason.
+    it("lists a probe off on one node while it runs on another", async () => {
+      const lacking = [
+        { node: "german", probe: "system", disabledReason: "no-executor" },
+      ];
+
+      expect(await notRunOf({})).toEqual(lacking);
+      expect(await notRunOf({ node: "german" })).toEqual(lacking);
+      expect(await notRunOf({ node: "achilles" })).toEqual([]);
+    });
+
+    it("says nothing of a probe skipped on purpose", async () => {
+      expect(await notRunOf({ skip: ["system"] })).toEqual([]);
+    });
+
+    const offEverywhere = {
+      ...FLEET,
+      probes: { reachability: { enabled: false } },
+    };
+
+    // Speed until switched on: a line on every check would be noise.
+    it("says nothing of a probe off on every node", async () => {
+      expect(await notRunOf({}, offEverywhere)).toEqual([
+        { node: "german", probe: "system", disabledReason: "no-executor" },
+      ]);
+    });
+
+    it("lists a probe named, wherever it is off", async () => {
+      expect(
+        await notRunOf({ probes: ["system", "reachability"] }, offEverywhere),
+      ).toEqual([
+        { node: "german", probe: "system", disabledReason: "no-executor" },
+        { node: "achilles", probe: "reachability", disabledReason: "config" },
+        { node: "german", probe: "reachability", disabledReason: "config" },
+      ]);
+    });
+
+    it("lists one probe named alone, on the one node asked for", async () => {
+      expect(await notRunOf({ probe: "system" })).toEqual([
+        { node: "german", probe: "system", disabledReason: "no-executor" },
+      ]);
+      expect(
+        await notRunOf(
+          { node: "achilles", probes: ["system", "reachability"] },
+          offEverywhere,
+        ),
+      ).toEqual([
+        { node: "achilles", probe: "reachability", disabledReason: "config" },
+      ]);
+    });
+  });
+
   // No daemon means nobody to hand the rest of the run to: the answer waits
   // for the last forced pair, however long.
   it("without a cap, waits for every forced pair", async () => {
@@ -150,7 +218,7 @@ describe("checkOnce", () => {
 
     const answer = checkOnce(deps, { node: "achilles" });
 
-    expect(dispatched.map((task) => task.probe)).toEqual([
+    expect(dispatched.map((task) => task.probeName)).toEqual([
       "system",
       "reachability",
     ]);
