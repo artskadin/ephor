@@ -372,6 +372,54 @@ describe("ephor check with nothing serving on the remote", () => {
     expect(run.stderr).toContain("`ephor check` on bastion exited 2");
   });
 
+  it("passes the probes named, or skipped, on to the check there", async () => {
+    const named = await ephor(
+      ["check", "--probe", "system,reachability", "--json"],
+      await setup(),
+    );
+    const skipped = await ephor(
+      ["check", "--skip", "reachability", "--json"],
+      await setup(),
+    );
+
+    expect(named.code).toBe(0);
+    expect(named.stderr).toContain(
+      "bastion: checking every node: system, reachability",
+    );
+    expect(skipped.code).toBe(0);
+    expect(skipped.stderr).toContain(
+      "bastion: checking every node: every probe but reachability",
+    );
+  });
+
+  // Measured on a live host: an ephor from before --skip says this.
+  it("says to update ephor there when it does not know --skip", async () => {
+    const older = mkdtempSync(join(tmpdir(), "ephor-older-remote-"));
+    cleanups.push(async () => rmSync(older, { recursive: true }));
+    writeFileSync(
+      join(older, "ephor"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then echo 0.0.0-old; exit 0; fi',
+        "echo \"error: unknown option '--skip'\" >&2",
+        "exit 1",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const environment = await setup({ withEphor: false });
+
+    const run = await ephor(["check", "--skip", "reachability"], {
+      ...environment,
+      PATH: `${older}:${environment.PATH}`,
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain("bastion: error: unknown option '--skip'");
+    expect(run.stderr).toContain("bastion has ephor 0.0.0-old");
+    expect(run.stderr).toContain("ssh bastion npm i -g ephorate@");
+  });
+
   it("exits 2 saying where PATH goes when ephor is not on it there", async () => {
     const run = await ephor(["check"], await setup({ withEphor: false }));
 

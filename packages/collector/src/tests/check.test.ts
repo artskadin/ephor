@@ -86,6 +86,63 @@ describe("checkOnce", () => {
     expect(dispatched).toEqual([]);
   });
 
+  it("runs the probes named, or every probe but those skipped", () => {
+    const named = worldOf();
+    void checkOnce(named.deps, {
+      node: "achilles",
+      probes: ["reachability", "system"],
+    });
+    const skipped = worldOf();
+    void checkOnce(skipped.deps, { node: "achilles", skip: ["system"] });
+
+    expect(named.dispatched.map((task) => task.probe)).toEqual([
+      "system",
+      "reachability",
+    ]);
+    expect(skipped.dispatched.map((task) => task.probe)).toEqual([
+      "reachability",
+    ]);
+  });
+
+  it("refuses an unknown name wherever it is given, and a skip of all", async () => {
+    const { deps, dispatched } = worldOf();
+
+    await expect(
+      checkOnce(deps, { probes: ["system", "sped"] }),
+    ).resolves.toEqual({
+      kind: "invalid",
+      reason: 'unknown probe "sped". Available: system, reachability',
+    });
+    await expect(checkOnce(deps, { skip: ["sped"] })).resolves.toMatchObject({
+      reason: 'unknown probe "sped". Available: system, reachability',
+    });
+    await expect(
+      checkOnce(deps, { skip: ["system", "reachability"] }),
+    ).resolves.toEqual({
+      kind: "invalid",
+      reason: "nothing to check: every probe is skipped",
+    });
+    expect(dispatched).toEqual([]);
+  });
+
+  it("names every probe asked for when none of them can run", async () => {
+    const { deps } = worldOf();
+
+    await expect(
+      checkOnce(deps, { node: "german", probes: ["system"] }),
+    ).resolves.toMatchObject({
+      reason:
+        "system is disabled on german: it needs ssh access and german has none",
+    });
+    await expect(
+      checkOnce(deps, { node: "german", skip: ["reachability"] }),
+    ).resolves.toMatchObject({
+      reason:
+        "every probe but reachability is disabled on german: it needs ssh " +
+        "access and german has none",
+    });
+  });
+
   // No daemon means nobody to hand the rest of the run to: the answer waits
   // for the last forced pair, however long.
   it("without a cap, waits for every forced pair", async () => {

@@ -69,3 +69,47 @@ describe("runCheck with a refused connection", () => {
     expect((failure as Error).message).toContain("Cannot read config file");
   });
 });
+
+describe("runCheck against an older serve", () => {
+  // Measured: what a serve from before `skip` answers.
+  const SAID = 'answered 400: (root): Unrecognized key: "skip"';
+
+  function olderServe(apiUrl: string): CollectorClient {
+    return {
+      apiUrl,
+      check: () => Promise.reject(new ApiError("rejected", SAID)),
+      state: () => Promise.resolve({ now: 0, nodes: [], version: "0.0.0-old" }),
+    };
+  }
+
+  async function messageFor(client: CollectorClient): Promise<string> {
+    const failure = await checkWith(client).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(UsageError);
+    return (failure as Error).message;
+  }
+
+  it("names the update and the restart there for a remote collector", async () => {
+    const message = await messageFor({
+      ...olderServe("ssh://bastion"),
+      remote: "bastion",
+    });
+
+    expect(message).toContain(SAID);
+    expect(message).toContain("bastion has ephor 0.0.0-old");
+    expect(message).toContain("ssh bastion npm i -g ephorate@");
+    expect(message).toContain("ssh bastion systemctl --user restart ephor");
+  });
+
+  it("asks to restart a serve on this machine onto the new install", async () => {
+    const message = await messageFor(olderServe("http://127.0.0.1:31556"));
+
+    expect(message).toContain("it takes one --probe and no --skip");
+    expect(message).toContain("Restart it onto the ephor installed here");
+  });
+
+  it("asks to update a collector at another address there", async () => {
+    const message = await messageFor(olderServe("http://203.0.113.7:31556"));
+
+    expect(message).toContain("update it there (npm i -g ephorate@");
+  });
+});

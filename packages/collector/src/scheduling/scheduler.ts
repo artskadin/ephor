@@ -100,11 +100,11 @@ export class Scheduler {
   // Runs the matching pairs on the next tick, offsets ignored. The promise
   // is for these pairs alone: the whole queue would hold `check achilles
   // system` hostage to a reachability wave on other nodes.
-  runNow(nodeName?: string, probeName?: string): ForcedRun {
+  runNow(nodeName?: string, probeNames?: readonly string[]): ForcedRun {
     const forced: { task: Task; key: string }[] = [];
     const deferredProbes = new Set<string>();
 
-    for (const { task, key } of this.pairs(nodeName, probeName)) {
+    for (const { task, key } of this.pairs(nodeName, probeNames)) {
       this.forcedKeys.add(key);
       forced.push({ task, key });
 
@@ -174,13 +174,16 @@ export class Scheduler {
   }
 
   /** The one definition of "may run": forcing and dispatching agree. */
-  private *pairs(nodeName?: string, probeName?: string): Generator<Pair> {
+  private *pairs(
+    nodeName?: string,
+    probeNames?: readonly string[],
+  ): Generator<Pair> {
     for (const node of this.nodes) {
       if (nodeName !== undefined && node.node.name !== nodeName) continue;
 
       for (const [probe, settings] of node.probes) {
         if (!settings.enabled) continue;
-        if (probeName !== undefined && probe !== probeName) continue;
+        if (probeNames !== undefined && !probeNames.includes(probe)) continue;
 
         const task = { node, probe };
 

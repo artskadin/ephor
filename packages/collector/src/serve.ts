@@ -87,7 +87,7 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
           runningTasks: () => collector.runningTasks,
           queues: () => collector.queues(),
           sshQueues: () => collector.sshQueues(),
-          forceRun: (node, probe) => collector.runNow(node, probe),
+          forceRun: (node, probes) => collector.runNow(node, probes),
         },
       });
     }

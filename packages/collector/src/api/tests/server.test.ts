@@ -242,22 +242,53 @@ describe("createApiServer", () => {
 
     it("limits the run to what the body names", async () => {
       const deps = serverDeps();
-      const forced: [string | undefined, string | undefined][] = [];
+      const forced: [string | undefined, readonly string[] | undefined][] = [];
       const inner = deps.forceRun;
-      deps.forceRun = (node, probe) => {
-        forced.push([node, probe]);
-        return inner(node, probe);
+      deps.forceRun = (node, probes) => {
+        forced.push([node, probes]);
+        return inner(node, probes);
       };
+      const server = serverOf({ deps });
+      const post = (payload: Record<string, unknown>) =>
+        server.inject({
+          method: "POST",
+          url: "/api/check",
+          headers: authorized,
+          payload,
+        });
 
-      const response = await serverOf({ deps }).inject({
-        method: "POST",
-        url: "/api/check",
-        headers: authorized,
-        payload: { node: "achilles", probe: "system" },
+      const codes = [
+        (await post({ node: "achilles", probe: "system" })).statusCode,
+        (await post({ node: "achilles", probes: ["system"] })).statusCode,
+        (await post({ node: "achilles", skip: ["system"] })).statusCode,
+      ];
+
+      expect(codes).toEqual([200, 200, 200]);
+      expect(forced).toEqual([
+        ["achilles", ["system"]],
+        ["achilles", ["system"]],
+        ["achilles", ["reachability"]],
+      ]);
+    });
+
+    it("refuses a body that both names and skips probes", async () => {
+      const server = serverOf();
+      const post = (payload: Record<string, unknown>) =>
+        server.inject({
+          method: "POST",
+          url: "/api/check",
+          headers: authorized,
+          payload,
+        });
+
+      const both = await post({ probes: ["system"], skip: ["reachability"] });
+      const empty = await post({ probes: [] });
+
+      expect(both.statusCode).toBe(400);
+      expect(both.json()).toMatchObject({
+        error: expect.stringContaining("probes and skip together"),
       });
-
-      expect(response.statusCode).toBe(200);
-      expect(forced).toEqual([["achilles", "system"]]);
+      expect(empty.statusCode).toBe(400);
     });
 
     it("is a 404 that names the node for one that is not configured", async () => {

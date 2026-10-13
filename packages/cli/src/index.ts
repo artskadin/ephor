@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { type CheckRequest, createLogger, type Logger } from "@ephorate/core";
+import { createLogger, type Logger } from "@ephorate/core";
 import { Command, CommanderError } from "commander";
 import { ApiClient, ApiError } from "./api-client";
 import { cliFilePath, readCliFile } from "./cli-file";
@@ -8,6 +8,11 @@ import { exitQuietlyOnClosedPipe } from "./closed-pipe";
 import { runStatus } from "./commands/status";
 import { resolveConfigPath } from "./config-path";
 import { EXIT_OK, EXIT_TOOL_ERROR, UsageError } from "./exit-code";
+import {
+  checkRequestFrom,
+  collectProbeNames,
+  PROBE_NAMES,
+} from "./probe-selection";
 import { RemoteCollector } from "./remote-collector";
 import { colourEnabled } from "./render/colour-mode";
 import { findToken, tokenPath } from "./token";
@@ -182,7 +187,16 @@ program
     "Run the probes once, through `ephor serve` when it is up, else once on its machine",
   )
   .argument("[node]", "one node instead of every node")
-  .option("--probe <name>", "one probe instead of every probe")
+  .option(
+    "--probe <names>",
+    `only these probes, comma-separated: ${PROBE_NAMES.join(", ")}`,
+    collectProbeNames,
+  )
+  .option(
+    "--skip <names>",
+    "every probe enabled in the config but these",
+    collectProbeNames,
+  )
   .option(...CONFIG_OPTION)
   .option("--json", "print the result as JSON")
   .option("--plain", "no colour, whatever the terminal")
@@ -190,17 +204,15 @@ program
     async (
       node: string | undefined,
       options: {
-        probe?: string;
+        probe?: string[];
+        skip?: string[];
         config?: string;
         json?: boolean;
         plain?: boolean;
       },
     ) => {
+      const request = checkRequestFrom(node, options);
       const { runCheck } = await import("./commands/check");
-
-      const request: CheckRequest = {};
-      if (node !== undefined) request.node = node;
-      if (options.probe !== undefined) request.probe = options.probe;
 
       const configPath = resolveConfigPath({ flag: options.config });
 

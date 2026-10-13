@@ -3,7 +3,10 @@ import {
   type CheckRequest,
   type CheckResponse,
   type Config,
+  describeProbesAsked,
   type Logger,
+  probesAsked,
+  probesNamed,
   type ResolvedNode,
   type Storage,
 } from "@ephorate/core";
@@ -18,7 +21,7 @@ export interface CheckDeps {
   probeNames: readonly string[];
   /** Unix seconds. */
   now: () => number;
-  forceRun: (node?: string, probe?: string) => CheckRun;
+  forceRun: (node?: string, probes?: readonly string[]) => CheckRun;
 }
 
 /** Without a cap the check waits for every forced pair, however long. */
@@ -49,21 +52,28 @@ export async function checkOnce(
     return { kind: "unknown-node", node: request.node };
   }
 
-  if (request.probe !== undefined && !deps.probeNames.includes(request.probe)) {
+  const unknown = probesNamed(request).find(
+    (name) => !deps.probeNames.includes(name),
+  );
+  if (unknown !== undefined) {
     return {
       kind: "invalid",
-      reason: `unknown probe "${request.probe}". Available: ${deps.probeNames.join(", ")}`,
+      reason: `unknown probe "${unknown}". Available: ${deps.probeNames.join(", ")}`,
     };
   }
 
   // Before forcing: a probe stamps its points with a second at or after this.
   const startedAt = deps.now();
-  const run = deps.forceRun(request.node, request.probe);
+  const asked = probesAsked(request, deps.probeNames);
+  const run = deps.forceRun(request.node, asked);
 
   if (run.tasks.length === 0) {
     return {
       kind: "invalid",
-      reason: explainNothingToRun(deps.nodes, request),
+      reason:
+        asked.length === 0
+          ? "nothing to check: every probe is skipped"
+          : explainNothingToRun(deps.nodes, request, asked),
     };
   }
 
@@ -120,7 +130,7 @@ export async function checkWithoutDaemon(
         nodes: collector.nodes,
         probeNames: options.registry.names(),
         now: () => Math.floor(Date.now() / 1000),
-        forceRun: (node, probe) => collector.runNow(node, probe),
+        forceRun: (node, probes) => collector.runNow(node, probes),
       },
       options.request,
     );
@@ -155,24 +165,27 @@ async function waitFor(
   }
 }
 
-// The node and the probe exist, so the probe is switched off where it was
+// The node and the probes exist, so they are switched off where they were
 // asked for; the message says by whom.
 function explainNothingToRun(
   nodes: readonly ResolvedNode[],
   request: CheckRequest,
+  asked: readonly string[],
 ): string {
-  const { node: nodeName, probe: probeName } = request;
-  const what = `${probeName ?? "every probe"} is disabled on ${nodeName ?? "every node"}`;
+  const nodeName = request.node;
+  const [one, ...more] = asked;
+  const verb = more.length > 0 && request.probes ? "are" : "is";
+  const what = `${describeProbesAsked(request)} ${verb} disabled on ${nodeName ?? "every node"}`;
 
-  if (nodeName === undefined || probeName === undefined) {
-    return nodeName === undefined && probeName === undefined
+  if (nodeName === undefined || one === undefined || more.length > 0) {
+    return nodeName === undefined && request.probe === undefined
       ? `nothing to check: ${what}`
       : what;
   }
 
   const probe = nodes
     .find((candidate) => candidate.node.name === nodeName)
-    ?.probes.get(probeName);
+    ?.probes.get(one);
   const reason =
     probe?.disabledReason === "no-executor"
       ? `it needs ssh access and ${nodeName} has none`

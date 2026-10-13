@@ -47,7 +47,7 @@ export function collectorVersionWarning(
     // Installed but not restarted reads the old version: the restart too.
     const warning = versionWarning(remote, there, here);
     return compareVersions(there, here) < 0
-      ? `${warning}\n  ssh ${shellWord(remote)} systemctl --user restart ephor     (its service, if it runs as one)`
+      ? `${warning}\n${restartThereLine(remote)}`
       : warning;
   }
   if (apiUrl !== undefined && !isLoopback(apiUrl)) {
@@ -58,15 +58,25 @@ export function collectorVersionWarning(
     );
   }
 
-  const restart =
-    platform === "linux"
-      ? "  systemctl --user restart ephor     (or stop it and `ephor serve` again)"
-      : "  stop it (Ctrl-C in its tab) and run `ephor serve` again";
   return compareVersions(there, here) < 0
     ? `warning: the ephor serve here runs ephor ${there}, this command ephor ` +
-        `${here}: restart it to run this one:\n${restart}`
+        `${here}: restart it to run this one:\n${restartHereLine(platform)}`
     : `warning: the ephor serve here runs ephor ${there}, this command ephor ` +
         `${here}, an older install:\n  npm i -g ephorate@${there}`;
+}
+
+/** A serve on this machine, restarted onto the ephor installed now. */
+export function restartHereLine(
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return platform === "linux"
+    ? "  systemctl --user restart ephor     (or stop it and `ephor serve` again)"
+    : "  stop it (Ctrl-C in its tab) and run `ephor serve` again";
+}
+
+/** Installed but not restarted, a serve there runs the old code. */
+export function restartThereLine(remote: string): string {
+  return `  ssh ${shellWord(remote)} systemctl --user restart ephor     (its service, if it runs as one)`;
 }
 
 /**

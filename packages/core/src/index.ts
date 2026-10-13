@@ -6,6 +6,9 @@ export {
   CHECK_MAX_WAIT_SECONDS,
   type CheckRequest,
   CheckRequestSchema,
+  describeProbesAsked,
+  probesAsked,
+  probesNamed,
 } from "./api/check-request";
 export {
   METRICS_QUERY_DEFAULT_LIMIT,

@@ -264,16 +264,16 @@ describe("Collector: acknowledgements after a write", () => {
     await acknowledge(false);
 
     level = 60;
-    await collector.runNow("pupa", "gauge").finished;
+    await collector.runNow("pupa", ["gauge"]).finished;
     expect(await statusOf(collector)).toBe("stale");
     expect(await isAcknowledged()).toBe(true);
 
-    await collector.runNow("pupa", "fast").finished;
+    await collector.runNow("pupa", ["fast"]).finished;
     expect(await statusOf(collector)).toBe("warn");
     expect(await isAcknowledged()).toBe(true);
 
     level = 95;
-    await collector.runNow("pupa", "gauge").finished;
+    await collector.runNow("pupa", ["gauge"]).finished;
     expect(await isAcknowledged()).toBe(false);
   });
 

@@ -108,8 +108,8 @@ export class Collector {
   }
 
   /** The budget is computed here, where the queues are, for both callers. */
-  runNow(nodeName?: string, probeName?: string): CheckRun {
-    const run = this.scheduler.runNow(nodeName, probeName);
+  runNow(nodeName?: string, probeNames?: readonly string[]): CheckRun {
+    const run = this.scheduler.runNow(nodeName, probeNames);
 
     return {
       ...run,

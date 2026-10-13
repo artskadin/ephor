@@ -121,6 +121,49 @@ describe("ephor check", () => {
     expect(run.stderr).toContain("reachability is disabled");
   });
 
+  it("runs only the probes named, and says which", async () => {
+    const run = await check(["--probe", "system", "--json"]);
+    const listed = await check(["--probe", "system,reachability", "--json"]);
+
+    expect(run.code).toBe(0);
+    expect(run.stderr).toContain("checking every node: system");
+    // reachability is off in this config: a list naming it runs the rest.
+    expect(listed.code).toBe(0);
+    expect(listed.stderr).toContain(
+      "checking every node: system, reachability",
+    );
+  });
+
+  it("exits 2 when --skip leaves nothing enabled to run", async () => {
+    const run = await check(["--skip", "system"]);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain(
+      "nothing to check: every probe but system is disabled on every node",
+    );
+  });
+
+  it("exits 2 on --probe and --skip together, and on an empty name", async () => {
+    const both = await check(["--probe", "system", "--skip", "reachability"]);
+    const empty = await check(["--probe", "system,"]);
+    const unknown = await check(["--skip", "sped"]);
+
+    expect(both.code).toBe(2);
+    expect(both.stderr).toContain("--probe and --skip together");
+    expect(empty.code).toBe(2);
+    expect(empty.stderr).toContain("--probe takes probe names");
+    expect(unknown.code).toBe(2);
+    expect(unknown.stderr).toContain('unknown probe "sped"');
+  });
+
+  it("names the probes in --help", async () => {
+    const run = await ephor(["check", "--help"]);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("system, reachability");
+    expect(run.stdout).toContain("--skip <names>");
+  });
+
   it("exits 2 on a config it cannot read, without a stack", async () => {
     const run = await ephor([
       "check",
@@ -236,6 +279,44 @@ describe("ephor check through the daemon", () => {
     expect(response).toMatchObject({ complete: true, pending: [] });
   }, 20_000);
 
+  // Waiting for a skipped probe's `.up` would hold the check to its cap.
+  it("polls only for the probes it asked for", async () => {
+    const startedAt = NOW - 10;
+    const before = stateReportedAt(startedAt - 60);
+    const systemOnly: StateResponse = {
+      ...before,
+      nodes: before.nodes.map((node) => ({
+        ...node,
+        metrics: node.metrics.map((view) =>
+          view.metric === "system.up" ? { ...view, ts: NOW } : view,
+        ),
+      })),
+    };
+    const collector = await collectorOf(before, {
+      check: {
+        ...before,
+        startedAt,
+        complete: false,
+        pending: ["achilles", "antilochus"],
+      },
+      statesInOrder: [systemOnly],
+    });
+    cleanups.push(collector.close);
+
+    const run = await ephor(["check", "--skip", "reachability", "--json"], {
+      EPHOR_API_URL: collector.url,
+      EPHOR_TOKEN: TOKEN,
+    });
+
+    expect(run.code).toBe(0);
+    expect(collector.requests.map((request) => request.url)).toEqual([
+      "/api/check",
+      "/api/state",
+    ]);
+    const response = JSON.parse(run.stdout) as CheckResponse;
+    expect(response).toMatchObject({ complete: true, pending: [] });
+  }, 20_000);
+
   it("exits 2 with the daemon's words for a node it does not have", async () => {
     const collector = await collectorOf(stateReportedAt(NOW), {
       check: { status: 404, error: 'unknown node "hector"' },
@@ -249,6 +330,43 @@ describe("ephor check through the daemon", () => {
 
     expect(run.code).toBe(2);
     expect(run.stderr).toContain('unknown node "hector"');
+  });
+
+  it("sends one probe as `probe`, several as `probes`, and `skip`", async () => {
+    const finished = stateReportedAt(NOW);
+    const collector = await collectorOf(finished, {
+      check: { ...finished, startedAt: NOW, complete: true, pending: [] },
+    });
+    cleanups.push(collector.close);
+    const environment = { EPHOR_API_URL: collector.url, EPHOR_TOKEN: TOKEN };
+
+    await ephor(["check", "--probe", "system", "--json"], environment);
+    await ephor(["check", "--probe", "system,reachability"], environment);
+    await ephor(["check", "--skip", "system", "--json"], environment);
+
+    expect(collector.requests.map((request) => request.body)).toEqual([
+      '{"probe":"system"}',
+      '{"probes":["system","reachability"]}',
+      '{"skip":["system"]}',
+    ]);
+  });
+
+  it("says an older serve takes one probe, in its own words too", async () => {
+    const collector = await collectorOf(stateReportedAt(NOW), {
+      check: { status: 400, error: '(root): Unrecognized key: "skip"' },
+    });
+    cleanups.push(collector.close);
+
+    const run = await ephor(["check", "--skip", "system"], {
+      EPHOR_API_URL: collector.url,
+      EPHOR_TOKEN: TOKEN,
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('Unrecognized key: "skip"');
+    expect(run.stderr).toContain(
+      "is older than this command: it takes one --probe and no --skip",
+    );
   });
 
   it("runs here, saying so, when nothing listens on the port", async () => {

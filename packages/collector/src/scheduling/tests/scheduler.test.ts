@@ -221,7 +221,7 @@ describe("Scheduler", () => {
     });
 
     it("runs when forced, by name or with everything else", () => {
-      scheduler.runNow("pupa", "manual");
+      scheduler.runNow("pupa", ["manual"]);
       expect(probeNames()).toEqual(["manual"]);
 
       for (const task of dispatched) scheduler.complete(task);
@@ -232,7 +232,7 @@ describe("Scheduler", () => {
     });
 
     it("runs once per forced run, not again after it", () => {
-      scheduler.runNow("pupa", "manual");
+      scheduler.runNow("pupa", ["manual"]);
       for (const task of dispatched) scheduler.complete(task);
       dispatched = [];
 
@@ -244,12 +244,12 @@ describe("Scheduler", () => {
     // Forced mid-run, it has no slot to fall back on: the forced key alone
     // must carry it to exactly one more run.
     it("runs once more when forced while it is still running", async () => {
-      scheduler.runNow("pupa", "manual");
+      scheduler.runNow("pupa", ["manual"]);
       const [running] = dispatched;
       if (!running) throw new Error("expected the forced run to dispatch");
       dispatched = [];
 
-      const run = scheduler.runNow("pupa", "manual");
+      const run = scheduler.runNow("pupa", ["manual"]);
       expect(run.deferredProbes).toEqual(new Set(["manual"]));
 
       scheduler.complete(running);
@@ -308,13 +308,13 @@ describe("Scheduler", () => {
     });
 
     it("limits the run to one probe of one node", () => {
-      scheduler.runNow("pupa", "slow");
+      scheduler.runNow("pupa", ["slow"]);
 
       expect(probeNames()).toEqual(["slow"]);
     });
 
     it("leaves the regular schedule alone afterwards", () => {
-      scheduler.runNow("pupa", "fast");
+      scheduler.runNow("pupa", ["fast"]);
       for (const task of dispatched) scheduler.complete(task);
       dispatched = [];
 
@@ -408,12 +408,12 @@ describe("Scheduler", () => {
     // `ephor check` on a node whose probe happens to be mid-cycle must not
     // be handed the previous cycle's numbers as the fresh ones it asked for.
     it("reports a pair that is mid-run as deferred and waits for its next run", async () => {
-      scheduler.runNow("pupa", "fast");
+      scheduler.runNow("pupa", ["fast"]);
       const running = firstDispatched();
       dispatched = [];
 
       // The user asks for a fresh run while that one is still going.
-      const run = scheduler.runNow("pupa", "fast");
+      const run = scheduler.runNow("pupa", ["fast"]);
 
       expect(run.deferredProbes).toEqual(new Set(["fast"]));
 
@@ -434,11 +434,11 @@ describe("Scheduler", () => {
     // Two clients checking the same node: the first must get its answer
     // when its run ends, not when the second one's does.
     it("settles two overlapping runs of one pair each on its own completion", async () => {
-      const first = scheduler.runNow("pupa", "fast");
+      const first = scheduler.runNow("pupa", ["fast"]);
       const firstTask = firstDispatched();
       dispatched = [];
 
-      const second = scheduler.runNow("pupa", "fast");
+      const second = scheduler.runNow("pupa", ["fast"]);
 
       scheduler.complete(firstTask);
       expect(await isSettled(first.finished)).toBe(true);
@@ -451,10 +451,10 @@ describe("Scheduler", () => {
     });
 
     it("does not stay open for a pair whose node was removed before it ran", async () => {
-      scheduler.runNow("pupa", "fast");
+      scheduler.runNow("pupa", ["fast"]);
       dispatched = [];
 
-      const run = scheduler.runNow("pupa", "fast");
+      const run = scheduler.runNow("pupa", ["fast"]);
       expect(run.deferredProbes.size).toBe(1);
 
       scheduler.setNodes(nodesFor(["lupa"]));
@@ -466,10 +466,10 @@ describe("Scheduler", () => {
     // map, marked disabled; the tick will never dispatch it, so the run
     // must not wait for it either.
     it("lets go of a pair whose probe was switched off before it ran", async () => {
-      scheduler.runNow("pupa", "fast");
+      scheduler.runNow("pupa", ["fast"]);
       dispatched = [];
 
-      const run = scheduler.runNow("pupa", "fast");
+      const run = scheduler.runNow("pupa", ["fast"]);
       expect(run.deferredProbes).toEqual(new Set(["fast"]));
 
       scheduler.setNodes(nodesFor(["pupa"], { fast: { enabled: false } }));
