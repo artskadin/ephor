@@ -313,6 +313,33 @@ describe("SystemProbe traffic over runs", () => {
     expect(afterwards).toBeUndefined();
   });
 
+  it("writes how full the promised port is each way, with a bandwidth", () => {
+    const probe = new SystemProbe();
+    const traffic = { receivedMbps: 450, sentMbps: 60 };
+    const points = (bandwidth?: { received: number; sent: number }) =>
+      probe
+        .toMetrics(
+          { ...SNAPSHOT, listeningPorts: "", traffic },
+          { ...contextWith([]), bandwidth },
+        )
+        .filter((point) =>
+          ["system.received_percent", "system.sent_percent"].includes(
+            point.metric,
+          ),
+        );
+
+    expect(points({ received: 1000, sent: 300 })).toMatchObject([
+      { metric: "system.received_percent", value: 45 },
+      { metric: "system.sent_percent", value: 20 },
+    ]);
+    // A port faster than promised (leonidas: 1 Gbit/s sold, ~5.7 real).
+    expect(points({ received: 300, sent: 180 })).toMatchObject([
+      { metric: "system.received_percent", value: 150 },
+      { metric: "system.sent_percent", value: 33.3 },
+    ]);
+    expect(points(undefined)).toEqual([]);
+  });
+
   // A value-less point would read as ok over a warn: none is written, and
   // the last value stands until the next one.
   it("writes both directions when measured, and nothing when not", () => {

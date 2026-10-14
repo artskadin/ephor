@@ -59,8 +59,14 @@ const COLUMNS: readonly Column[] = [
     probe: "system",
     read: (node) =>
       trafficCell(
-        metricView(node, "system.received_mbps"),
-        metricView(node, "system.sent_mbps"),
+        {
+          received: metricView(node, "system.received_mbps"),
+          sent: metricView(node, "system.sent_mbps"),
+        },
+        {
+          received: metricView(node, "system.received_percent"),
+          sent: metricView(node, "system.sent_percent"),
+        },
       ),
   },
   {
@@ -385,14 +391,28 @@ function percentColumn(title: string, probe: string, metric: string): Column {
   };
 }
 
-// One unit for the column, so rows compare without reading M or G.
-function trafficCell(
-  received: MetricView | undefined,
-  sent: MetricView | undefined,
-): Cell | undefined {
-  if (received === undefined && sent === undefined) return undefined;
+interface TrafficViews {
+  received: MetricView | undefined;
+  sent: MetricView | undefined;
+}
 
-  const views = [received, sent].filter((view) => view !== undefined);
+// One unit for the column, so rows compare without reading M or G. The
+// percent of the promised port is the fuller side's, its arrow saying
+// which; the tint is the worst of all four: a threshold may sit on any.
+function trafficCell(
+  rates: TrafficViews,
+  percents: TrafficViews,
+): Cell | undefined {
+  if (rates.received === undefined && rates.sent === undefined) {
+    return undefined;
+  }
+
+  const views = [
+    rates.received,
+    rates.sent,
+    percents.received,
+    percents.sent,
+  ].filter((view) => view !== undefined);
   const worse = views.reduce((left, right) =>
     STATUS_RANK[right.severity] > STATUS_RANK[left.severity] ? right : left,
   );
@@ -401,11 +421,24 @@ function trafficCell(
   );
 
   return {
-    text: `↓${mbpsText(received?.value)} ↑${mbpsText(sent?.value)} Mbit/s`,
+    text:
+      `↓${mbpsText(rates.received?.value)} ↑${mbpsText(rates.sent?.value)} ` +
+      `Mbit/s${fullestPercentText(percents)}`,
     ageSeconds: ages.length > 0 ? Math.max(...ages) : undefined,
     severity: worse.severity,
     stale: views.some((view) => view.status === "stale"),
   };
+}
+
+/** ` ↑85%`, or nothing without a bandwidth in the config. */
+function fullestPercentText(percents: TrafficViews): string {
+  const received = percents.received?.value;
+  const sent = percents.sent?.value;
+  if (received === undefined && sent === undefined) return "";
+
+  return (sent ?? -1) > (received ?? -1)
+    ? ` ↑${Math.round(sent ?? 0)}%`
+    : ` ↓${Math.round(received ?? 0)}%`;
 }
 
 // A tenth below 10 (an idle node reads 0.3), whole above it; rounded to

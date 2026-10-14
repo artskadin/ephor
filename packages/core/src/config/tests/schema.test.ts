@@ -516,3 +516,61 @@ describe("threshold metric ids", () => {
     expect(config.nodes[0]?.thresholds["system.disk_percent"]).toBeNull();
   });
 });
+
+describe("bandwidth", () => {
+  const withBandwidth = (bandwidth: unknown) => ({
+    nodes: [{ name: "solo", host: "203.0.113.10", bandwidth }],
+  });
+  const bandwidthOf = (bandwidth: unknown) =>
+    schema.parse(withBandwidth(bandwidth)).nodes[0]?.bandwidth;
+
+  it("reads one speed for both directions, to Mbit/s", () => {
+    expect(bandwidthOf("1Gbit")).toEqual({ received: 1000, sent: 1000 });
+    expect(bandwidthOf("500Mbit")).toEqual({ received: 500, sent: 500 });
+    expect(bandwidthOf("1.5gbit")).toEqual({ received: 1500, sent: 1500 });
+  });
+
+  it("reads each direction in the long form", () => {
+    expect(bandwidthOf({ received: "1Gbit", sent: "300Mbit" })).toEqual({
+      received: 1000,
+      sent: 300,
+    });
+  });
+
+  it("is absent when not written, or blanked", () => {
+    expect(bandwidthOf(undefined)).toBeUndefined();
+    expect(bandwidthOf(null)).toBeUndefined();
+  });
+
+  // Bytes or bits per second: a wrong guess would be eight times off.
+  it("refuses a unit it does not know, zero, and half a long form", () => {
+    // Once, where it was written: not on two sides the user never wrote.
+    expect(issuesOf(withBandwidth("1Gbps"))).toEqual([
+      "nodes.0.bandwidth: a speed like 500Mbit or 1Gbit",
+    ]);
+    expect(issuesOf(withBandwidth("1GB"))).toEqual([
+      "nodes.0.bandwidth: a speed like 500Mbit or 1Gbit",
+    ]);
+    expect(issuesOf(withBandwidth("0Mbit"))).toEqual([
+      "nodes.0.bandwidth: a speed above zero",
+    ]);
+    expect(
+      issuesOf(withBandwidth({ received: "1Gbps", sent: "1Gbit" })),
+    ).toEqual(["nodes.0.bandwidth.received: a speed like 500Mbit or 1Gbit"]);
+    expect(issuesOf(withBandwidth({ received: "1Gbit" }))).toEqual([
+      "nodes.0.bandwidth.sent: missing: a speed like 500Mbit or 1Gbit",
+    ]);
+    expect(issuesOf(withBandwidth(true))).toEqual([
+      "nodes.0.bandwidth: a speed like 500Mbit or 1Gbit",
+    ]);
+    // Meant as a gigabit, a bare 1 would have read as one megabit.
+    expect(issuesOf(withBandwidth(1))).toEqual([
+      "nodes.0.bandwidth: a speed like 500Mbit or 1Gbit",
+    ]);
+    expect(issuesOf(withBandwidth({ received: "1Gbit" })).length).toBe(1);
+    expect(
+      issuesOf(withBandwidth({ received: "1Gbit", sent: "1Gbit", up: "1Gbit" }))
+        .length,
+    ).toBe(1);
+  });
+});

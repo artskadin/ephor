@@ -1,4 +1,5 @@
 import type {
+  Bandwidth,
   MetricPoint,
   Probe,
   ProbeContext,
@@ -199,22 +200,40 @@ export class SystemProbe implements Probe<SystemResult> {
         value: Math.floor(snapshot.uptimeSeconds),
       },
       { ...base, ...comparePorts(snapshot.listeningPorts, context) },
-      ...(snapshot.traffic === undefined
-        ? []
-        : [
-            {
-              ...base,
-              metric: "system.received_mbps",
-              value: snapshot.traffic.receivedMbps,
-            },
-            {
-              ...base,
-              metric: "system.sent_mbps",
-              value: snapshot.traffic.sentMbps,
-            },
-          ]),
+      ...trafficPoints(snapshot.traffic, context.bandwidth).map((point) => ({
+        ...base,
+        ...point,
+      })),
     ];
   }
+}
+
+// The percent of the promised port each way, when the config gives one.
+function trafficPoints(
+  traffic: Traffic | undefined,
+  bandwidth: Bandwidth | undefined,
+): Pick<MetricPoint, "metric" | "value">[] {
+  if (traffic === undefined) return [];
+
+  const rates = [
+    { metric: "system.received_mbps", value: traffic.receivedMbps },
+    { metric: "system.sent_mbps", value: traffic.sentMbps },
+  ];
+  if (bandwidth === undefined) return rates;
+
+  const percentOf = (mbps: number, promisedMbps: number) =>
+    roundToTenth((mbps / promisedMbps) * 100);
+  return [
+    ...rates,
+    {
+      metric: "system.received_percent",
+      value: percentOf(traffic.receivedMbps, bandwidth.received),
+    },
+    {
+      metric: "system.sent_percent",
+      value: percentOf(traffic.sentMbps, bandwidth.sent),
+    },
+  ];
 }
 
 function isTooSoon(earlier: NetworkReading, later: NetworkReading): boolean {

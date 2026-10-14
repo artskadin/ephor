@@ -42,6 +42,18 @@ probes:
   system:
     interval: 1m
 
+# A value is shown and never warns until it has a threshold: none are set
+# by default. By metric id, in the metric's unit; a node's own
+# \`thresholds:\` replace these, and \`null\` there drops one. For example:
+#
+# thresholds:
+#   system.disk_percent: { warn: 85, critical: 95 }
+#   system.received_percent: { warn: 80, critical: 100 }
+#   system.sent_percent: { warn: 80, critical: 100 }
+#
+# A percent of \`bandwidth\` can pass 100: more than promised is in use,
+# and the hoster may cut the port back to it any day.
+
 nodes:
   # Your servers, one entry each. Uncomment one form and fill it in; the
   # addresses below are documentation examples, not real servers.
@@ -77,4 +89,14 @@ nodes:
   # does one that is not listed: list every such port. UDP is not seen.
   #
   #   ports: [443, 2222]
+  #
+  # Bandwidth is optional: TRAFFIC shows Mbit/s without it. Given, it
+  # adds how full the port is as a percent of it, and the metrics
+  # system.received_percent and system.sent_percent can take thresholds.
+  # Write the speed you plan by: the tariff, to hear when users lean on
+  # more than the hoster promises (a percent past 100), or the port's
+  # real speed, to see how full it really is. \`1Gbit\` for both
+  # directions, else \`{ received: 1Gbit, sent: 300Mbit }\`.
+  #
+  #   bandwidth: 1Gbit
 `;

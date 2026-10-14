@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { Port } from "../config/schema";
+import type { Bandwidth, Port } from "../config/schema";
 import type { MetricPoint } from "./metrics";
 import type { ProbeOutcome } from "./probe";
 
@@ -8,6 +8,8 @@ export interface ProbeContext {
   host: string;
   domain?: string | undefined;
   ports: readonly Port[];
+  /** The hoster's promise, when the config gives one. */
+  bandwidth?: Bandwidth | undefined;
   executor?: CommandRunner | undefined;
   /** Every point of a run carries it: older ones read as dropped metrics. */
   startedAt: number;

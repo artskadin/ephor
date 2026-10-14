@@ -64,6 +64,53 @@ const PortSchema = z.union([
 
 export type Port = z.infer<typeof PortTargetSchema>;
 
+const SPEED_FORM = /^(\d+(?:\.\d+)?)\s*(Mbit|Gbit)$/i;
+
+// To Mbit/s. Always with a unit: a bare `1` meant as a gigabit would read
+// as 1 Mbit/s, and 450 Mbit/s of traffic as 45 000% of the port.
+const SpeedSchema = z
+  .string({
+    error: (issue) =>
+      issue.input === undefined
+        ? "missing: a speed like 500Mbit or 1Gbit"
+        : "a speed like 500Mbit or 1Gbit",
+  })
+  .regex(SPEED_FORM, "a speed like 500Mbit or 1Gbit")
+  .transform((text) => {
+    const [, amount = "0", unit = ""] = SPEED_FORM.exec(text) ?? [];
+    return Number(amount) * (unit.toLowerCase() === "gbit" ? 1000 : 1);
+  })
+  .pipe(z.number().positive("a speed above zero"));
+
+const BandwidthTargetSchema = z
+  .object({ received: SpeedSchema, sent: SpeedSchema })
+  .strict();
+
+// The hoster's promise for the node's port. `1Gbit` for both directions,
+// the long form when the tariff differs. A wrong short form is reported
+// once, on `bandwidth`: not on `received` and `sent`, never written.
+const BandwidthSchema = z.preprocess((value, context) => {
+  const isLongForm =
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  if (isLongForm || value === undefined) return value;
+
+  const speed = SpeedSchema.safeParse(value);
+  if (!speed.success) {
+    for (const issue of speed.error.issues) {
+      context.addIssue({
+        code: "custom",
+        message: issue.message,
+        input: value,
+      });
+    }
+    return z.NEVER;
+  }
+  return { received: value, sent: value };
+}, BandwidthTargetSchema);
+
+/** In Mbit/s, each direction of the node's port. */
+export type Bandwidth = z.infer<typeof BandwidthTargetSchema>;
+
 // The same keys at both levels. `concurrency` is global-only: it caps a
 // resource shared by every node.
 const baseProbeShape = {
@@ -233,6 +280,7 @@ const nodeShape = {
   local: z.boolean().default(false),
   ssh: optionalSection(SshSchema.optional()),
   ports: optionalSection(z.array(PortSchema).default([])),
+  bandwidth: optionalSection(BandwidthSchema.optional()),
   probes: optionalSection(
     z.record(z.string(), NodeProbeConfigSchema).default({}),
   ),

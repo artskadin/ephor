@@ -167,6 +167,7 @@ export class Collector {
       host: nodeConfig.host,
       domain: nodeConfig.domain,
       ports: nodeConfig.ports,
+      bandwidth: nodeConfig.bandwidth,
       executor: createExecutor(nodeConfig, timeoutMs, this.sshGates),
       startedAt,
       timeoutMs,

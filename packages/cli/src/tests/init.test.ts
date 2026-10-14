@@ -183,6 +183,32 @@ describe("CONFIG_TEMPLATE", () => {
     ).toEqual([443, 2222]);
   });
 
+  it("is valid with the bandwidth example on a node", () => {
+    const text = withExample("amsterdam").replace(
+      "  #   bandwidth: 1Gbit",
+      "    bandwidth: 1Gbit",
+    );
+
+    expect(parseConfig(parse(text), descriptors).nodes[0]?.bandwidth).toEqual({
+      received: 1000,
+      sent: 1000,
+    });
+  });
+
+  it("is valid with the thresholds example uncommented", () => {
+    const text = withExample("amsterdam").replace(
+      /^# (thresholds:| {2}system\.\w+:.*)$/gm,
+      "$1",
+    );
+    const config = parseConfig(parse(text), descriptors);
+
+    expect(Object.keys(config.thresholds)).toEqual([
+      "system.disk_percent",
+      "system.received_percent",
+      "system.sent_percent",
+    ]);
+  });
+
   // Documentation addresses only: no real server leaks through the template.
   it("names only documentation addresses", () => {
     const addresses = CONFIG_TEMPLATE.match(/\b\d+\.\d+\.\d+\.\d+\b/g) ?? [];

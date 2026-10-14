@@ -718,6 +718,49 @@ describe("StatusTable's TRAFFIC column", () => {
     ).toEqual([]);
   });
 
+  // The fuller side's percent of the promised port, tinted by its threshold.
+  // Its arrow says which side: here the smaller rate is the fuller port.
+  it("adds how full the port is, by the fuller side, naming it", () => {
+    const points = [
+      ...withTraffic({ value: 450 }, { value: 60 }),
+      {
+        ts: at(30),
+        node: "achilles",
+        metric: "system.received_percent",
+        value: 45,
+      },
+      {
+        ts: at(30),
+        node: "achilles",
+        metric: "system.sent_percent",
+        value: 85,
+      },
+    ];
+    const warnAt80 = {
+      "system.sent_percent": { warn: 80, worseWhen: "above" },
+    };
+
+    expect(trafficText(points)).toBe("↓450 ↑60 Mbit/s ↑85%");
+    expect(trafficColumn(points, warnAt80).tints).toEqual([
+      ["33", "↓450 ↑60 Mbit/s ↑85%"],
+    ]);
+  });
+
+  it("shows a lone percent, and stales the cell when it is stale", () => {
+    const percent = (secondsAgo: number): MetricPoint => ({
+      ts: at(secondsAgo),
+      node: "achilles",
+      metric: "system.received_percent",
+      value: 135,
+    });
+    const fresh = [...withTraffic({ value: 1347 }, { value: 9 }), percent(30)];
+    const stale = [...withTraffic({ value: 1347 }, { value: 9 }), percent(300)];
+
+    expect(trafficText(fresh)).toBe("↓1347 ↑9.0 Mbit/s ↓135%");
+    expect(trafficColumn(stale).age).toBe("5m");
+    expect(trafficColumn(stale).ageTints).toContainEqual(["33", "5m"]);
+  });
+
   it("ages by the older side, stale when either is", () => {
     const olderSent = trafficColumn(
       withTraffic({ value: 20 }, { value: 30, secondsAgo: 90 }),

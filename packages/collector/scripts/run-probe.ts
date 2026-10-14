@@ -57,6 +57,7 @@ const outcome = await probe.run({
   host: target.config.host,
   domain: target.config.domain,
   ports: target.config.ports,
+  bandwidth: target.config.bandwidth,
   executor: createExecutor(
     target.config,
     timeoutMs,
