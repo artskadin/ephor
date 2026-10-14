@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 import type { z } from "zod";
 import type { ProbeDescriptor } from "../types/probe-contract";
-import { buildConfigSchema, type Config } from "./schema";
+import { buildConfigSchema, type Config, NODE_NAME_FORM } from "./schema";
 
 export class ConfigError extends Error {
   constructor(
@@ -26,7 +26,7 @@ export function parseConfig(
     const where = path === undefined ? "" : ` (${path})`;
 
     throw new ConfigError(
-      `Configuration is invalid${where}:\n\n${formatIssues(result.error)}`,
+      `Configuration is invalid${where}:\n\n${formatIssues(result.error, data)}`,
       path ?? "(inline)",
       result.error,
     );
@@ -67,10 +67,41 @@ export async function loadConfig(
   return parseConfig(data, descriptors, path);
 }
 
-function formatIssues(error: z.ZodError): string {
+function formatIssues(error: z.ZodError, data: unknown): string {
   return error.issues
-    .map((issue) => `  ${issueLocation(issue)}\n    ${issue.message}`)
+    .map(
+      (issue) => `  ${configLocation(issue.path, data)}\n    ${issue.message}`,
+    )
     .join("\n\n");
+}
+
+// `node odysseus: bandwidth`, not `nodes.3.bandwidth`: a person finds a
+// node in the file by its name, not by counting from zero.
+function configLocation(path: readonly PropertyKey[], data: unknown): string {
+  const [section, index, ...rest] = path;
+  if (section !== "nodes" || typeof index !== "number") {
+    return path.length > 0 ? path.join(".") : "(root)";
+  }
+
+  const node = nodeLabel(data, index);
+  return rest.length > 0 ? `${node}: ${rest.join(".")}` : node;
+}
+
+// The name only when it is a valid one: a refused name may hold a newline
+// or an escape, printed to a terminal. A repeated one gets its number.
+function nodeLabel(data: unknown, index: number): string {
+  const nodes = (data as { nodes?: unknown } | null)?.nodes;
+  const names = Array.isArray(nodes)
+    ? nodes.map((node) => (node as { name?: unknown } | null)?.name)
+    : [];
+  const name = names[index];
+  const position = `#${index + 1}`;
+
+  if (typeof name !== "string" || !NODE_NAME_FORM.test(name)) {
+    return `node ${position}`;
+  }
+  const isRepeated = names.filter((other) => other === name).length > 1;
+  return isRepeated ? `node ${name} (${position})` : `node ${name}`;
 }
 
 function issueLocation(issue: z.ZodError["issues"][number]): string {

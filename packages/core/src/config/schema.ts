@@ -271,8 +271,10 @@ const ThresholdsSchema = optionalSection(
   z.record(z.string().min(1), ThresholdSchema.nullable()).default({}),
 );
 
+export const NODE_NAME_FORM = /^[a-z0-9][a-z0-9_-]*$/i;
+
 const nodeShape = {
-  name: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i, "letters, digits, - and _"),
+  name: z.string().regex(NODE_NAME_FORM, "letters, digits, - and _"),
   host: z.string().min(1),
   domain: z.string().min(1).optional(),
   tags: optionalSection(z.array(z.string().min(1)).default([])),

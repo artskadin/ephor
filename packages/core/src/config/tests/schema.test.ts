@@ -574,3 +574,68 @@ describe("bandwidth", () => {
     ).toBe(1);
   });
 });
+
+describe("the config error a person reads", () => {
+  const messageOf = (data: unknown): string => {
+    try {
+      parseConfig(data, TEST_PROBES, "config.yaml");
+    } catch (error) {
+      if (error instanceof ConfigError) return error.message;
+      throw error;
+    }
+    throw new Error("expected the config to be refused");
+  };
+
+  it("names the node a problem is in, and where in it", () => {
+    const message = messageOf({
+      nodes: [
+        { name: "achilles", host: "203.0.113.10" },
+        { name: "odysseus", host: "203.0.113.11", bandwidth: "1Gbps" },
+      ],
+    });
+
+    expect(message).toContain(
+      "  node odysseus: bandwidth\n    a speed like 500Mbit or 1Gbit",
+    );
+    expect(message).not.toContain("nodes.1");
+  });
+
+  it("counts from one for a node with no name, and leaves other paths", () => {
+    const message = messageOf({
+      storage: { retention: "forever" },
+      nodes: [{ name: "achilles", host: "203.0.113.10" }, { host: "x" }],
+    });
+
+    expect(message).toContain("  node #2: name\n");
+    expect(message).toContain("  storage.retention\n");
+  });
+
+  it("names a node with nothing after it for a problem with the whole node", () => {
+    expect(
+      messageOf({ nodes: [{ name: "achilles", host: "x", colour: "red" }] }),
+    ).toContain("  node achilles\n");
+  });
+
+  // A refused name is the file's own text: a newline would forge a line of
+  // the report, an escape would recolour the terminal.
+  it("prints no name the schema refuses", () => {
+    const message = messageOf({
+      nodes: [{ name: "evil\n  storage.path\u001b[31m", host: "x" }],
+    });
+
+    expect(message).toContain("  node #1: name\n");
+    expect(message).not.toContain("evil");
+    expect(message).not.toContain("\u001b");
+  });
+
+  it("tells two nodes of one name apart by their number", () => {
+    const message = messageOf({
+      nodes: [
+        { name: "a", host: "203.0.113.10" },
+        { name: "a", host: "203.0.113.11", bandwidth: "x" },
+      ],
+    });
+
+    expect(message).toContain("  node a (#2): bandwidth\n");
+  });
+});
