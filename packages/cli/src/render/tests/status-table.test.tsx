@@ -94,6 +94,9 @@ function systemPoints(
     { ts, node, metric: "system.load_percent", value: values.load },
     { ts, node, metric: "system.mem_percent", value: values.mem },
     { ts, node, metric: "system.disk_percent", value: values.disk },
+    // An idle node, as odysseus read in a quiet hour.
+    { ts, node, metric: "system.received_mbps", value: 0.3 },
+    { ts, node, metric: "system.sent_mbps", value: 0.2 },
     {
       ts,
       node,
@@ -239,6 +242,7 @@ describe("StatusTable", () => {
       "LOAD",
       "MEM",
       "DISK",
+      "TRAFFIC",
       "PORTS",
     ]);
     const achilles = blockOf(lines, "achilles");
@@ -248,9 +252,17 @@ describe("StatusTable", () => {
       "3%",
       "41%",
       "62%",
+      "↓0.3 ↑0.2 Mbit/s",
       "443",
     ]);
-    expect(cells(achilles[1])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
+    expect(cells(achilles[1])).toEqual([
+      "1m",
+      "30s",
+      "30s",
+      "30s",
+      "30s",
+      "30s",
+    ]);
     expect(achilles).toHaveLength(2);
   });
 
@@ -299,15 +311,31 @@ describe("StatusTable", () => {
       "2%",
       "40%",
       "87%",
+      "↓0.3 ↑0.2 Mbit/s",
       "missing 443",
     ]);
-    expect(cells(antilochus[1])).toEqual(["1m", "30s", "30s", "30s", "30s"]);
+    expect(cells(antilochus[1])).toEqual([
+      "1m",
+      "30s",
+      "30s",
+      "30s",
+      "30s",
+      "30s",
+    ]);
     expect(antilochus[2]).toBe("  system.ports reports a problem");
   });
 
   it("dashes the columns of a probe the node does not have, with no age", () => {
     const german = blockOf(lines, "german");
-    expect(cells(german[0])).toEqual(["! german", "down", "-", "-", "-", "-"]);
+    expect(cells(german[0])).toEqual([
+      "! german",
+      "down",
+      "-",
+      "-",
+      "-",
+      "-",
+      "-",
+    ]);
     expect(cells(german[1])).toEqual(["2m"]);
     expect(german[2]).toBe(
       "  not reachable from any region, the control group included",
@@ -322,9 +350,10 @@ describe("StatusTable", () => {
       "1%",
       "35%",
       "96%",
+      "↓0.3 ↑0.2 Mbit/s",
       "443",
     ]);
-    expect(cells(hector[1])).toEqual(["15m", "5m", "5m", "5m", "5m"]);
+    expect(cells(hector[1])).toEqual(["15m", "5m", "5m", "5m", "5m", "5m"]);
     // The old `down` and the disk past its bound are shown, not argued
     // about: the reasons are about the silence, the values speak for
     // themselves, in colour where there is any.
@@ -343,6 +372,7 @@ describe("StatusTable", () => {
       "-",
       "-",
       "-",
+      "-",
     ]);
     expect(patroclus.slice(1)).toEqual([
       "  system has not reported yet",
@@ -353,9 +383,15 @@ describe("StatusTable", () => {
 
   it("lines every column up under its header, ages included", () => {
     const header = lines[0] ?? "";
-    const starts = ["NODE", "REACH", "LOAD", "MEM", "DISK", "PORTS"].map(
-      (title) => header.indexOf(title),
-    );
+    const starts = [
+      "NODE",
+      "REACH",
+      "LOAD",
+      "MEM",
+      "DISK",
+      "TRAFFIC",
+      "PORTS",
+    ].map((title) => header.indexOf(title));
 
     // Every cell on a value or age line begins where its header does. A
     // cell may hold single spaces ("missing 443"); two spaces end it.
@@ -392,6 +428,7 @@ describe("StatusTable", () => {
       "LOAD",
       "MEM",
       "DISK",
+      "TRAFFIC",
       "PORTS",
     ]);
     expect(noReachability).not.toContain("REACH");
@@ -431,6 +468,7 @@ describe("StatusTable", () => {
     ]);
     expect(spans(hector[1])).toEqual([
       ["33", "15m"],
+      ["33", "5m"],
       ["33", "5m"],
       ["33", "5m"],
       ["33", "5m"],
@@ -595,6 +633,103 @@ describe("StatusTable with an acknowledgement", () => {
     expect(narrow.join(" ").replace(/\s+/g, " ")).toContain(
       `acknowledged 2h ago: ${note}`,
     );
+  });
+});
+
+describe("StatusTable's TRAFFIC column", () => {
+  interface Side {
+    value?: number;
+    secondsAgo?: number;
+  }
+
+  /** achilles's system points with traffic as given; a side absent: none. */
+  const withTraffic = (
+    received: Side | undefined,
+    sent: Side | undefined,
+  ): MetricPoint[] => {
+    const trafficPoint = (metric: string, side: Side): MetricPoint => ({
+      ts: at(side.secondsAgo ?? 30),
+      node: "achilles",
+      metric,
+      ...(side.value === undefined ? {} : { value: side.value }),
+    });
+
+    return [
+      ...systemPoints("achilles", at(30), { load: 1, mem: 1, disk: 1 }).filter(
+        (point) => !point.metric.endsWith("_mbps"),
+      ),
+      ...(received === undefined
+        ? []
+        : [trafficPoint("system.received_mbps", received)]),
+      ...(sent === undefined ? [] : [trafficPoint("system.sent_mbps", sent)]),
+    ];
+  };
+
+  /** The TRAFFIC cell's value and age lines, found under its header. */
+  const trafficColumn = (
+    points: MetricPoint[],
+    thresholds: Record<string, unknown> = {},
+  ) => {
+    const config = {
+      thresholds,
+      nodes: [{ name: "achilles", host: "203.0.113.10", ssh: "achilles" }],
+    };
+    const coloured = frame(stateOf(config, points), true).split("\n");
+    const plain = coloured.map(stripped);
+    const start = (plain[0] ?? "").indexOf("TRAFFIC");
+    const cellAt = (line: string | undefined) =>
+      (line ?? "").slice(start).split(/\s{2,}/)[0] ?? "";
+
+    return {
+      text: cellAt(plain[1]),
+      age: cellAt(plain[2]),
+      tints: spans(coloured[1]).filter(([, text]) => text.includes("Mbit/s")),
+      ageTints: spans(coloured[2]),
+    };
+  };
+  const trafficText = (points: MetricPoint[]) => trafficColumn(points).text;
+
+  it("shows both directions in Mbit/s, a tenth below 10, whole above", () => {
+    expect(trafficText(withTraffic({ value: 0.34 }, { value: 0.2 }))).toBe(
+      "↓0.3 ↑0.2 Mbit/s",
+    );
+    expect(trafficText(withTraffic({ value: 9.96 }, { value: 5700 }))).toBe(
+      "↓10 ↑5700 Mbit/s",
+    );
+  });
+
+  it("dashes a node with no traffic, and marks a side with no value", () => {
+    expect(trafficText(withTraffic(undefined, undefined))).toBe("-");
+    expect(trafficText(withTraffic({ value: 12 }, undefined))).toBe(
+      "↓12 ↑? Mbit/s",
+    );
+    expect(trafficText(withTraffic({ value: 12 }, {}))).toBe("↓12 ↑? Mbit/s");
+  });
+
+  it("paints by the worse side, whichever it is", () => {
+    const sentAbove = { "system.sent_mbps": { warn: 500, worseWhen: "above" } };
+
+    expect(
+      trafficColumn(withTraffic({ value: 20 }, { value: 580 }), sentAbove)
+        .tints,
+    ).toEqual([["33", "↓20 ↑580 Mbit/s"]]);
+    expect(
+      trafficColumn(withTraffic({ value: 20 }, { value: 30 }), sentAbove).tints,
+    ).toEqual([]);
+  });
+
+  it("ages by the older side, stale when either is", () => {
+    const olderSent = trafficColumn(
+      withTraffic({ value: 20 }, { value: 30, secondsAgo: 90 }),
+    );
+    const staleSent = trafficColumn(
+      withTraffic({ value: 20 }, { value: 30, secondsAgo: 300 }),
+    );
+
+    expect(olderSent.age).toBe("1m");
+    expect(olderSent.ageTints).toEqual([]);
+    expect(staleSent.age).toBe("5m");
+    expect(staleSent.ageTints).toContainEqual(["33", "5m"]);
   });
 });
 

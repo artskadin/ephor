@@ -55,6 +55,15 @@ const COLUMNS: readonly Column[] = [
   percentColumn("MEM", "system", "system.mem_percent"),
   percentColumn("DISK", "system", "system.disk_percent"),
   {
+    title: "TRAFFIC",
+    probe: "system",
+    read: (node) =>
+      trafficCell(
+        metricView(node, "system.received_mbps"),
+        metricView(node, "system.sent_mbps"),
+      ),
+  },
+  {
     title: "PORTS",
     probe: "system",
     read: (node) => {
@@ -374,6 +383,38 @@ function percentColumn(title: string, probe: string, metric: string): Column {
       );
     },
   };
+}
+
+// One unit for the column, so rows compare without reading M or G.
+function trafficCell(
+  received: MetricView | undefined,
+  sent: MetricView | undefined,
+): Cell | undefined {
+  if (received === undefined && sent === undefined) return undefined;
+
+  const views = [received, sent].filter((view) => view !== undefined);
+  const worse = views.reduce((left, right) =>
+    STATUS_RANK[right.severity] > STATUS_RANK[left.severity] ? right : left,
+  );
+  const ages = views.flatMap((view) =>
+    view.ageSeconds === undefined ? [] : [view.ageSeconds],
+  );
+
+  return {
+    text: `↓${mbpsText(received?.value)} ↑${mbpsText(sent?.value)} Mbit/s`,
+    ageSeconds: ages.length > 0 ? Math.max(...ages) : undefined,
+    severity: worse.severity,
+    stale: views.some((view) => view.status === "stale"),
+  };
+}
+
+// A tenth below 10 (an idle node reads 0.3), whole above it; rounded to
+// the tenth first, or 9.96 would print as 10.0.
+function mbpsText(value: number | undefined): string {
+  if (value === undefined) return "?";
+
+  const tenths = Math.round(value * 10) / 10;
+  return tenths < 10 ? tenths.toFixed(1) : `${Math.round(tenths)}`;
 }
 
 // What listens, for reference: without `ports` in the config nothing is
