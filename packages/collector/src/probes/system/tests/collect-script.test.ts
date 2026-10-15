@@ -12,6 +12,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   LISTENING_PORTS_SNIPPET,
   NETWORK_READING_SNIPPET,
+  type TrafficBase,
+  trafficReadingsSnippet,
 } from "../collect-script";
 
 const directories: string[] = [];
@@ -125,12 +127,8 @@ describe("NETWORK_READING_SNIPPET", () => {
     bootId?: string | undefined;
   }
 
-  /**
-   * The snippet under a real bash against a /proc of the test's own, called
-   * as the script calls it: inside `$(...)` under `set -eu`, then a field
-   * after it, which must still print.
-   */
-  function readingWith(files: ProcFiles = {}) {
+  /** A /proc of the test's own, achilles's unless `files` says otherwise. */
+  function procWith(files: ProcFiles = {}): string {
     const directory = mkdtempSync(join(tmpdir(), "ephor-net-"));
     directories.push(directory);
     const root = join(directory, "proc");
@@ -156,6 +154,16 @@ describe("NETWORK_READING_SNIPPET", () => {
       );
     }
 
+    return root;
+  }
+
+  /**
+   * The snippet under a real bash against a /proc of the test's own, called
+   * as the script calls it: inside `$(...)` under `set -eu`, then a field
+   * after it, which must still print.
+   */
+  function readingWith(files: ProcFiles = {}) {
+    const root = procWith(files);
     const output = execFileSync(
       "bash",
       [
@@ -234,5 +242,53 @@ describe("NETWORK_READING_SNIPPET", () => {
     ["a boot id with a quote", { bootId: 'a"b\n' }],
   ])("gives null, and the script goes on, with %s", (_, files) => {
     expect(readingWith(files)).toBeNull();
+  });
+
+  describe("read once or twice by trafficReadingsSnippet", () => {
+    /** How many readings `network` holds, as the whole script prints it. */
+    function readingCount(
+      base: TrafficBase | undefined,
+      files: ProcFiles = {},
+    ): number | null {
+      const root = procWith(files);
+      const output = execFileSync(
+        "bash",
+        [
+          "-c",
+          `set -eu\n${NETWORK_READING_SNIPPET}\n${trafficReadingsSnippet(0, base, root)}\nprintf '%s|after' "$network"`,
+        ],
+        { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } },
+      );
+      const [network, after] = output.split("|");
+      expect(after).toBe("after");
+      return network === "null" ? null : JSON.parse(network ?? "").length;
+    }
+
+    // The fixture's node: ens3, its boot id, 2510264.54 s up.
+    const fair: TrafficBase = {
+      interface: "ens3",
+      bootId: "5f0c3c1e-8a7b-4c4f-9d2e-1a2b3c4d5e6f",
+      usableUntilUptime: 2510300,
+    };
+
+    it("reads once against a fair base", () => {
+      expect(readingCount(fair)).toBe(1);
+      expect(readingCount({ ...fair, usableUntilUptime: 2510264.54 })).toBe(1);
+      expect(readingCount({ ...fair, usableUntilUptime: null })).toBe(1);
+    });
+
+    it.each<[string, TrafficBase | undefined]>([
+      ["no base", undefined],
+      ["another boot", { ...fair, bootId: "0e1d2c3b-aaaa" }],
+      ["another interface", { ...fair, interface: "eth0" }],
+      ["a base past its age", { ...fair, usableUntilUptime: 2510264.53 }],
+      ["a name not safe in the script", { ...fair, bootId: "a'b" }],
+    ])("reads twice with %s", (_, base) => {
+      expect(readingCount(base)).toBe(2);
+    });
+
+    it("reads no second time when the first gave nothing", () => {
+      expect(readingCount(undefined, { bootId: undefined })).toBeNull();
+    });
   });
 });

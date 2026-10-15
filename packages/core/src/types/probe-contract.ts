@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { Bandwidth, Port } from "../config/schema";
+import type { Bandwidth, Node, Port } from "../config/schema";
 import type { MetricPoint } from "./metrics";
 import type { ProbeOutcome } from "./probe";
 
@@ -46,6 +46,15 @@ export interface ProbeDescriptor {
   readonly defaults: ProbeDefaults;
   /** Extra keys accepted under `probes.<name>`; the schema stays strict. */
   readonly settings?: z.ZodRawShape | undefined;
+  /**
+   * Every metric id a run may write for this node with these settings,
+   * `<probe>.up` aside. A stored one not listed is a leftover of an older
+   * config and is not shown.
+   */
+  readonly listMetrics: (
+    node: Node,
+    settings: Readonly<Record<string, unknown>>,
+  ) => readonly string[];
 }
 
 export interface Probe<TResult = unknown> {

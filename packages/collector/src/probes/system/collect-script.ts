@@ -50,23 +50,73 @@ export const NETWORK_READING_SNIPPET = String.raw`
   }
 `;
 
+/** What the first reading must match to be measured against the last run. */
+export interface TrafficBase {
+  interface: string;
+  bootId: string;
+  /** The node's uptime past which the last run's reading is too old. */
+  usableUntilUptime: number | null;
+}
+
+// Both go into the script: only what the node's own reading may hold.
+const SAFE_NAME = /^[A-Za-z0-9_.@-]+$/;
+
 /**
- * With no earlier reading to compare against, a second one this many
- * seconds after the first gives the rate within the run.
+ * `network`: one reading, or two `secondReadAfterSeconds` apart when there
+ * is no fair base (none, a reboot, a moved route, too old), so every run
+ * that reads the counters gives a rate. Needs NETWORK_READING_SNIPPET.
  */
-export function systemCollectScript(secondReadAfterSeconds: number): string {
-  const secondRead =
-    secondReadAfterSeconds > 0
-      ? String.raw`
-  if [ "$network" != null ]; then
+export function trafficReadingsSnippet(
+  secondReadAfterSeconds: number,
+  base: TrafficBase | undefined,
+  root = "/proc",
+): string {
+  return String.raw`${fairBaseFunction(base)}
+  network=$(network_reading ${root})
+  if [ "$network" != null ] && ! is_fair_base; then
     sleep ${secondReadAfterSeconds}
-    second_reading=$(network_reading /proc)
+    second_reading=$(network_reading ${root})
     if [ "$second_reading" != null ]; then
       network="$network,$second_reading"
     fi
-  fi`
-      : "";
+  fi
+  if [ "$network" != null ]; then network="[$network]"; fi
+`;
+}
 
+// Whether the first reading can be measured against `base`: the same
+// interface and boot, and the node's clock not past the base's age.
+function fairBaseFunction(base: TrafficBase | undefined): string {
+  if (
+    base === undefined ||
+    !SAFE_NAME.test(base.interface) ||
+    !SAFE_NAME.test(base.bootId)
+  ) {
+    return "  is_fair_base() { return 1; }";
+  }
+
+  // The reading's own uptime, the clock TS measures the window by.
+  const ageCommand =
+    base.usableUntilUptime === null
+      ? ""
+      : String.raw`printf '%s\n' "$network" | awk '{
+      sub(/.*"uptimeSeconds":/, ""); sub(/,.*/, "")
+      exit !($0 + 0 <= ${base.usableUntilUptime})
+    }'`;
+
+  return String.raw`  is_fair_base() {
+    case "$network" in
+      *'"interface":"${base.interface}","bootId":"${base.bootId}",'*) ;;
+      *) return 1 ;;
+    esac
+    ${ageCommand}
+  }`;
+}
+
+export function systemCollectScript(
+  secondReadAfterSeconds: number,
+  base: TrafficBase | undefined,
+): string {
   return String.raw`
   set -eu
 
@@ -88,9 +138,7 @@ ${LISTENING_PORTS_SNIPPET}
 
 ${NETWORK_READING_SNIPPET}
 
-  network=$(network_reading /proc)${secondRead}
-  if [ "$network" != null ]; then network="[$network]"; fi
-
+${trafficReadingsSnippet(secondReadAfterSeconds, base)}
   printf '{'
   printf '"load1":%s,' "$load1"
   printf '"load5":%s,' "$load5"

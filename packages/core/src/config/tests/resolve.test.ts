@@ -30,6 +30,14 @@ describe("resolveNode", () => {
       timeout: 11,
       retries: 2,
       settings: {},
+      metrics: new Set([
+        "system.load_percent",
+        "system.mem_percent",
+        "system.disk_percent",
+        "system.ports",
+        "system.received_mbps",
+        "system.sent_mbps",
+      ]),
     });
   });
 
@@ -208,6 +216,25 @@ describe("resolveNode", () => {
       quorum: 0.75,
       regions: { ru: { match: ["ru"] } },
     });
+  });
+
+  // The fixture lists a reading per configured region, and the percents
+  // only for a node with `bandwidth`: both must reach the descriptor.
+  it("asks the probe what it writes, given the node and the settings", () => {
+    const probes = firstNodeProbes({
+      probes: { reachability: { regions: { ru: { match: ["ru"] } } } },
+      nodes: [
+        { name: "solo", host: "203.0.113.10", ssh: "solo", bandwidth: "1Gbit" },
+      ],
+    });
+
+    expect(probes.get("reachability")?.metrics).toContain(
+      "reachability.ru.tcp",
+    );
+    expect(probes.get("reachability")?.metrics).not.toContain(
+      "reachability.eu.tcp",
+    );
+    expect(probes.get("system")?.metrics).toContain("system.sent_percent");
   });
 
   // Nodes may arrive at runtime from a NodeSource rather than the file, and

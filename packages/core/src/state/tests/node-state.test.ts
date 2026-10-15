@@ -59,6 +59,14 @@ const point = (
 /** Fixture intervals: system 61s, reachability 301s. */
 const SYSTEM_INTERVAL = 61;
 
+/** A probe writes a reading per region only for the regions configured. */
+const REGIONS = { ru: { match: ["RU"] }, eu: { match: ["DE"] } };
+
+const regionsConfig = (
+  regions: Record<string, unknown> = REGIONS,
+): Record<string, unknown> =>
+  soloConfig({ probes: { reachability: { regions } } });
+
 /** Enough points to keep every probe from reporting "no data yet". */
 const QUIET: MetricPoint[] = [
   point("system.up", { ok: true }),
@@ -446,10 +454,9 @@ describe("buildNodeState", () => {
 
   // Found by running the collector against live nodes: narrowing
   // `probes.reachability.methods` left the ping rows in `metrics_latest`,
-  // which is never pruned, and they held a healthy node at `stale` for as
-  // long as the database lived.
-  describe("a metric the probe has stopped writing", () => {
-    const narrowed = (): MetricPoint[] => [
+  // which is never pruned, and they held a healthy node at `stale`.
+  describe("a metric the config no longer asks for", () => {
+    const fresh = (): MetricPoint[] => [
       point("system.up", { ok: true }),
       point("speed.up", { ok: true }),
       point("reachability.up", { ok: true }),
@@ -458,54 +465,77 @@ describe("buildNodeState", () => {
         ok: true,
         meta: { verdict: "ok" },
       }),
-      point("reachability.eu.tcp", { value: 1, ok: true }),
-      // Written back when `methods` still listed ping, and never again.
-      point("reachability.eu.ping", { value: 1, ok: true, ts: NOW - 400_000 }),
+      point("reachability.ru.tcp", { value: 1, ok: true }),
     ];
-
-    it("stops being reported at all", () => {
-      const state = firstOf(soloConfig(), narrowed());
-
-      expect(state.metrics.map((view) => view.metric)).not.toContain(
-        "reachability.eu.ping",
-      );
+    // Written while `eu` was still configured: old enough to read stale.
+    const leftover = point("reachability.eu.tcp", {
+      value: 1,
+      ok: true,
+      ts: NOW - 1000,
     });
 
-    it("does not hold the node stale", () => {
-      const state = firstOf(soloConfig(), narrowed());
+    it("is not reported, however recent", () => {
+      const state = firstOf(regionsConfig({ ru: REGIONS.ru }), [
+        ...fresh(),
+        leftover,
+      ]);
 
+      expect(state.metrics.map((view) => view.metric)).not.toContain(
+        "reachability.eu.tcp",
+      );
       expect(state.status).toBe("ok");
       expect(state.reasons).toEqual([]);
     });
 
-    // The window between the two thresholds is what makes a method that
-    // quietly stopped answering visible instead of making it disappear.
-    it("is still stale rather than retired a few misses in", () => {
-      const state = firstOf(soloConfig(), [
-        point("system.up", { ok: true }),
-        point("speed.up", { ok: true }),
-        point("reachability.up", { ok: true }),
-        point("reachability.verdict", {
-          value: 0,
-          ok: true,
-          meta: { verdict: "ok" },
-        }),
-        point("reachability.eu.tcp", { value: 1, ok: true }),
-        point("reachability.eu.ping", {
-          value: 1,
-          ok: true,
-          // Reachability's fixture interval is 301s, so stale past 602s and
-          // retired past 3010s. This sits between the two.
-          ts: NOW - 1000,
-        }),
-      ]);
+    it("is stale while the config still asks for it", () => {
+      const state = firstOf(regionsConfig(), [...fresh(), leftover]);
 
-      expect(viewOf(state, "reachability.eu.ping").status).toBe("stale");
+      expect(viewOf(state, "reachability.eu.tcp").status).toBe("stale");
       expect(state.status).toBe("stale");
     });
 
-    // The whole probe going quiet is the case staleness exists for, and the
-    // retirement rule must not swallow it.
+    // A percent needs the port's size; with `bandwidth` gone the old one
+    // would read stale for every node it was removed from.
+    it("drops a node's percents once its bandwidth is removed", () => {
+      // Stale (past 2 × 61 s), not yet past the old 10-interval cut-off.
+      const percent = point("system.received_percent", {
+        value: 85,
+        ts: NOW - 300,
+      });
+      const withBandwidth = {
+        nodes: [
+          {
+            name: "solo",
+            host: "203.0.113.10",
+            ssh: "solo",
+            bandwidth: "1Gbit",
+          },
+        ],
+      };
+
+      const kept = firstOf(withBandwidth, [...QUIET, percent]);
+      const dropped = firstOf(soloConfig(), [...QUIET, percent]);
+
+      expect(viewOf(kept, "system.received_percent").status).toBe("stale");
+      expect(dropped.metrics.map((view) => view.metric)).not.toContain(
+        "system.received_percent",
+      );
+      expect(dropped.status).toBe("ok");
+    });
+
+    // A metric the probe should write but has not for days is a problem to
+    // see, not one to hide: only the config decides what is shown.
+    it("stays stale however long a declared metric has been missing", () => {
+      const state = firstOf(soloConfig(), [
+        ...QUIET,
+        point("system.load_percent", { value: 3 }),
+        point("system.disk_percent", { value: 12, ts: NOW - 400_000 }),
+      ]);
+
+      expect(viewOf(state, "system.disk_percent").status).toBe("stale");
+      expect(state.status).toBe("stale");
+    });
+
     it("keeps every value when the probe itself went silent", () => {
       const silent = QUIET.map((entry) => ({ ...entry, ts: NOW - 400_000 }));
       const state = firstOf(soloConfig(), [
@@ -783,7 +813,7 @@ describe("buildNodeState", () => {
     // control group; its answer is the verdict. Repeating them would bury the
     // one line that says what happened under five that say nothing.
     it("lets the verdict speak for the readings behind it", () => {
-      const state = firstOf(soloConfig(), [
+      const state = firstOf(regionsConfig(), [
         ...withVerdict("down"),
         point("reachability.ru.tcp", { value: 0, ok: false }),
         point("reachability.eu.tcp", { value: 0, ok: false }),
@@ -865,11 +895,12 @@ describe("buildNodeState", () => {
     // The control group failing while the required regions pass is the
     // probe's business too: it decided that verdict knowing both.
     it("does not warn on a failed reading the verdict called ok", () => {
-      const state = firstOf(soloConfig(), [
+      const state = firstOf(regionsConfig(), [
         ...withVerdict("ok"),
         point("reachability.eu.tcp", { value: 0, ok: false }),
       ]);
 
+      expect(viewOf(state, "reachability.eu.tcp").ok).toBe(false);
       expect(state.status).toBe("ok");
     });
 
@@ -891,6 +922,7 @@ describe("buildNodeState", () => {
   it("reads a node that was switched off by its provider", () => {
     const state = firstOf(
       {
+        probes: { reachability: { regions: REGIONS } },
         nodes: [{ name: "german", host: "203.0.113.62", ports: [443] }],
       },
       [

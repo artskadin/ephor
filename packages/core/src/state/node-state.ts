@@ -153,14 +153,14 @@ function buildNodeStateFor(
     if (STATUS_RANK[candidate] > STATUS_RANK[status]) status = candidate;
   };
 
-  // Points of a probe switched off for this node are leftovers.
-  const relevant = points.filter((point) =>
-    enabledProbes.has(probeNameOf(point.metric)),
-  );
-
   for (const [name, probe] of enabledProbes) {
-    const forProbe = relevant.filter(
-      (point) => probeNameOf(point.metric) === name,
+    // What the probe is not set to write now is a leftover of an older
+    // config (`bandwidth` removed, a method dropped): `metrics_latest`
+    // keeps it, a probe switched off keeps all of them.
+    const forProbe = points.filter(
+      (point) =>
+        point.metric === `${name}${PROBE_LIVENESS_SUFFIX}` ||
+        probe.metrics.has(point.metric),
     );
 
     if (forProbe.length === 0) {
@@ -176,7 +176,12 @@ function buildNodeStateFor(
     const lastMeasurement = lastMeasurementTs(forProbe);
 
     for (const point of forProbe) {
-      if (isRetired(point, lastMeasurement, probe.interval)) continue;
+      if (
+        probe.interval === null &&
+        isDroppedByLastRun(point, lastMeasurement)
+      ) {
+        continue;
+      }
 
       const view = buildMetricView(point, probe, node.thresholds, now);
       metrics.push(view);
@@ -248,7 +253,7 @@ function buildNodeStateFor(
 }
 
 // When the probe last measured, not when it last ran: `.up` is written on
-// failure too, and counting it would retire the values a broken probe
+// failure too, and counting it would drop the values a broken probe
 // should keep showing.
 function lastMeasurementTs(points: readonly MetricPoint[]): number {
   const timestamps = points
@@ -260,24 +265,16 @@ function lastMeasurementTs(points: readonly MetricPoint[]): number {
     : Number.NEGATIVE_INFINITY;
 }
 
-// A metric this far behind the probe's own last measurement was dropped by
-// the probe (a narrowed config; `metrics_latest` is never pruned). Well
-// above the 2× staleness window: the gap is where a metric warns as stale
-// before it vanishes. Ten is a judgement, gone once probes declare metrics.
-const RETIREMENT_INTERVALS = 10;
-
-function isRetired(
+// For a probe run only when asked for: there is no window to warn in, and
+// a run stamps all its points with one second, so an older one is what the
+// last run did not write.
+function isDroppedByLastRun(
   point: MetricPoint,
   lastMeasurement: number,
-  intervalSeconds: number | null,
 ): boolean {
   if (point.metric.endsWith(PROBE_LIVENESS_SUFFIX)) return false;
 
-  // Without a schedule there is no window to warn in: a run stamps all its
-  // points with one second, so an older one is what the last run dropped.
-  if (intervalSeconds === null) return point.ts < lastMeasurement;
-
-  return lastMeasurement - point.ts > intervalSeconds * RETIREMENT_INTERVALS;
+  return point.ts < lastMeasurement;
 }
 
 function buildMetricView(
@@ -429,10 +426,4 @@ function verdictFromView(view: MetricView | undefined): Verdict {
 
 function isVerdict(value: unknown): value is Verdict {
   return typeof value === "string" && Object.hasOwn(VERDICT_SEVERITY, value);
-}
-
-function probeNameOf(metric: string): string {
-  const dot = metric.indexOf(".");
-
-  return dot === -1 ? metric : metric.slice(0, dot);
 }

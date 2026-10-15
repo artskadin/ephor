@@ -256,7 +256,7 @@ function hasReportedSince(
 
 async function checkHere(options: CheckOptions): Promise<CheckResponse> {
   const { configPath, request } = options;
-  const registry = createRegistry({ isSingleRun: true });
+  const registry = createRegistry();
 
   const config = await loadConfig(configPath, registry.descriptors()).catch(
     (error: unknown) => {

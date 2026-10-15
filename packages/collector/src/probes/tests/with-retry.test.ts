@@ -8,6 +8,7 @@ const DESCRIPTOR: ProbeDescriptor = {
   requiresExecutor: false,
   enabledByDefault: true,
   defaults: { interval: 60, timeout: 1, retries: 2, concurrency: 1 },
+  listMetrics: () => [],
 };
 
 const CONTEXT: ProbeContext = {

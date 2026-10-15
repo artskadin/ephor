@@ -30,6 +30,16 @@ export const reachabilityProbeDescriptor: ProbeDescriptor = {
     concurrency: 50,
   },
   settings: reachabilitySettingsShape,
+  listMetrics: (_node, settings) => {
+    const { regions, methods } = ReachabilitySettingsSchema.parse(settings);
+
+    return [
+      "reachability.verdict",
+      ...Object.keys(regions).flatMap((region) =>
+        methods.map((method) => `reachability.${region}.${method}`),
+      ),
+    ];
+  },
 };
 
 /** When the node declares no public TCP port of its own. */

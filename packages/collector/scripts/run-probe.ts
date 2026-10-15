@@ -17,7 +17,7 @@ const nodeName = process.argv[3];
 const configPath = process.argv[4] ?? "../../examples/config.local.yaml";
 
 const logger = createLogger({ level: "debug" });
-const registry = createRegistry({ isSingleRun: true });
+const registry = createRegistry();
 
 const config = await loadConfig(configPath, registry.descriptors());
 const resolved = resolveConfig(config, registry.descriptors());

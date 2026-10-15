@@ -255,6 +255,7 @@ function fastProbeOf(outcome: { ok: boolean } = { ok: true }): {
       requiresExecutor: false,
       enabledByDefault: true,
       defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 2 },
+      listMetrics: () => [],
     },
     run: async (): Promise<ProbeOutcome<Record<string, never>>> => {
       runs += 1;

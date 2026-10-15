@@ -231,30 +231,27 @@ describe("SystemProbe traffic over runs", () => {
     return outcome.data.traffic;
   }
 
-  // A daemon never waits on a node: its first run has no value yet.
-  it("in a daemon, measures each run against the previous one", async () => {
+  // A run with no value would leave the last one to read stale: after a
+  // serve restart every node did, until its second run.
+  it("reads twice with no earlier reading, then once against the last", async () => {
     const probe = new SystemProbe();
-    const node = nodeAnswering((call) => [
-      at(1000 + 60 * call, 750_000_000 * call),
-    ]);
+    const node = nodeAnswering((call) =>
+      call === 1
+        ? [at(1000, 0), at(1005, 62_500_000)]
+        : [at(1065, 62_500_000 + 750_000_000)],
+    );
 
     const first = await trafficOf(probe, node.executor);
     const second = await trafficOf(probe, node.executor);
 
-    expect(node.scripts.join("\n")).not.toContain("sleep");
-    expect(first).toBeUndefined();
+    expect(node.scripts[0]).toContain("is_fair_base() { return 1; }");
+    expect(first).toEqual({ receivedMbps: 100, sentMbps: 100 });
+    // The base is the second reading, good for two intervals of 60 s.
+    expect(node.scripts[1]).toContain(
+      `*'"interface":"ens3","bootId":"boot-a",'*`,
+    );
+    expect(node.scripts[1]).toContain("<= 1125)");
     expect(second).toEqual({ receivedMbps: 100, sentMbps: 100 });
-  });
-
-  it("in a check with no daemon, reads twice within its one run", async () => {
-    const probe = new SystemProbe({ readsTwicePerRun: true });
-    const node = nodeAnswering(() => [at(1000, 0), at(1005, 62_500_000)]);
-
-    expect(await trafficOf(probe, node.executor)).toEqual({
-      receivedMbps: 100,
-      sentMbps: 100,
-    });
-    expect(node.scripts[0]).toContain("sleep 5");
   });
 
   // A forced check right after a scheduled run: seconds say little, and the
@@ -274,26 +271,29 @@ describe("SystemProbe traffic over runs", () => {
     expect(next).toEqual({ receivedMbps: 99, sentMbps: 99 });
   });
 
-  // After a reboot the new reading is the base: the run after measures.
-  it("starts again from the first reading after a reboot", async () => {
+  // The script reads twice when its first reading is of another boot: the
+  // run measures within itself, and the run after against it.
+  it("measures within the run after a reboot, then against it", async () => {
     const probe = new SystemProbe();
-    const node = nodeAnswering((call) =>
-      call === 1
-        ? [at(5000, 9_000_000_000, "boot-a")]
-        : [at(60 * call, 750_000_000 * call, "boot-b")],
-    );
+    const node = nodeAnswering((call) => {
+      if (call === 1) return [at(5000, 9_000_000_000, "boot-a")];
+      if (call === 2) {
+        return [at(60, 0, "boot-b"), at(65, 62_500_000, "boot-b")];
+      }
+      return [at(125, 62_500_000 + 750_000_000, "boot-b")];
+    });
 
     await trafficOf(probe, node.executor);
     const afterReboot = await trafficOf(probe, node.executor);
     const next = await trafficOf(probe, node.executor);
 
-    expect(afterReboot).toBeUndefined();
+    expect(afterReboot).toEqual({ receivedMbps: 100, sentMbps: 100 });
     expect(next).toEqual({ receivedMbps: 100, sentMbps: 100 });
   });
 
   // A reading that vanished during the second read, or a broken one.
   it("passes over a reading that is not one, without failing the run", async () => {
-    const probe = new SystemProbe({ readsTwicePerRun: true });
+    const probe = new SystemProbe();
     const node = nodeAnswering(() => [at(1000, 0), null]);
 
     expect(await trafficOf(probe, node.executor)).toBeUndefined();
@@ -307,10 +307,10 @@ describe("SystemProbe traffic over runs", () => {
 
     await trafficOf(probe, node.executor);
     const unreadable = await trafficOf(probe, node.executor);
-    const afterwards = await trafficOf(probe, node.executor);
+    await trafficOf(probe, node.executor);
 
     expect(unreadable).toBeUndefined();
-    expect(afterwards).toBeUndefined();
+    expect(node.scripts[2]).toContain("is_fair_base() { return 1; }");
   });
 
   it("writes how full the promised port is each way, with a bandwidth", () => {
@@ -359,5 +359,55 @@ describe("SystemProbe traffic over runs", () => {
       { metric: "system.sent_mbps", value: 200 },
     ]);
     expect(pointsFor(undefined)).toEqual([]);
+  });
+});
+
+// A metric written but not listed is never shown: the list must be whole.
+describe("systemProbeDescriptor.listMetrics", () => {
+  const metricsWrittenAndListed = (bandwidth?: string) => {
+    const [node] = parseConfig(
+      {
+        nodes: [
+          {
+            name: "achilles",
+            host: "203.0.113.10",
+            ssh: "achilles",
+            ...(bandwidth === undefined ? {} : { bandwidth }),
+          },
+        ],
+      },
+      [systemProbeDescriptor],
+    ).nodes;
+    if (node === undefined) throw new Error("expected a node to parse");
+
+    const written = new SystemProbe()
+      .toMetrics(
+        {
+          ...SNAPSHOT,
+          listeningPorts: "443",
+          traffic: { receivedMbps: 450, sentMbps: 60 },
+        },
+        { ...contextWith([]), bandwidth: node.bandwidth },
+      )
+      .map((point) => point.metric);
+
+    return {
+      written: written.sort(),
+      listed: [...systemProbeDescriptor.listMetrics(node, {})].sort(),
+    };
+  };
+
+  it("lists exactly what a full run writes, without a bandwidth", () => {
+    const { written, listed } = metricsWrittenAndListed();
+
+    expect(listed).toEqual(written);
+    expect(listed).not.toContain("system.received_percent");
+  });
+
+  it("lists exactly what a full run writes, with a bandwidth", () => {
+    const { written, listed } = metricsWrittenAndListed("1Gbit");
+
+    expect(listed).toEqual(written);
+    expect(listed).toContain("system.received_percent");
   });
 });

@@ -7,7 +7,7 @@ import type {
   ProbeError,
   ProbeOutcome,
 } from "@ephorate/core";
-import { systemCollectScript } from "./collect-script";
+import { systemCollectScript, type TrafficBase } from "./collect-script";
 
 export const systemProbeDescriptor: ProbeDescriptor = {
   name: "system",
@@ -20,6 +20,18 @@ export const systemProbeDescriptor: ProbeDescriptor = {
     // A backstop, not a throttle; ssh has its own limits in `SshGates`.
     concurrency: 50,
   },
+  listMetrics: (node) => [
+    "system.load_percent",
+    "system.mem_percent",
+    "system.disk_percent",
+    "system.uptime_seconds",
+    "system.ports",
+    "system.received_mbps",
+    "system.sent_mbps",
+    ...(node.bandwidth === undefined
+      ? []
+      : ["system.received_percent", "system.sent_percent"]),
+  ],
 };
 
 interface SystemSnapshot {
@@ -55,36 +67,25 @@ interface Traffic {
 
 interface SystemResult extends SystemSnapshot {
   /**
-   * None when there is nothing fair to compare: nothing is written, and the
-   * last value stands (a value-less point would read as ok over a warn).
+   * None when the counters could not be read, or the node's own answer
+   * turned out unfair (a reset counter): nothing is written, and the last
+   * value stands (a value-less point would read as ok over a warn).
    */
   traffic: Traffic | undefined;
 }
 
-// About as long as reachability takes beside it in a check, and well under
-// the 15 s timeout with a 3 s login through a jump host.
+// Only a run with no fair base waits (the first after serve starts, a
+// reboot), holding its ssh slot; well under the 15 s timeout with a 3 s
+// login through a jump host, and as long as reachability takes in a check.
 const SECOND_READ_AFTER_SECONDS = 5;
 // Under the second read's 5 s, so its pair always counts: the node's uptime
 // counts in hundredths, and 5 s of sleep can read as 4.99.
 const SHORTEST_WINDOW_SECONDS = 4;
 
-interface SystemProbeOptions {
-  /**
-   * A check with no daemon runs once, with no earlier reading ever: the
-   * script reads twice. A daemon never waits on a node.
-   */
-  readsTwicePerRun?: boolean;
-}
-
 export class SystemProbe implements Probe<SystemResult> {
   readonly descriptor = systemProbeDescriptor;
   /** By node name: what the next run measures traffic against. */
   private readonly previousReadings = new Map<string, NetworkReading>();
-  private readonly readsTwicePerRun: boolean;
-
-  constructor(options: SystemProbeOptions = {}) {
-    this.readsTwicePerRun = options.readsTwicePerRun ?? false;
-  }
 
   async run(context: ProbeContext): Promise<ProbeOutcome<SystemResult>> {
     const startedAt = Date.now();
@@ -99,7 +100,8 @@ export class SystemProbe implements Probe<SystemResult> {
 
     try {
       const script = systemCollectScript(
-        this.readsTwicePerRun ? SECOND_READ_AFTER_SECONDS : 0,
+        SECOND_READ_AFTER_SECONDS,
+        this.trafficBaseFor(context.nodeName, context.intervalSeconds),
       );
       const result = await context.executor.run(script, {
         timeoutMs: context.timeoutMs,
@@ -136,6 +138,26 @@ export class SystemProbe implements Probe<SystemResult> {
         durationMs: Date.now() - startedAt,
       };
     }
+  }
+
+  // The script reads twice unless its first reading matches this: a
+  // value every run, so none is left behind to read stale (after a serve
+  // restart every node did, and a default acknowledgement was cleared).
+  private trafficBaseFor(
+    nodeName: string,
+    intervalSeconds: number | null,
+  ): TrafficBase | undefined {
+    const previous = this.previousReadings.get(nodeName);
+    if (previous === undefined) return undefined;
+
+    return {
+      interface: previous.interface,
+      bootId: previous.bootId,
+      usableUntilUptime:
+        intervalSeconds === null
+          ? null
+          : previous.uptimeSeconds + intervalSeconds * 2,
+    };
   }
 
   /** Two readings of this run, else this one against the previous run's. */

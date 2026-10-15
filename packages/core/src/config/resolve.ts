@@ -19,6 +19,8 @@ interface ProbeParameters {
   retries: number;
   /** Its own keys (reachability's `regions`), checked by its shape. */
   settings: Readonly<Record<string, unknown>>;
+  /** What a run may write on this node now, `.up` aside. */
+  metrics: ReadonlySet<string>;
 }
 
 /** Off always says why. */
@@ -57,6 +59,7 @@ export function resolveNode(
       sharedDefaults.enabled ??
       descriptor.enabledByDefault;
     const canRun = !descriptor.requiresExecutor || hasExecutor;
+    const settings = probeSpecificSettings(globalSection);
 
     const parameters: ProbeParameters = {
       name: descriptor.name,
@@ -75,7 +78,8 @@ export function resolveNode(
         globalSection?.retries ??
         sharedDefaults.retries ??
         descriptor.defaults.retries,
-      settings: probeSpecificSettings(globalSection),
+      settings,
+      metrics: new Set(descriptor.listMetrics(node, settings)),
     };
 
     probes.set(
