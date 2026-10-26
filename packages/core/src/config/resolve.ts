@@ -1,8 +1,8 @@
 import type { ProbeDescriptor } from "../types/probe-contract";
 import {
-  BASE_PROBE_KEYS,
   type Config,
   type Node,
+  probeSpecificSettings,
   type Threshold,
 } from "./schema";
 
@@ -139,19 +139,4 @@ export function resolveConcurrency(
         descriptor.defaults.concurrency,
     ]),
   );
-}
-
-function probeSpecificSettings(
-  section: Readonly<Record<string, unknown>> | undefined,
-): Readonly<Record<string, unknown>> {
-  if (!section) return {};
-
-  const settings: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(section)) {
-    if (BASE_PROBE_KEYS.includes(key)) continue;
-    settings[key] = value;
-  }
-
-  return settings;
 }

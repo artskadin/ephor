@@ -17,6 +17,7 @@ const PROBES: ProbeDescriptor[] = [
     enabledByDefault: true,
     defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 50 },
     listMetrics: () => [],
+    listAllMetrics: () => [],
   },
   {
     name: "slow",
@@ -24,6 +25,7 @@ const PROBES: ProbeDescriptor[] = [
     enabledByDefault: true,
     defaults: { interval: 300, timeout: 10, retries: 0, concurrency: 50 },
     listMetrics: () => [],
+    listAllMetrics: () => [],
   },
 ];
 
@@ -201,6 +203,7 @@ describe("Scheduler", () => {
         enabledByDefault: true,
         defaults: { interval: null, timeout: 10, retries: 0, concurrency: 50 },
         listMetrics: () => [],
+        listAllMetrics: () => [],
       },
     ];
 

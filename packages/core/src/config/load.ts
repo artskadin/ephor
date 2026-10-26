@@ -70,9 +70,28 @@ export async function loadConfig(
 function formatIssues(error: z.ZodError, data: unknown): string {
   return error.issues
     .map(
-      (issue) => `  ${configLocation(issue.path, data)}\n    ${issue.message}`,
+      (issue) =>
+        `  ${printable(configLocation(issue.path, data))}\n` +
+        `    ${printable(issue.message)}`,
     )
     .join("\n\n");
+}
+
+// Keys and names from the file reach the terminal in paths and messages: a
+// region named with an escape would recolour it, a newline forge a line.
+function printable(text: string): string {
+  return [...text]
+    .map((character) =>
+      isControlCharacter(character)
+        ? `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`
+        : character,
+    )
+    .join("");
+}
+
+function isControlCharacter(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
 }
 
 // `node odysseus: bandwidth`, not `nodes.3.bandwidth`: a person finds a

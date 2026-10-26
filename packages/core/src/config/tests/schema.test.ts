@@ -484,18 +484,132 @@ describe("threshold metric ids", () => {
     ]);
   });
 
-  it("accepts a metric of a probe that exists", () => {
+  // A typo would never be compared, and the disk would read as watched.
+  it("refuses a metric its probe does not write, naming those it does", () => {
+    expect(
+      issuesOf({
+        thresholds: { "system.disk_percnet": { warn: 85, critical: 95 } },
+        nodes: [{ name: "solo", host: "203.0.113.10" }],
+      }),
+    ).toEqual([
+      'thresholds.system.disk_percnet: Unknown metric "system.disk_percnet". ' +
+        "system writes: system.load_percent, system.mem_percent, " +
+        "system.disk_percent, system.ports, system.received_mbps, " +
+        "system.sent_mbps, system.received_percent, system.sent_percent",
+    ]);
+  });
+
+  it("refuses one on a node, naming the node", () => {
+    const load = () =>
+      parseConfig(
+        {
+          nodes: [
+            {
+              name: "solo",
+              host: "203.0.113.10",
+              thresholds: {
+                "speed.dowload_mbps": { warn: 1, worseWhen: "below" },
+              },
+            },
+          ],
+        },
+        TEST_PROBES,
+      );
+
+    expect(load).toThrow(ConfigError);
+    expect(load).toThrow(
+      /node solo: thresholds\.speed\.dowload_mbps\n\s+Unknown metric/,
+    );
+  });
+
+  // Taking `bandwidth` off the last node that had one must not stop serve.
+  it("accepts a metric no node writes now", () => {
     const config = parseConfig(
       {
-        thresholds: {
-          "system.anything_at_all": { warn: 1, worseWhen: "above" },
-        },
+        thresholds: { "system.received_percent": { warn: 80, critical: 100 } },
         nodes: [{ name: "solo", host: "203.0.113.10" }],
       },
       TEST_PROBES,
     );
 
-    expect(config.thresholds["system.anything_at_all"]).toBeDefined();
+    expect(config.thresholds["system.received_percent"]).toBeDefined();
+  });
+
+  it("knows a region's readings by the regions in the config", () => {
+    const withRegions = (metric: string) => ({
+      probes: { reachability: { regions: { ru: { match: ["ru"] } } } },
+      thresholds: { [metric]: { warn: 1, worseWhen: "below" } },
+      nodes: [{ name: "solo", host: "203.0.113.10" }],
+    });
+
+    expect(
+      parseConfig(withRegions("reachability.ru.tcp"), TEST_PROBES).thresholds,
+    ).toHaveProperty(["reachability.ru.tcp"]);
+    expect(issuesOf(withRegions("reachability.eu.tcp"))).toEqual([
+      'thresholds.reachability.eu.tcp: Unknown metric "reachability.eu.tcp". ' +
+        "reachability writes: reachability.verdict, reachability.ru.ping, " +
+        "reachability.ru.tcp, reachability.ru.http",
+    ]);
+  });
+
+  // The probe does write `.up`: "system writes: …" without it would lie.
+  it("refuses a probe's .up, saying why", () => {
+    expect(
+      issuesOf({
+        thresholds: { "system.up": { warn: 1, worseWhen: "below" } },
+        nodes: [{ name: "solo", host: "203.0.113.10" }],
+      }),
+    ).toEqual([
+      'thresholds.system.up: "system.up" is true or false: a threshold has ' +
+        "no number to compare. It warns by itself when the probe fails",
+    ]);
+  });
+
+  it("says so for a probe that writes nothing to compare", () => {
+    const silent = {
+      ...TEST_PROBES[0],
+      name: "silent",
+      listMetrics: () => [],
+      listAllMetrics: () => [],
+    } as (typeof TEST_PROBES)[number];
+    const result = buildConfigSchema([...TEST_PROBES, silent]).safeParse({
+      thresholds: { "silent.level": { warn: 1, worseWhen: "above" } },
+      nodes: [{ name: "solo", host: "203.0.113.10" }],
+    });
+
+    expect(result.error?.issues.map((issue) => issue.message)).toEqual([
+      'Unknown metric "silent.level". silent writes: nothing to compare',
+    ]);
+  });
+
+  // A region name with an escape went raw into the list, to the terminal.
+  it("prints a key's control characters escaped, not raw", () => {
+    const load = () =>
+      parseConfig(
+        {
+          probes: {
+            reachability: { regions: { "r\u001b[31mu": { match: ["ru"] } } },
+          },
+          thresholds: {
+            "reachability.x\ny.tcp": { warn: 1, worseWhen: "below" },
+          },
+          nodes: [{ name: "solo", host: "203.0.113.10" }],
+        },
+        TEST_PROBES,
+      );
+
+    expect(load).toThrow(ConfigError);
+    try {
+      load();
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("reachability.r\\u001b[31mu.tcp");
+      expect(message).toContain("reachability.x\\u000ay.tcp");
+      const controls = [...message].filter(
+        (character) => character < " " && character !== "\n",
+      );
+      expect(controls).toEqual([]);
+    }
   });
 
   it('accepts null as "no threshold for this metric"', () => {

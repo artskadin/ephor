@@ -12,6 +12,7 @@ import {
   summarize,
 } from "@ephorate/core";
 import {
+  REACHABILITY_METHODS,
   type ReachabilitySettings,
   ReachabilitySettingsSchema,
   reachabilitySettingsShape,
@@ -32,15 +33,28 @@ export const reachabilityProbeDescriptor: ProbeDescriptor = {
   settings: reachabilitySettingsShape,
   listMetrics: (_node, settings) => {
     const { regions, methods } = ReachabilitySettingsSchema.parse(settings);
-
-    return [
-      "reachability.verdict",
-      ...Object.keys(regions).flatMap((region) =>
-        methods.map((method) => `reachability.${region}.${method}`),
-      ),
-    ];
+    return buildMetricIds(Object.keys(regions), methods);
+  },
+  // Every method, not the ones in use: one taken out of `methods` is no
+  // typo in a threshold. A region is the user's own name: one not
+  // configured is a typo, or a threshold left behind.
+  listAllMetrics: (settings) => {
+    const { regions } = ReachabilitySettingsSchema.parse(settings);
+    return buildMetricIds(Object.keys(regions), REACHABILITY_METHODS);
   },
 };
+
+function buildMetricIds(
+  regionNames: readonly string[],
+  methods: readonly string[],
+): string[] {
+  return [
+    "reachability.verdict",
+    ...regionNames.flatMap((region) =>
+      methods.map((method) => `reachability.${region}.${method}`),
+    ),
+  ];
+}
 
 /** When the node declares no public TCP port of its own. */
 const DEFAULT_PUBLIC_PORT = 443;

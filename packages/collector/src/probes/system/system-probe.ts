@@ -9,6 +9,23 @@ import type {
 } from "@ephorate/core";
 import { systemCollectScript, type TrafficBase } from "./collect-script";
 
+/** Written only for a node whose config gives its `bandwidth`. */
+const PERCENTS_OF_BANDWIDTH: ReadonlySet<string> = new Set([
+  "system.received_percent",
+  "system.sent_percent",
+]);
+
+const SYSTEM_METRICS: readonly string[] = [
+  "system.load_percent",
+  "system.mem_percent",
+  "system.disk_percent",
+  "system.uptime_seconds",
+  "system.ports",
+  "system.received_mbps",
+  "system.sent_mbps",
+  ...PERCENTS_OF_BANDWIDTH,
+];
+
 export const systemProbeDescriptor: ProbeDescriptor = {
   name: "system",
   requiresExecutor: true,
@@ -20,18 +37,11 @@ export const systemProbeDescriptor: ProbeDescriptor = {
     // A backstop, not a throttle; ssh has its own limits in `SshGates`.
     concurrency: 50,
   },
-  listMetrics: (node) => [
-    "system.load_percent",
-    "system.mem_percent",
-    "system.disk_percent",
-    "system.uptime_seconds",
-    "system.ports",
-    "system.received_mbps",
-    "system.sent_mbps",
-    ...(node.bandwidth === undefined
-      ? []
-      : ["system.received_percent", "system.sent_percent"]),
-  ],
+  listMetrics: (node) =>
+    node.bandwidth === undefined
+      ? SYSTEM_METRICS.filter((metric) => !PERCENTS_OF_BANDWIDTH.has(metric))
+      : SYSTEM_METRICS,
+  listAllMetrics: () => SYSTEM_METRICS,
 };
 
 interface SystemSnapshot {

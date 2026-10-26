@@ -130,7 +130,7 @@ const GlobalProbeConfigSchema = z
   .strict();
 
 /** The keys every probe understands; anything else belongs to one probe. */
-export const BASE_PROBE_KEYS: readonly string[] = Object.keys({
+const BASE_PROBE_KEYS: readonly string[] = Object.keys({
   ...baseProbeShape,
   concurrency: true,
 });
@@ -344,7 +344,7 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
       });
     }
 
-    checkThresholdKeys(node.thresholds, knownNames, context, ["thresholds"]);
+    checkThresholdProbes(node.thresholds, knownNames, context, ["thresholds"]);
   });
 
   return z
@@ -365,9 +365,29 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
     })
     .strict()
     .superRefine((config, context) => {
-      checkThresholdKeys(config.thresholds, knownNames, context, [
+      checkThresholdProbes(config.thresholds, knownNames, context, [
         "thresholds",
       ]);
+
+      // Here, not per node: a reachability region is named in `probes`.
+      const metricsByProbe = new Map(
+        descriptors.map((descriptor) => [
+          descriptor.name,
+          descriptor.listAllMetrics(
+            probeSpecificSettings(config.probes[descriptor.name]),
+          ),
+        ]),
+      );
+      checkThresholdMetrics(config.thresholds, metricsByProbe, context, [
+        "thresholds",
+      ]);
+      config.nodes.forEach((node, index) => {
+        checkThresholdMetrics(node.thresholds, metricsByProbe, context, [
+          "nodes",
+          index,
+          "thresholds",
+        ]);
+      });
     })
     .refine(
       (config) =>
@@ -377,9 +397,8 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
     );
 }
 
-// Only the probe part of a metric id can be checked: no probe declares the
-// metrics it writes yet, so `system.disk_percnet` still slips through.
-function checkThresholdKeys(
+// The probe part first: a metric of an unknown probe has no list to be in.
+function checkThresholdProbes(
   thresholds: Readonly<Record<string, unknown>>,
   knownNames: readonly string[],
   context: z.RefinementCtx,
@@ -399,7 +418,46 @@ function checkThresholdKeys(
   }
 }
 
+// `system.disk_percnet` would never be compared, and the disk would read
+// as watched.
+function checkThresholdMetrics(
+  thresholds: Readonly<Record<string, unknown>>,
+  metricsByProbe: ReadonlyMap<string, readonly string[]>,
+  context: z.RefinementCtx,
+  basePath: PropertyKey[],
+): void {
+  for (const metric of Object.keys(thresholds)) {
+    const probeName = metric.split(".")[0] ?? "";
+    const metrics = metricsByProbe.get(probeName);
+    if (metrics === undefined || metrics.includes(metric)) continue;
+
+    const message =
+      metric === `${probeName}.up`
+        ? `"${metric}" is true or false: a threshold has no number to ` +
+          "compare. It warns by itself when the probe fails"
+        : `Unknown metric "${metric}". ${probeName} writes: ` +
+          (metrics.length > 0 ? metrics.join(", ") : "nothing to compare");
+    context.addIssue({ code: "custom", message, path: [...basePath, metric] });
+  }
+}
+
 export type Config = z.infer<ReturnType<typeof buildConfigSchema>>;
+
+/** A probe's own keys from its section (reachability's `regions`). */
+export function probeSpecificSettings(
+  section: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, unknown>> {
+  if (!section) return {};
+
+  const settings: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(section)) {
+    if (BASE_PROBE_KEYS.includes(key)) continue;
+    settings[key] = value;
+  }
+
+  return settings;
+}
 
 // A probe setting named like a shared key would be stripped as a shared key
 // and quietly do nothing; refused at build time instead.

@@ -410,4 +410,13 @@ describe("systemProbeDescriptor.listMetrics", () => {
     expect(listed).toEqual(written);
     expect(listed).toContain("system.received_percent");
   });
+
+  // What a threshold may name: everything any node can get.
+  it("has every metric of any node in its catalog", () => {
+    const { written } = metricsWrittenAndListed("1Gbit");
+
+    expect([...systemProbeDescriptor.listAllMetrics({})].sort()).toEqual(
+      written,
+    );
+  });
 });

@@ -40,21 +40,24 @@ const NOW = 1_800_000_000;
  * table, so the descriptors are written here rather than borrowed from the
  * collector, which the client does not depend on.
  */
+const SYSTEM_METRICS = [
+  "system.load_percent",
+  "system.mem_percent",
+  "system.disk_percent",
+  "system.ports",
+  "system.received_mbps",
+  "system.sent_mbps",
+  "system.received_percent",
+  "system.sent_percent",
+];
+
 const SYSTEM: ProbeDescriptor = {
   name: "system",
   requiresExecutor: true,
   enabledByDefault: true,
   defaults: { interval: 60, timeout: 20, retries: 0, concurrency: 50 },
-  listMetrics: () => [
-    "system.load_percent",
-    "system.mem_percent",
-    "system.disk_percent",
-    "system.ports",
-    "system.received_mbps",
-    "system.sent_mbps",
-    "system.received_percent",
-    "system.sent_percent",
-  ],
+  listMetrics: () => SYSTEM_METRICS,
+  listAllMetrics: () => SYSTEM_METRICS,
 };
 
 const REACHABILITY: ProbeDescriptor = {
@@ -63,6 +66,7 @@ const REACHABILITY: ProbeDescriptor = {
   enabledByDefault: true,
   defaults: { interval: 300, timeout: 60, retries: 0, concurrency: 50 },
   listMetrics: () => ["reachability.verdict"],
+  listAllMetrics: () => ["reachability.verdict"],
 };
 
 const PROBES = [SYSTEM, REACHABILITY];

@@ -55,6 +55,14 @@ export interface ProbeDescriptor {
     node: Node,
     settings: Readonly<Record<string, unknown>>,
   ) => readonly string[];
+  /**
+   * Every metric id the probe can write on any node with these settings,
+   * `<probe>.up` aside: what a threshold may name. A threshold on a metric
+   * no node writes now (no `bandwidth` anywhere) is no typo.
+   */
+  readonly listAllMetrics: (
+    settings: Readonly<Record<string, unknown>>,
+  ) => readonly string[];
 }
 
 export interface Probe<TResult = unknown> {

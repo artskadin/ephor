@@ -206,6 +206,30 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
     expect([...resolvedProbe.metrics].sort()).toEqual(written.sort());
   });
 
+  // A method taken out of `methods` is no typo in a threshold; a region
+  // that is not configured is.
+  it("lets a threshold name any method of a configured region", () => {
+    const parse = (metric: string) => () =>
+      parseConfig(
+        {
+          nodes: [{ name: "solo", host: "203.0.113.10" }],
+          probes: {
+            reachability: {
+              methods: ["tcp"],
+              regions: { ru: { match: ["ru"], required: true } },
+            },
+          },
+          thresholds: { [metric]: { warn: 1, worseWhen: "below" } },
+        },
+        [reachabilityProbeDescriptor],
+      );
+
+    expect(parse("reachability.ru.ping")).not.toThrow();
+    expect(parse("reachability.rus.tcp")).toThrow(
+      /Unknown metric "reachability\.rus\.tcp"/,
+    );
+  });
+
   it("leaves out a method and a region the config no longer has", () => {
     const resolvedProbe = resolvedWith({
       methods: ["tcp"],

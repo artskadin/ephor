@@ -24,6 +24,7 @@ const FAST: ProbeDescriptor = {
   enabledByDefault: true,
   defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 2 },
   listMetrics: () => [],
+  listAllMetrics: () => [],
 };
 
 const fastProbe: Probe<Record<string, never>> = {
@@ -131,6 +132,7 @@ describe("Collector: acknowledgements after a write", () => {
     enabledByDefault: true,
     defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 2 },
     listMetrics: () => ["gauge.level"],
+    listAllMetrics: () => ["gauge.level"],
   };
 
   const gaugeProbe: Probe<{ level: number }> = {
