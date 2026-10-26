@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe";
 import { systemProbeDescriptor } from "../../probes/system/system-probe";
 import { longestRunMs } from "../../probes/with-retry";
+import { withProbesOn } from "../../tests/fixtures/probes-on";
 import type { ForcedRun, Task } from "../scheduler";
 import { waitBudgetMs } from "../wait-budget";
 
@@ -16,13 +17,16 @@ const PROBES = [systemProbeDescriptor, reachabilityProbeDescriptor];
 
 const nodes = resolveConfig(
   parseConfig(
-    {
-      nodes: [
-        { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
-        { name: "antilochus", host: "203.0.113.11", ssh: "antilochus" },
-        { name: "patroclus", host: "203.0.113.12", ssh: "patroclus" },
-      ],
-    },
+    withProbesOn(
+      {
+        nodes: [
+          { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
+          { name: "antilochus", host: "203.0.113.11", ssh: "antilochus" },
+          { name: "patroclus", host: "203.0.113.12", ssh: "patroclus" },
+        ],
+      },
+      ["system", "reachability"],
+    ),
     PROBES,
   ),
   PROBES,

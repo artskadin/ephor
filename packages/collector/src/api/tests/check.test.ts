@@ -6,6 +6,7 @@ import {
 } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import type { Task } from "../../scheduling/scheduler";
+import { withProbesOn } from "../../tests/fixtures/probes-on";
 import { postCheck } from "../handlers";
 import { depsOf, NOW, schedulerOf, TEST_PROBES } from "./fixtures";
 
@@ -27,10 +28,13 @@ const pairOf = (task: Task): string =>
  * so an answer means the run finished. When it does run out, the clock
  * moves by the same amount: time and sleep are one thing.
  */
-function checkWorld(configInput: unknown = FLEET) {
+function checkWorld(configInput: Record<string, unknown> = FLEET) {
   const points: MetricPoint[] = [];
   const nodes = resolveConfig(
-    parseConfig(configInput, TEST_PROBES),
+    parseConfig(
+      withProbesOn(configInput, ["system", "reachability"]),
+      TEST_PROBES,
+    ),
     TEST_PROBES,
   );
   const { scheduler, dispatched } = schedulerOf(nodes);
@@ -143,7 +147,7 @@ describe("postCheck", () => {
     await expect(
       postCheck(world.deps, { node: "achilles", probe: "system" }),
     ).rejects.toThrow(
-      /system is disabled on achilles: switched off in the config/,
+      /system is disabled on achilles: the config does not switch it on there/,
     );
   });
 
@@ -155,6 +159,8 @@ describe("postCheck", () => {
           host: "203.0.113.10",
           probes: { reachability: { enabled: false } },
         },
+        // A config where nothing runs is refused before this.
+        { name: "antilochus", host: "203.0.113.11" },
       ],
     });
 
@@ -175,7 +181,10 @@ describe("postCheck", () => {
   });
 
   it("refuses a config with nothing enabled at all", async () => {
-    const world = checkWorld({ ...FLEET, probeDefaults: { enabled: false } });
+    // The config refuses it while a node is enabled; none is here.
+    const world = checkWorld({
+      nodes: FLEET.nodes.map((node) => ({ ...node, enabled: false })),
+    });
 
     await expect(postCheck(world.deps, {})).rejects.toThrow(
       /nothing to check: every probe is disabled on every node/,

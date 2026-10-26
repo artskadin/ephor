@@ -2,6 +2,7 @@ import { type Logger, loadConfig } from "@ephorate/core";
 import type { FastifyInstance } from "fastify";
 import { createApiServer } from "./api/server";
 import { Collector } from "./collector";
+import { describeProbeCoverage } from "./probe-coverage";
 import { createRegistry } from "./probes/create-registry";
 import { sleep } from "./scheduling/clock";
 import { resolveDatabasePath } from "./storage/database-path";
@@ -96,10 +97,17 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
     await collector.start();
 
     logger.info("collector started", {
-      nodes: config.nodes.length,
-      probes: registry.names(),
+      // Enabled ones, as the probe lines below count them.
+      nodes: collector.nodes.length,
       database: databasePath,
     });
+    for (const line of describeProbeCoverage(
+      collector.nodes,
+      registry.names(),
+    )) {
+      if (line.isWarning) logger.warn(line.text);
+      else logger.info(line.text);
+    }
 
     let apiUrl: string | undefined;
 

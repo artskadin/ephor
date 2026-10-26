@@ -1,11 +1,4 @@
-import type { ProbeNotRun } from "@ephorate/core";
-
-const DISABLED_REASON_TEXT: Readonly<
-  Record<ProbeNotRun["disabledReason"], string>
-> = {
-  config: "off in the config",
-  "no-executor": "no `ssh:` in the config",
-};
+import { DISABLED_REASON_TEXT, type ProbeNotRun } from "@ephorate/core";
 
 // Past this many, a count: 198 names on one line help nobody. Chosen.
 const NODE_NAMES_SHOWN = 5;

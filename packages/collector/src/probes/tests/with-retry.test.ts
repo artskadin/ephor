@@ -6,7 +6,7 @@ import { longestRunMs, RETRY_DELAY_MS, runWithRetry } from "../with-retry";
 const DESCRIPTOR: ProbeDescriptor = {
   name: "flaky",
   requiresExecutor: false,
-  enabledByDefault: true,
+  summary: "a test probe",
   defaults: { interval: 60, timeout: 1, retries: 2, concurrency: 1 },
   listMetrics: () => [],
   listAllMetrics: () => [],

@@ -29,7 +29,7 @@ export const TEST_PROBES: ProbeDescriptor[] = [
   {
     name: "system",
     requiresExecutor: true,
-    enabledByDefault: true,
+    summary: "a test probe",
     defaults: { interval: 61, timeout: 11, retries: 2, concurrency: 51 },
     listMetrics: (node) =>
       node.bandwidth === undefined
@@ -40,7 +40,7 @@ export const TEST_PROBES: ProbeDescriptor[] = [
   {
     name: "reachability",
     requiresExecutor: false,
-    enabledByDefault: true,
+    summary: "a test probe",
     defaults: { interval: 301, timeout: 62, retries: 1, concurrency: 17 },
     settings: {
       quorum: z.number().min(0).max(1).default(0.5),
@@ -57,10 +57,21 @@ export const TEST_PROBES: ProbeDescriptor[] = [
   {
     name: "speed",
     requiresExecutor: true,
-    // Costly probes ship off, and with no schedule.
-    enabledByDefault: false,
+    // With no schedule, as the real one.
+    summary: "a test probe",
     defaults: { interval: null, timeout: 121, retries: 0, concurrency: 3 },
     listMetrics: () => ["speed.download_mbps", "speed.upload_mbps"],
     listAllMetrics: () => ["speed.download_mbps", "speed.upload_mbps"],
   },
 ];
+
+/**
+ * `probes:` as `ephor init` writes it, system and reachability on, for a
+ * test about something else; sections the test wrote win.
+ */
+export function withUsualProbes(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const written = (config.probes ?? {}) as Record<string, unknown>;
+  return { ...config, probes: { system: {}, reachability: {}, ...written } };
+}

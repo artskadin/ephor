@@ -41,8 +41,8 @@ interface ProbeDefaults {
 export interface ProbeDescriptor {
   readonly name: string;
   readonly requiresExecutor: boolean;
-  /** Probes that cost bandwidth or money ship disabled. */
-  readonly enabledByDefault: boolean;
+  /** What it measures and how, a few words for a YAML comment. */
+  readonly summary: string;
   readonly defaults: ProbeDefaults;
   /** Extra keys accepted under `probes.<name>`; the schema stays strict. */
   readonly settings?: z.ZodRawShape | undefined;

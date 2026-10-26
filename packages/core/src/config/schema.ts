@@ -120,7 +120,11 @@ const baseProbeShape = {
   retries: z.number().int().min(0).optional(),
 } satisfies z.ZodRawShape;
 
-const NodeProbeConfigSchema = z.object(baseProbeShape).strict();
+// `speed:` left blank is a written section: it switches the probe on.
+const NodeProbeConfigSchema = z.preprocess(
+  (value) => value ?? {},
+  z.object(baseProbeShape).strict(),
+);
 
 const GlobalProbeConfigSchema = z
   .object({
@@ -138,10 +142,17 @@ const BASE_PROBE_KEYS: readonly string[] = Object.keys({
 type GlobalProbeConfig = z.infer<typeof GlobalProbeConfigSchema>;
 
 // No `interval` here: one number cannot mean both "read /proc" and
-// "download for ten seconds".
+// "download for ten seconds". No `enabled`: one line would switch on every
+// probe, `speed` and its traffic too, and the file would not say which.
 const ProbeDefaultsSchema = z
   .object({
-    enabled: z.boolean().optional(),
+    enabled: z
+      .undefined({
+        error:
+          "remove this line: a probe runs where its section is written, " +
+          "e.g. probes.system:",
+      })
+      .optional(),
     timeout: Duration.optional(),
     retries: z.number().int().min(0).optional(),
     interval: z
@@ -315,8 +326,8 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
 
         const parsed: Record<string, GlobalProbeConfig> = {};
 
-        // Every registered probe gets an entry, so its defaults apply
-        // whether or not the user wrote its section.
+        // Every registered probe gets an entry, so its settings' defaults
+        // apply to a node that switches it on by itself.
         for (const [name, schema] of globalByName) {
           const result = schema.safeParse(raw[name] ?? {});
 
@@ -328,7 +339,12 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
           }
 
           // The schema extends the shared shape, so the data is a superset.
-          parsed[name] = result.data as GlobalProbeConfig;
+          const section = result.data as GlobalProbeConfig;
+          parsed[name] = {
+            ...section,
+            // Written, even blank, is on: nothing runs that the file omits.
+            enabled: section.enabled ?? Object.hasOwn(raw, name),
+          };
         }
 
         return parsed;
@@ -365,6 +381,7 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
     })
     .strict()
     .superRefine((config, context) => {
+      checkSomethingRuns(config, descriptors, context);
       checkThresholdProbes(config.thresholds, knownNames, context, [
         "thresholds",
       ]);
@@ -395,6 +412,79 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
         config.nodes.length,
       { message: "node names must be unique", path: ["nodes"] },
     );
+}
+
+/**
+ * A probe runs where its section is written, under `probes:` or a node's
+ * own, unless a narrower `enabled: false` stops it. Nothing runs by
+ * default, so an upgrade of ephor never switches a probe on.
+ */
+export function isEnabledInConfig(
+  config: {
+    probes: Readonly<Record<string, { enabled?: boolean | undefined }>>;
+  },
+  node: Node,
+  probeName: string,
+): boolean {
+  const nodeSection = node.probes[probeName];
+  if (nodeSection !== undefined) return nodeSection.enabled ?? true;
+
+  return config.probes[probeName]?.enabled ?? false;
+}
+
+export function hasExecutor(node: Node): boolean {
+  return node.local || node.ssh !== undefined;
+}
+
+// A config that measures nothing would start, and show an empty table.
+function checkSomethingRuns(
+  config: {
+    probes: Readonly<Record<string, { enabled?: boolean | undefined }>>;
+    nodes: readonly Node[];
+  },
+  descriptors: readonly ProbeDescriptor[],
+  context: z.RefinementCtx,
+): void {
+  const nodes = config.nodes.filter((node) => node.enabled);
+  if (nodes.length === 0) return;
+
+  const isOnSomewhere = (descriptor: ProbeDescriptor) =>
+    nodes.some((node) => isEnabledInConfig(config, node, descriptor.name));
+  const runsSomewhere = descriptors.some((descriptor) =>
+    nodes.some(
+      (node) =>
+        isEnabledInConfig(config, node, descriptor.name) &&
+        (!descriptor.requiresExecutor || hasExecutor(node)),
+    ),
+  );
+  if (runsSomewhere) return;
+
+  const width = Math.max(...descriptors.map(({ name }) => name.length)) + 1;
+  const lines = [
+    "No probe runs on any node.",
+    ...descriptors
+      .filter(isOnSomewhere)
+      .map(
+        ({ name }) =>
+          `${name} is on, but no node has \`ssh:\` or \`local: true\` for it.`,
+      ),
+    "",
+    "A probe runs where its section is written: under `probes:` on every",
+    "node, under a node's own `probes:` on that node. For example:",
+    "",
+    "  probes:",
+    ...descriptors.map(
+      ({ name, summary }) => `    ${`${name}:`.padEnd(width)}  # ${summary}`,
+    ),
+  ];
+
+  context.addIssue({
+    code: "custom",
+    message: lines.join("\n"),
+    path: ["probes"],
+    // Every line is ours, none from the file: printed as lines, not escaped.
+    params: { isMultiline: true },
+  });
 }
 
 // The probe part first: a metric of an unknown probe has no list to be in.

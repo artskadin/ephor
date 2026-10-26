@@ -22,7 +22,7 @@ import {
 export const reachabilityProbeDescriptor: ProbeDescriptor = {
   name: "reachability",
   requiresExecutor: false,
-  enabledByDefault: true,
+  summary: "answers from outside, by region; nothing on the node",
   defaults: {
     interval: 300,
     timeout: 60,

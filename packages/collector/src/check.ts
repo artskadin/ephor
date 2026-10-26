@@ -233,7 +233,7 @@ function explainNothingToRun(
     resolvedProbe?.enabled === false &&
     resolvedProbe.disabledReason === "no-executor"
       ? `it needs ssh access and ${nodeName} has none`
-      : "switched off in the config";
+      : "the config does not switch it on there";
 
   return `${disabledText}: ${reasonText}`;
 }

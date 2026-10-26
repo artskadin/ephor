@@ -2,12 +2,25 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ConfigError, parseConfig } from "../load";
 import { buildConfigSchema } from "../schema";
-import { TEST_PROBES } from "./fixtures/probes";
+import { TEST_PROBES, withUsualProbes } from "./fixtures/probes";
 
 const schema = buildConfigSchema(TEST_PROBES);
 
+/** For a test about something else: `probes:` as `ephor init` writes it. */
+function usual(data: unknown): unknown {
+  const isObject =
+    typeof data === "object" && data !== null && !Array.isArray(data);
+  return isObject ? withUsualProbes(data as Record<string, unknown>) : data;
+}
+
+const parseUsual = (
+  data: unknown,
+  descriptors: Parameters<typeof parseConfig>[1],
+  path?: string,
+) => parseConfig(usual(data), descriptors, path);
+
 function issuesOf(data: unknown): string[] {
-  const result = schema.safeParse(data);
+  const result = schema.safeParse(usual(data));
 
   if (result.success) throw new Error("expected the config to be rejected");
 
@@ -18,7 +31,7 @@ function issuesOf(data: unknown): string[] {
 
 describe("buildConfigSchema", () => {
   it("accepts a config that lists nothing but nodes", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       { nodes: [{ name: "solo", host: "203.0.113.10" }] },
       TEST_PROBES,
     );
@@ -32,7 +45,7 @@ describe("buildConfigSchema", () => {
   });
 
   it("gives every registered probe a section, mentioned or not", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       { nodes: [{ name: "solo", host: "203.0.113.10" }] },
       TEST_PROBES,
     );
@@ -42,20 +55,38 @@ describe("buildConfigSchema", () => {
       "speed",
       "system",
     ]);
-    // The probe's own settings defaults are applied even though the user
-    // never wrote a `probes.reachability` section.
-    expect(config.probes.reachability).toEqual({ quorum: 0.5, regions: {} });
+    // A section not written is there too, off, with its settings' defaults:
+    // a node that names the probe by itself gets them.
+    expect(config.probes.speed).toMatchObject({ enabled: false });
+    expect(config.probes.reachability).toEqual({
+      enabled: true,
+      quorum: 0.5,
+      regions: {},
+    });
   });
 
-  it.each(["probes", "probeDefaults", "storage"])(
+  it("treats an emptied probes section the same as a missing one", () => {
+    const node = {
+      name: "solo",
+      host: "203.0.113.10",
+      probes: { reachability: {} },
+    };
+    const blanked = parseConfig({ probes: null, nodes: [node] }, TEST_PROBES);
+    const omitted = parseConfig({ nodes: [node] }, TEST_PROBES);
+
+    expect(blanked).toEqual(omitted);
+    expect(blanked.probes.reachability?.enabled).toBe(false);
+  });
+
+  it.each(["probeDefaults", "storage"])(
     "treats an emptied %s section the same as a missing one",
     (section) => {
-      const blanked = parseConfig(
+      const blanked = parseUsual(
         { [section]: null, nodes: [{ name: "solo", host: "203.0.113.10" }] },
         TEST_PROBES,
       );
 
-      const omitted = parseConfig(
+      const omitted = parseUsual(
         { nodes: [{ name: "solo", host: "203.0.113.10" }] },
         TEST_PROBES,
       );
@@ -65,7 +96,7 @@ describe("buildConfigSchema", () => {
   );
 
   it("treats emptied sections inside a node the same as missing ones", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       {
         nodes: [
           {
@@ -102,7 +133,7 @@ describe("buildConfigSchema", () => {
   });
 
   it("expands an ssh alias written as a plain string", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       { nodes: [{ name: "solo", host: "203.0.113.10", ssh: "my-vpn" }] },
       TEST_PROBES,
     );
@@ -135,11 +166,11 @@ describe("buildConfigSchema", () => {
 
   it("takes a key beside an alias, and every field without one", () => {
     expect(
-      parseConfig(withSsh({ alias: "my-vpn", key: "~/.ssh/k" }), TEST_PROBES)
+      parseUsual(withSsh({ alias: "my-vpn", key: "~/.ssh/k" }), TEST_PROBES)
         .nodes[0]?.ssh,
     ).toEqual({ alias: "my-vpn", key: "~/.ssh/k" });
     expect(
-      parseConfig(
+      parseUsual(
         withSsh({ user: "root", port: 2222, jump: "bastion", key: "~/.ssh/k" }),
         TEST_PROBES,
       ).nodes[0]?.ssh,
@@ -148,7 +179,7 @@ describe("buildConfigSchema", () => {
 
   // A blanked section is an absent one, as everywhere in the config.
   it("reads a blank ssh: as no ssh", () => {
-    expect(parseConfig(withSsh(null), TEST_PROBES).nodes[0]?.ssh).toBe(
+    expect(parseUsual(withSsh(null), TEST_PROBES).nodes[0]?.ssh).toBe(
       undefined,
     );
   });
@@ -163,7 +194,7 @@ describe("buildConfigSchema", () => {
   });
 
   it("expands a bare port number into a public tcp port", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       { nodes: [{ name: "solo", host: "203.0.113.10", ports: [443] }] },
       TEST_PROBES,
     );
@@ -174,7 +205,7 @@ describe("buildConfigSchema", () => {
   });
 
   it("keeps probe-specific settings and applies their defaults", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       {
         probes: { reachability: { regions: { ru: { match: ["ru"] } } } },
         nodes: [{ name: "solo", host: "203.0.113.10" }],
@@ -183,6 +214,7 @@ describe("buildConfigSchema", () => {
     );
 
     expect(config.probes.reachability).toEqual({
+      enabled: true,
       quorum: 0.5,
       regions: { ru: { match: ["ru"] } },
     });
@@ -285,7 +317,7 @@ describe("buildConfigSchema", () => {
   });
 
   it("parses durations written with a unit suffix", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       {
         probes: { system: { interval: "15m", timeout: "30s" } },
         nodes: [{ name: "solo", host: "203.0.113.10" }],
@@ -300,9 +332,9 @@ describe("buildConfigSchema", () => {
   });
 
   it("throws a ConfigError that points at the offending field", () => {
-    expect(() =>
-      parseConfig({ nodes: [] }, TEST_PROBES, "/etc/x.yaml"),
-    ).toThrow(ConfigError);
+    expect(() => parseUsual({ nodes: [] }, TEST_PROBES, "/etc/x.yaml")).toThrow(
+      ConfigError,
+    );
   });
 });
 
@@ -313,7 +345,7 @@ describe("thresholds", () => {
   });
 
   it("defaults to none at all", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       { nodes: [{ name: "solo", host: "203.0.113.10" }] },
       TEST_PROBES,
     );
@@ -323,13 +355,13 @@ describe("thresholds", () => {
   });
 
   it("survives the section being blanked out while editing", () => {
-    const config = parseConfig(withThresholds(null), TEST_PROBES);
+    const config = parseUsual(withThresholds(null), TEST_PROBES);
 
     expect(config.thresholds).toEqual({});
   });
 
   it("reads a rising pair as worse above", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       withThresholds({ "system.disk_percent": { warn: 85, critical: 95 } }),
       TEST_PROBES,
     );
@@ -343,7 +375,7 @@ describe("thresholds", () => {
 
   // The case the pair form exists for: a falling metric needs no extra key.
   it("reads a falling pair as worse below", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       withThresholds({ "speed.download_mbps": { warn: 50, critical: 20 } }),
       TEST_PROBES,
     );
@@ -356,7 +388,7 @@ describe("thresholds", () => {
   });
 
   it("accepts a lone bound when the direction is spelled out", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       withThresholds({
         "speed.download_mbps": { warn: 50, worseWhen: "below" },
       }),
@@ -370,7 +402,7 @@ describe("thresholds", () => {
   });
 
   it("accepts a lone critical", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       withThresholds({
         "system.disk_percent": { critical: 95, worseWhen: "above" },
       }),
@@ -431,7 +463,7 @@ describe("thresholds", () => {
   });
 
   it("accepts thresholds written on a node", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       {
         nodes: [
           {
@@ -501,7 +533,7 @@ describe("threshold metric ids", () => {
 
   it("refuses one on a node, naming the node", () => {
     const load = () =>
-      parseConfig(
+      parseUsual(
         {
           nodes: [
             {
@@ -524,7 +556,7 @@ describe("threshold metric ids", () => {
 
   // Taking `bandwidth` off the last node that had one must not stop serve.
   it("accepts a metric no node writes now", () => {
-    const config = parseConfig(
+    const config = parseUsual(
       {
         thresholds: { "system.received_percent": { warn: 80, critical: 100 } },
         nodes: [{ name: "solo", host: "203.0.113.10" }],
@@ -543,7 +575,7 @@ describe("threshold metric ids", () => {
     });
 
     expect(
-      parseConfig(withRegions("reachability.ru.tcp"), TEST_PROBES).thresholds,
+      parseUsual(withRegions("reachability.ru.tcp"), TEST_PROBES).thresholds,
     ).toHaveProperty(["reachability.ru.tcp"]);
     expect(issuesOf(withRegions("reachability.eu.tcp"))).toEqual([
       'thresholds.reachability.eu.tcp: Unknown metric "reachability.eu.tcp". ' +
@@ -572,10 +604,12 @@ describe("threshold metric ids", () => {
       listMetrics: () => [],
       listAllMetrics: () => [],
     } as (typeof TEST_PROBES)[number];
-    const result = buildConfigSchema([...TEST_PROBES, silent]).safeParse({
-      thresholds: { "silent.level": { warn: 1, worseWhen: "above" } },
-      nodes: [{ name: "solo", host: "203.0.113.10" }],
-    });
+    const result = buildConfigSchema([...TEST_PROBES, silent]).safeParse(
+      usual({
+        thresholds: { "silent.level": { warn: 1, worseWhen: "above" } },
+        nodes: [{ name: "solo", host: "203.0.113.10" }],
+      }),
+    );
 
     expect(result.error?.issues.map((issue) => issue.message)).toEqual([
       'Unknown metric "silent.level". silent writes: nothing to compare',
@@ -585,7 +619,7 @@ describe("threshold metric ids", () => {
   // A region name with an escape went raw into the list, to the terminal.
   it("prints a key's control characters escaped, not raw", () => {
     const load = () =>
-      parseConfig(
+      parseUsual(
         {
           probes: {
             reachability: { regions: { "r\u001b[31mu": { match: ["ru"] } } },
@@ -613,7 +647,7 @@ describe("threshold metric ids", () => {
   });
 
   it('accepts null as "no threshold for this metric"', () => {
-    const config = parseConfig(
+    const config = parseUsual(
       {
         thresholds: { "system.disk_percent": { warn: 85, critical: 95 } },
         nodes: [
@@ -636,7 +670,7 @@ describe("bandwidth", () => {
     nodes: [{ name: "solo", host: "203.0.113.10", bandwidth }],
   });
   const bandwidthOf = (bandwidth: unknown) =>
-    schema.parse(withBandwidth(bandwidth)).nodes[0]?.bandwidth;
+    schema.parse(usual(withBandwidth(bandwidth))).nodes[0]?.bandwidth;
 
   it("reads one speed for both directions, to Mbit/s", () => {
     expect(bandwidthOf("1Gbit")).toEqual({ received: 1000, sent: 1000 });
@@ -692,7 +726,7 @@ describe("bandwidth", () => {
 describe("the config error a person reads", () => {
   const messageOf = (data: unknown): string => {
     try {
-      parseConfig(data, TEST_PROBES, "config.yaml");
+      parseUsual(data, TEST_PROBES, "config.yaml");
     } catch (error) {
       if (error instanceof ConfigError) return error.message;
       throw error;
@@ -751,5 +785,77 @@ describe("the config error a person reads", () => {
     });
 
     expect(message).toContain("  node a (#2): bandwidth\n");
+  });
+});
+
+describe("which probes run", () => {
+  const solo = { name: "solo", host: "203.0.113.10" };
+
+  const messageOf = (data: unknown): string => {
+    try {
+      parseConfig(data, TEST_PROBES, "config.yaml");
+    } catch (error) {
+      if (error instanceof ConfigError) return error.message;
+    }
+    throw new Error("expected a ConfigError");
+  };
+
+  // One line would start every probe, `speed` and its traffic among them.
+  it("refuses a switch for every probe in probeDefaults", () => {
+    expect(
+      issuesOf({ probeDefaults: { enabled: true }, nodes: [solo] }),
+    ).toEqual([
+      "probeDefaults.enabled: remove this line: a probe runs where its " +
+        "section is written, e.g. probes.system:",
+    ]);
+  });
+
+  // It would start, and show an empty table, saying nothing.
+  it("refuses a config where no probe runs, showing how, line by line", () => {
+    const message = messageOf({ nodes: [solo] });
+
+    expect(message).toBe(
+      [
+        "Configuration is invalid (config.yaml):",
+        "",
+        "  probes",
+        "    No probe runs on any node.",
+        "",
+        "    A probe runs where its section is written: under `probes:` on every",
+        "    node, under a node's own `probes:` on that node. For example:",
+        "",
+        "      probes:",
+        "        system:        # a test probe",
+        "        reachability:  # a test probe",
+        "        speed:         # a test probe",
+      ].join("\n"),
+    );
+  });
+
+  it("names a probe that is on but has no way in anywhere", () => {
+    expect(messageOf({ probes: { system: {} }, nodes: [solo] })).toContain(
+      "\n    system is on, but no node has `ssh:` or `local: true` for it.\n\n",
+    );
+  });
+
+  it("is satisfied by one node switching on one probe", () => {
+    expect(() =>
+      parseConfig(
+        {
+          nodes: [
+            solo,
+            { ...solo, name: "other", probes: { reachability: null } },
+          ],
+        },
+        TEST_PROBES,
+      ),
+    ).not.toThrow();
+  });
+
+  // Every node switched off is a choice made in the file, not an omission.
+  it("leaves a config with every node switched off alone", () => {
+    expect(() =>
+      parseConfig({ nodes: [{ ...solo, enabled: false }] }, TEST_PROBES),
+    ).not.toThrow();
   });
 });

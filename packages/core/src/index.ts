@@ -38,7 +38,11 @@ export {
   parseConfig,
 } from "./config/load";
 export type { ResolvedNode, ResolvedProbe } from "./config/resolve";
-export { resolveConcurrency, resolveConfig } from "./config/resolve";
+export {
+  DISABLED_REASON_TEXT,
+  resolveConcurrency,
+  resolveConfig,
+} from "./config/resolve";
 export type {
   ApiSettings,
   Bandwidth,

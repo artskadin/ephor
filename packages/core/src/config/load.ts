@@ -69,12 +69,25 @@ export async function loadConfig(
 
 function formatIssues(error: z.ZodError, data: unknown): string {
   return error.issues
-    .map(
-      (issue) =>
-        `  ${printable(configLocation(issue.path, data))}\n` +
-        `    ${printable(issue.message)}`,
-    )
+    .map((issue) => {
+      const lines = isMultiline(issue)
+        ? issue.message.split("\n")
+        : [issue.message];
+      const body = lines
+        .map((line) => (line === "" ? "" : `    ${printable(line)}`))
+        .join("\n");
+      return `  ${printable(configLocation(issue.path, data))}\n${body}`;
+    })
     .join("\n\n");
+}
+
+// Set only on a message built from no text of the file's own.
+function isMultiline(issue: z.ZodError["issues"][number]): boolean {
+  return (
+    issue.code === "custom" &&
+    (issue.params as { isMultiline?: unknown } | undefined)?.isMultiline ===
+      true
+  );
 }
 
 // Keys and names from the file reach the terminal in paths and messages: a

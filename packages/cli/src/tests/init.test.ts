@@ -152,6 +152,16 @@ describe("CONFIG_TEMPLATE", () => {
     ].join("\n");
   }
 
+  // The reference the template points to must not drift from the schema.
+  it("points to an example in the repository that parses", () => {
+    const example = readFileSync(
+      join(import.meta.dirname, "../../../../examples/config.example.yaml"),
+      "utf8",
+    );
+
+    expect(() => parseConfig(parse(example), descriptors)).not.toThrow();
+  });
+
   it("is refused as written, saying where the nodes go", () => {
     expect(() => parseConfig(parse(CONFIG_TEMPLATE), descriptors)).toThrow(
       ConfigError,

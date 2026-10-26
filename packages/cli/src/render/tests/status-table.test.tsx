@@ -54,7 +54,7 @@ const SYSTEM_METRICS = [
 const SYSTEM: ProbeDescriptor = {
   name: "system",
   requiresExecutor: true,
-  enabledByDefault: true,
+  summary: "a test probe",
   defaults: { interval: 60, timeout: 20, retries: 0, concurrency: 50 },
   listMetrics: () => SYSTEM_METRICS,
   listAllMetrics: () => SYSTEM_METRICS,
@@ -63,7 +63,7 @@ const SYSTEM: ProbeDescriptor = {
 const REACHABILITY: ProbeDescriptor = {
   name: "reachability",
   requiresExecutor: false,
-  enabledByDefault: true,
+  summary: "a test probe",
   defaults: { interval: 300, timeout: 60, retries: 0, concurrency: 50 },
   listMetrics: () => ["reachability.verdict"],
   listAllMetrics: () => ["reachability.verdict"],
@@ -81,7 +81,18 @@ function stateOf(
   points: readonly MetricPoint[],
   acknowledgements: Acknowledgement[] = [],
 ): StateResponse {
-  const parsed = parseConfig(config, PROBES);
+  // As `ephor init` writes it; a section the test wrote wins.
+  const parsed = parseConfig(
+    {
+      ...config,
+      probes: {
+        system: {},
+        reachability: {},
+        ...(config.probes as Record<string, unknown> | undefined),
+      },
+    },
+    PROBES,
+  );
 
   return {
     now: NOW,

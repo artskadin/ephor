@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../../config/load";
 import { resolveConfig } from "../../config/resolve";
-import { TEST_PROBES } from "../../config/tests/fixtures/probes";
+import {
+  TEST_PROBES,
+  withUsualProbes,
+} from "../../config/tests/fixtures/probes";
 import type { MetricPoint } from "../../types/metrics";
 import { buildNodeState, isMetricStatus, type NodeState } from "../node-state";
 
@@ -18,7 +21,7 @@ function stateOf(
   points: readonly MetricPoint[],
   now: number = NOW,
 ): NodeState[] {
-  const parsed = parseConfig(config, TEST_PROBES);
+  const parsed = parseConfig(withUsualProbes(config), TEST_PROBES);
 
   return buildNodeState({
     nodes: resolveConfig(parsed, TEST_PROBES),
@@ -1080,7 +1083,10 @@ describe("acknowledgements", () => {
       untilOk: false,
     };
     const [achilles, german] = buildNodeState({
-      nodes: resolveConfig(parseConfig(twoNodes, TEST_PROBES), TEST_PROBES),
+      nodes: resolveConfig(
+        parseConfig(withUsualProbes(twoNodes), TEST_PROBES),
+        TEST_PROBES,
+      ),
       points: [
         {
           ts: NOW,

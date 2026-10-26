@@ -56,12 +56,14 @@ function writeConfig(apiSection: string): string {
   writeFileSync(
     path,
     [
+      // Something must run, yet nothing may: `system` on this machine needs
+      // no network, and a new pair waits for its slot, a year away at most.
       "nodes:",
       "  - name: achilles",
       "    host: 203.0.113.10",
+      "    local: true",
       "probes:",
-      "  system: { enabled: false }",
-      "  reachability: { enabled: false }",
+      "  system: { interval: 365d }",
       "storage:",
       `  path: ${join(directory, "metrics.db")}`,
       "api:",
@@ -152,6 +154,35 @@ describe("serve", () => {
     const daemon = await start(writeConfig("enabled: false"), "");
 
     expect(daemon.apiUrl).toBeUndefined();
+  });
+
+  // Nothing runs by default, so the log says what does, a line a probe.
+  it("says at its start where each probe runs", async () => {
+    const lines: string[] = [];
+    const daemon = await serve({
+      configPath: writeConfig("enabled: false"),
+      token: "",
+      logger: createLogger({
+        format: "json",
+        write: (line) => lines.push(line),
+      }),
+      version: "1.2.3",
+    });
+    cleanups.push(daemon.stop);
+
+    const messages = lines.map(
+      (line) => JSON.parse(line) as { level: string; msg: string },
+    );
+    expect(messages).toContainEqual({
+      ts: expect.any(String),
+      level: "info",
+      msg: "probe system: on achilles",
+    });
+    expect(messages).toContainEqual({
+      ts: expect.any(String),
+      level: "info",
+      msg: "probe reachability: off",
+    });
   });
 
   it("puts the database at storage.path", async () => {

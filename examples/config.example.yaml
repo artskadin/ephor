@@ -1,8 +1,8 @@
 # ephor — collector configuration
 #
-# The smallest config that works is just a list of nodes; everything below
-# has a default. Values you do set are inherited by every node and can be
-# overridden per node.
+# The smallest config that works is a probe section and a list of nodes;
+# every other setting has a default. Values you do set are inherited by
+# every node and can be overridden per node.
 
 # ---------------------------------------------------------------------------
 # Settings shared by every probe
@@ -16,6 +16,13 @@ probeDefaults:
 
 # ---------------------------------------------------------------------------
 # Probes
+#
+# A probe runs only where its section is written: here for every node, or
+# under a node's own `probes:` for that node alone. Nothing runs by
+# default, so an upgrade of ephor never starts a probe you did not write.
+# A blank `system:` is enough; `enabled: false` stops a probe, here or on
+# one node. `serve` says at its start where each probe runs, and refuses
+# a config where none runs anywhere.
 #
 # `interval`, `timeout`, `retries` and `enabled` mean the same thing here and
 # inside a node, and the narrower place wins. `concurrency` exists only here:

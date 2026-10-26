@@ -23,6 +23,7 @@ import {
   checkWithoutDaemon,
 } from "../check";
 import { ProbeRegistry } from "../probes/registry";
+import { withProbesOn } from "./fixtures/probes-on";
 
 /** One node with ssh and one without, so `system` cannot run on the second. */
 const FLEET = {
@@ -41,7 +42,10 @@ function worldOf(
   options: { completeAtOnce?: boolean } = {},
 ) {
   const points: MetricPoint[] = [];
-  const nodes = resolveConfig(parseConfig(fleet, TEST_PROBES), TEST_PROBES);
+  const nodes = resolveConfig(
+    parseConfig(withProbesOn(fleet, ["system", "reachability"]), TEST_PROBES),
+    TEST_PROBES,
+  );
   const { scheduler, dispatched } = schedulerOf(nodes, options);
 
   const deps: CheckDeps = {
@@ -253,7 +257,7 @@ function fastProbeOf(outcome: { ok: boolean } = { ok: true }): {
     descriptor: {
       name: "fast",
       requiresExecutor: false,
-      enabledByDefault: true,
+      summary: "a test probe",
       defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 2 },
       listMetrics: () => [],
       listAllMetrics: () => [],
@@ -283,6 +287,7 @@ const silent = (): Logger => createLogger({ level: "silent" });
 function configOf(registry: ProbeRegistry, ...names: string[]): Config {
   return parseConfig(
     {
+      probes: { fast: {} },
       nodes: names.map((name, index) => ({
         name,
         host: `203.0.113.${10 + index}`,

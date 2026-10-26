@@ -24,6 +24,8 @@ describe("ephor access-targets", () => {
     writeFileSync(
       config,
       [
+        "probes:",
+        "  system:",
         "nodes:",
         "  - name: achilles",
         "    host: 203.0.113.10",

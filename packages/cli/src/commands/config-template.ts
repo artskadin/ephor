@@ -8,6 +8,10 @@ export const CONFIG_TEMPLATE = `# ephor: what the collector measures, read by \`
 # Check what you wrote at any time: \`ephor check\` reads this file, probes
 # every node once and prints the table, or says what is wrong and where.
 
+# A probe runs only while its section is written, here for every node or
+# under a node's own \`probes:\` for that node. To stop one, take out
+# every section of it, or write \`enabled: false\` where it should not run.
+# \`ephor serve\` says at its start where each probe runs.
 probes:
   # Asks outside vantage points (check-host.net) whether each node answers:
   # nothing is installed on the nodes, and a dead node is still judged.

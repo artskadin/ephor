@@ -1,6 +1,8 @@
 import type { ProbeDescriptor } from "../types/probe-contract";
 import {
   type Config,
+  hasExecutor,
+  isEnabledInConfig,
   type Node,
   probeSpecificSettings,
   type Threshold,
@@ -8,6 +10,14 @@ import {
 
 /** `no-executor`: needs commands on the node and has no way in. */
 export type ProbeDisabledReason = "no-executor" | "config";
+
+/** For people: `check`'s "not run" line and `serve`'s start. */
+export const DISABLED_REASON_TEXT: Readonly<
+  Record<ProbeDisabledReason, string>
+> = {
+  config: "off in the config",
+  "no-executor": "no `ssh:` in the config",
+};
 
 /** How the probe runs on the node: timing, and its own config keys. */
 interface ProbeParameters {
@@ -46,19 +56,14 @@ export function resolveNode(
   descriptors: readonly ProbeDescriptor[],
 ): ResolvedNode {
   const probes = new Map<string, ResolvedProbe>();
-  const hasExecutor = node.local || node.ssh !== undefined;
   const sharedDefaults = config.probeDefaults;
 
   for (const descriptor of descriptors) {
     const globalSection = config.probes[descriptor.name];
     const nodeSection = node.probes[descriptor.name];
 
-    const enabledByConfig =
-      nodeSection?.enabled ??
-      globalSection?.enabled ??
-      sharedDefaults.enabled ??
-      descriptor.enabledByDefault;
-    const canRun = !descriptor.requiresExecutor || hasExecutor;
+    const enabledByConfig = isEnabledInConfig(config, node, descriptor.name);
+    const canRun = !descriptor.requiresExecutor || hasExecutor(node);
     const settings = probeSpecificSettings(globalSection);
 
     const parameters: ProbeParameters = {

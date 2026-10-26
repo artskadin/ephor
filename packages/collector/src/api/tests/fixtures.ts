@@ -10,6 +10,7 @@ import { reachabilityProbeDescriptor } from "../../probes/reachability/reachabil
 import { systemProbeDescriptor } from "../../probes/system/system-probe";
 import { FakeClock } from "../../scheduling/clock";
 import { Scheduler, type Task } from "../../scheduling/scheduler";
+import { withProbesOn } from "../../tests/fixtures/probes-on";
 import type { ApiDeps } from "../handlers";
 
 /**
@@ -112,12 +113,15 @@ export function depsOf(
   overrides: Partial<ApiDeps> = {},
 ): ApiDeps {
   const config = parseConfig(
-    {
-      nodes: [
-        { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
-        { name: "retired", host: "203.0.113.11", enabled: false },
-      ],
-    },
+    withProbesOn(
+      {
+        nodes: [
+          { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
+          { name: "retired", host: "203.0.113.11", enabled: false },
+        ],
+      },
+      ["system", "reachability"],
+    ),
     TEST_PROBES,
   );
   const nodes = resolveConfig(config, TEST_PROBES);

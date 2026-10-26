@@ -70,12 +70,14 @@ function writeConfig(apiSection: string): string {
   writeFileSync(
     path,
     [
+      // Something must run, yet nothing may: `system` on this machine needs
+      // no network, and a new pair waits for its slot, a year away at most.
       "nodes:",
       "  - name: achilles",
       "    host: 203.0.113.10",
+      "    local: true",
       "probes:",
-      "  system: { enabled: false }",
-      "  reachability: { enabled: false }",
+      "  system: { interval: 365d }",
       "storage:",
       `  path: ${join(directory, "metrics.db")}`,
       "api:",

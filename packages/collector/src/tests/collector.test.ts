@@ -21,7 +21,7 @@ import { SqliteStorage } from "../storage/sqlite-storage";
 const FAST: ProbeDescriptor = {
   name: "fast",
   requiresExecutor: false,
-  enabledByDefault: true,
+  summary: "a test probe",
   defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 2 },
   listMetrics: () => [],
   listAllMetrics: () => [],
@@ -41,6 +41,7 @@ async function collectorOf(): Promise<Collector> {
 
   const config = parseConfig(
     {
+      probes: { fast: {} },
       nodes: [
         { name: "pupa", host: "203.0.113.10" },
         { name: "lupa", host: "203.0.113.11" },
@@ -129,7 +130,7 @@ describe("Collector: acknowledgements after a write", () => {
   const GAUGE: ProbeDescriptor = {
     name: "gauge",
     requiresExecutor: false,
-    enabledByDefault: true,
+    summary: "a test probe",
     defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 2 },
     listMetrics: () => ["gauge.level"],
     listAllMetrics: () => ["gauge.level"],
@@ -150,7 +151,7 @@ describe("Collector: acknowledgements after a write", () => {
 
   // Never runs: a disabled probe must not hold the check back forever.
   const idleProbe: Probe<Record<string, never>> = {
-    descriptor: { ...FAST, name: "idle", enabledByDefault: false },
+    descriptor: { ...FAST, name: "idle" },
     run: async () => ({ ok: true, data: {}, durationMs: 1 }),
     toMetrics: () => [],
   };
@@ -179,6 +180,7 @@ describe("Collector: acknowledgements after a write", () => {
 
     const config = parseConfig(
       {
+        probes: { fast: {}, gauge: {}, manual: {} },
         nodes: [{ name: "pupa", host: "203.0.113.10" }],
         thresholds: { "gauge.level": { warn: 50, critical: 90 } },
       },

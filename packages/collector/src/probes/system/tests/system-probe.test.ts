@@ -24,7 +24,12 @@ const SNAPSHOT = {
 /** The node's ports as the config schema resolves them. */
 function contextWith(ports: unknown[]): ProbeContext {
   const config = parseConfig(
-    { nodes: [{ name: "achilles", host: "203.0.113.10", ports }] },
+    {
+      probes: { system: {} },
+      nodes: [
+        { name: "achilles", host: "203.0.113.10", ssh: "achilles", ports },
+      ],
+    },
     [systemProbeDescriptor],
   );
 
@@ -367,6 +372,7 @@ describe("systemProbeDescriptor.listMetrics", () => {
   const metricsWrittenAndListed = (bandwidth?: string) => {
     const [node] = parseConfig(
       {
+        probes: { system: {} },
         nodes: [
           {
             name: "achilles",

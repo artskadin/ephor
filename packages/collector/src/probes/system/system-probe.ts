@@ -29,7 +29,7 @@ const SYSTEM_METRICS: readonly string[] = [
 export const systemProbeDescriptor: ProbeDescriptor = {
   name: "system",
   requiresExecutor: true,
-  enabledByDefault: true,
+  summary: "load, memory, disk, traffic, ports; over ssh",
   defaults: {
     interval: 60,
     timeout: 15,

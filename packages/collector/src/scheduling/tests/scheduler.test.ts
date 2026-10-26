@@ -4,6 +4,7 @@ import {
   resolveConfig,
 } from "@ephorate/core";
 import { beforeEach, describe, expect, it } from "vitest";
+import { withProbesOn } from "../../tests/fixtures/probes-on";
 import { FakeClock, sleep } from "../clock";
 import { Scheduler, type Task } from "../scheduler";
 
@@ -14,7 +15,7 @@ const PROBES: ProbeDescriptor[] = [
   {
     name: "fast",
     requiresExecutor: false,
-    enabledByDefault: true,
+    summary: "a test probe",
     defaults: { interval: 60, timeout: 10, retries: 0, concurrency: 50 },
     listMetrics: () => [],
     listAllMetrics: () => [],
@@ -22,7 +23,7 @@ const PROBES: ProbeDescriptor[] = [
   {
     name: "slow",
     requiresExecutor: false,
-    enabledByDefault: true,
+    summary: "a test probe",
     defaults: { interval: 300, timeout: 10, retries: 0, concurrency: 50 },
     listMetrics: () => [],
     listAllMetrics: () => [],
@@ -34,7 +35,10 @@ function nodesFor(
   probes: Record<string, { enabled: boolean }> = {},
 ) {
   const config = parseConfig(
-    { nodes: names.map((name) => ({ name, host: "203.0.113.10", probes })) },
+    withProbesOn(
+      { nodes: names.map((name) => ({ name, host: "203.0.113.10", probes })) },
+      PROBES.map((probe) => probe.name),
+    ),
     PROBES,
   );
 
@@ -182,7 +186,7 @@ describe("Scheduler", () => {
   it("never runs a probe that is switched off", () => {
     const config = parseConfig(
       {
-        probes: { slow: { enabled: false } },
+        probes: { fast: {}, slow: { enabled: false } },
         nodes: [{ name: "pupa", host: "203.0.113.10" }],
       },
       PROBES,
@@ -200,7 +204,7 @@ describe("Scheduler", () => {
       {
         name: "manual",
         requiresExecutor: false,
-        enabledByDefault: true,
+        summary: "a test probe",
         defaults: { interval: null, timeout: 10, retries: 0, concurrency: 50 },
         listMetrics: () => [],
         listAllMetrics: () => [],
@@ -211,7 +215,7 @@ describe("Scheduler", () => {
       resolveConfig(
         parseConfig(
           {
-            probes: { manual },
+            probes: { fast: {}, slow: {}, manual },
             nodes: [{ name: "pupa", host: "203.0.113.10" }],
           },
           WITH_MANUAL,

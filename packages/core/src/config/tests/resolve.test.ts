@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 import { parseConfig } from "../load";
 import { resolveConcurrency, resolveConfig, resolveNode } from "../resolve";
 import type { Config } from "../schema";
-import { TEST_PROBES } from "./fixtures/probes";
+import { TEST_PROBES, withUsualProbes } from "./fixtures/probes";
 
 function configOf(data: Record<string, unknown>): Config {
-  return parseConfig(data, TEST_PROBES);
+  return parseConfig(withUsualProbes(data), TEST_PROBES);
 }
 
-function firstNodeProbes(data: Record<string, unknown>) {
-  const config = configOf(data);
+/** With `probes:` exactly as written: for what switches a probe on. */
+function firstNodeProbes(
+  data: Record<string, unknown>,
+  parse: (data: Record<string, unknown>) => Config = configOf,
+) {
+  const config = parse(data);
   const [resolved] = resolveConfig(config, TEST_PROBES);
 
   if (!resolved) throw new Error("expected at least one resolved node");
@@ -100,16 +104,6 @@ describe("resolveNode", () => {
     expect(probes.get("speed")?.retries).toBe(4); // shared section
   });
 
-  it("lets the shared section switch every probe off", () => {
-    const probes = firstNodeProbes({
-      probeDefaults: { enabled: false },
-      nodes: [{ name: "solo", host: "203.0.113.10", ssh: "solo" }],
-    });
-
-    expect(probes.get("system")?.enabled).toBe(false);
-    expect(probes.get("reachability")?.enabled).toBe(false);
-  });
-
   it("prefers the node over the global section", () => {
     const probes = firstNodeProbes({
       probes: { system: { interval: 600, retries: 5 } },
@@ -127,30 +121,68 @@ describe("resolveNode", () => {
     expect(probes.get("system")?.retries).toBe(5);
   });
 
-  it("leaves a probe off when it ships disabled", () => {
-    const probes = firstNodeProbes({
-      nodes: [{ name: "solo", host: "203.0.113.10", ssh: "solo" }],
-    });
+  const asWritten = (data: Record<string, unknown>) =>
+    parseConfig(data, TEST_PROBES);
 
+  // Nothing runs that the file omits: an upgrade never switches one on.
+  it("runs a probe whose section is written, even blank, and no other", () => {
+    const probes = firstNodeProbes(
+      {
+        probes: { system: null },
+        nodes: [{ name: "solo", host: "203.0.113.10", ssh: "solo" }],
+      },
+      asWritten,
+    );
+
+    expect(probes.get("system")?.enabled).toBe(true);
+    expect(probes.get("reachability")).toMatchObject({
+      enabled: false,
+      disabledReason: "config",
+    });
     expect(probes.get("speed")).toMatchObject({
       enabled: false,
       disabledReason: "config",
     });
   });
 
-  it("lets a single node switch on a probe that ships disabled", () => {
-    const probes = firstNodeProbes({
+  it("runs a probe on the one node whose own section names it", () => {
+    const config = asWritten({
+      probes: { system: {} },
       nodes: [
         {
           name: "solo",
           host: "203.0.113.10",
           ssh: "solo",
-          probes: { speed: { enabled: true } },
+          probes: { speed: null },
         },
+        { name: "other", host: "203.0.113.11", ssh: "other" },
       ],
     });
+    const [solo, other] = resolveConfig(config, TEST_PROBES);
 
-    expect(probes.get("speed")?.enabled).toBe(true);
+    expect(solo?.probes.get("speed")?.enabled).toBe(true);
+    expect(other?.probes.get("speed")?.enabled).toBe(false);
+  });
+
+  it("lets the narrower level decide, either way", () => {
+    const config = asWritten({
+      probes: { system: {}, speed: { enabled: false } },
+      nodes: [
+        {
+          name: "quiet",
+          host: "203.0.113.10",
+          ssh: "quiet",
+          probes: { system: { enabled: false }, speed: { interval: "7d" } },
+        },
+        { name: "plain", host: "203.0.113.11", ssh: "plain" },
+      ],
+    });
+    const [quiet, plain] = resolveConfig(config, TEST_PROBES);
+
+    expect(quiet?.probes.get("system")?.enabled).toBe(false);
+    expect(quiet?.probes.get("speed")?.enabled).toBe(true);
+    expect(plain?.probes.get("system")?.enabled).toBe(true);
+    expect(plain?.probes.get("speed")?.enabled).toBe(false);
   });
 
   it("keeps a probe with no default interval unscheduled until one is set", () => {
@@ -177,8 +209,11 @@ describe("resolveNode", () => {
   it("distinguishes 'switched off' from 'cannot run here'", () => {
     const probes = firstNodeProbes({
       probes: { reachability: { enabled: false } },
-      // No ssh and not local: the system probe has no way in.
-      nodes: [{ name: "solo", host: "203.0.113.10" }],
+      nodes: [
+        // No ssh and not local: the system probe has no way in.
+        { name: "solo", host: "203.0.113.10" },
+        { name: "other", host: "203.0.113.11", ssh: "other" },
+      ],
     });
 
     expect(probes.get("system")).toMatchObject({
