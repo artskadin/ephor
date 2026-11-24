@@ -8,11 +8,8 @@ SSH management access and public reachability are separate signals.
 
 ## First release and next change
 
-- First fix: [A1: missing required region](AUDIT.md#a1-missing-required-region-can-yield-ok).
-  With RU and KZ required, successful RU and control EU readings do not
-  justify `ok` when KZ has no readings. A measured KZ timeout in the same
-  case still means `partial`. Keep this fix separate from the journal and
-  config design. See the [dated code audit](AUDIT.md) for other findings.
+- Next fix: [A2: node without runnable probes can look healthy](AUDIT.md#a2-node-without-runnable-probes-can-look-healthy).
+  See the [dated code audit](AUDIT.md) for other findings.
 - First release: continuous monitoring with understandable setup and a
   persistent journal for **network and system incidents**, even when
   `watch` is closed. A failed measurement is not a measured outage.
@@ -71,9 +68,9 @@ RU 0/4   EU 0/3   →  down         RU 4/4   EU 3/3   →  ok
 ```
 
 These counts are selected points for the decisive method, not a census.
-RU 3/4 is `partial`; a measured timeout is not an absent region. An
-absent required region currently can be mistaken for adequate coverage
-([A1](AUDIT.md#a1-missing-required-region-can-yield-ok)).
+RU 3/4 is `partial`. With RU and KZ required and RU and control EU
+passing, no KZ readings means `unknown`; an observed KZ timeout
+still means `partial`.
 
 ## Architecture
 
@@ -138,8 +135,9 @@ pnpm --filter @ephorate/collector exec tsx scripts/check-config.ts ../../example
 Run the first three in order: binary tests load the fresh bundle. The last
 two are offline CLI/schema checks; the config command validates but does
 not run probes. Verify the changed path and an error case against fixtures
-using the actual schema, fake SSH/provider or loopback servers. For A1
-start at [the verdict tests](packages/core/src/reachability/tests/verdict.test.ts).
+using the actual schema, fake SSH/provider or loopback servers.
+For verdict changes, start at
+[the verdict tests](packages/core/src/reachability/tests/verdict.test.ts).
 Never use the maintainer's live config as a fixture; no production
 connections, configuration changes or generated traffic without explicit
 permission. Use documentation IP ranges in examples.

@@ -140,7 +140,12 @@ function decideVerdict(
 
   if (required.length === 0) return "unknown";
 
-  if (required.every((region) => region.reach === "all")) return "ok";
+  if (required.every((region) => region.reach === "all")) {
+    const hasFullCoverage = requiredRegions.every((regionName) =>
+      required.some((region) => region.region === regionName),
+    );
+    return hasFullCoverage ? "ok" : "unknown";
+  }
 
   if (required.every((region) => region.reach === "none")) {
     if (control.some((region) => region.reach !== "none")) {

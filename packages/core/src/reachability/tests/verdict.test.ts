@@ -100,16 +100,30 @@ describe("summarize", () => {
     ).toBe("partial");
   });
 
-  it("reads one required region fine and another cut off as partial", () => {
-    const result = summarize({
-      readings: [
-        ...readings("ru", "tcp", 3, 3),
-        ...readings("by", "tcp", 0, 3),
-        ...readings("eu", "tcp", 3, 3),
-      ],
-      requiredRegions: ["ru", "by"],
-    });
+  it.each([
+    ["unknown", "has no readings", []],
+    [
+      "partial",
+      "reports a timeout",
+      readings("kz", "tcp", 0, 1).map((reading) => ({
+        ...reading,
+        error: "Connection timed out",
+      })),
+    ],
+    ["ok", "passes", readings("kz", "tcp", 1, 1)],
+  ] as const)(
+    "returns %s when RU and EU pass and required KZ %s",
+    (verdict, _description, kazakhstanReadings) => {
+      const result = summarize({
+        readings: [
+          ...readings("ru", "tcp", 3, 3),
+          ...kazakhstanReadings,
+          ...readings("eu", "tcp", 3, 3),
+        ],
+        requiredRegions: ["ru", "kz"],
+      });
 
-    expect(result.verdict).toBe("partial");
-  });
+      expect(result.verdict).toBe(verdict);
+    },
+  );
 });
