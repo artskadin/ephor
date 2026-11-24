@@ -1,5 +1,6 @@
 import type { HttpRequester, ProbeReading, Vantage } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
+import { ReachabilityProbe } from "../../probes/reachability/reachability-probe";
 import { CheckHostProvider } from "../check-host-provider";
 import type { Region } from "../settings";
 
@@ -279,6 +280,62 @@ describe("probe", () => {
       error: "Connection timed out",
     });
     expect(readingFor(readings, "de1").ok).toBe(true);
+  });
+
+  it("fails the probe instead of publishing a verdict for an empty TCP result object", async () => {
+    const answerCheck = scriptFor({
+      "ru1.node.check-host.net": [{}],
+      "ru2.node.check-host.net": [{ time: 0.02 }],
+      "de1.node.check-host.net": [{ time: 0.03 }],
+    });
+    const { provider, requester } = providerWith((url) =>
+      url.endsWith("/nodes/hosts") ? NODES_RESPONSE : answerCheck(url),
+    );
+    const probe = new ReachabilityProbe({
+      createProvider: () => provider,
+      requesterFor: () => requester,
+    });
+
+    const outcome = await probe.run({
+      nodeName: "test-node",
+      host: TARGET.host,
+      ports: [],
+      startedAt: 0,
+      timeoutMs: 1000,
+      intervalSeconds: 300,
+      settings: { methods: ["tcp"], regions: REGIONS },
+    });
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: {
+        kind: "bad_response",
+        detail: "check-host.net returned an invalid TCP result",
+      },
+    });
+    expect(outcome).not.toHaveProperty("data");
+  });
+
+  it.each([
+    { shape: "an empty array", result: [] },
+    { shape: "a null time", result: [{ time: null }] },
+    { shape: "a numeric string", result: [{ time: "0.03" }] },
+    { shape: "a negative time", result: [{ time: -0.01 }] },
+    { shape: "a non-string error", result: [{ error: null }] },
+    { shape: "a blank error", result: [{ error: " " }] },
+  ])("rejects a TCP result with $shape", async ({ result }) => {
+    const { provider, requester } = providerWith(
+      scriptFor({ ru1: result, de1: [{ time: 0.03 }] }),
+    );
+
+    await expect(
+      provider.probe({
+        target: TARGET,
+        vantages: VANTAGES,
+        methods: ["tcp"],
+        requester,
+      }),
+    ).rejects.toThrow("check-host.net returned an invalid TCP result");
   });
 
   // ping returns nested arrays of individual attempts, unlike the others.

@@ -8,6 +8,7 @@ import type {
   Vantage,
 } from "@ephorate/core";
 import { sleep } from "../scheduling/clock";
+import { ProviderResponseError } from "./provider-response-error";
 import type { Region } from "./settings";
 
 const API_BASE = "https://check-host.net";
@@ -273,23 +274,24 @@ function parseHttp(vantage: Vantage, raw: unknown): ProbeReading {
 
 /** `[{"time": 0.03}]` on success, `[{"error": "..."}]` on failure. */
 function parseTcp(vantage: Vantage, raw: unknown): ProbeReading {
-  const entry = Array.isArray(raw) ? raw[0] : null;
+  const entry: unknown = Array.isArray(raw) ? raw[0] : undefined;
 
-  if (entry === null || typeof entry !== "object") {
-    return { vantage, method: "tcp", ok: false, error: "no data" };
+  if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+    if ("error" in entry) {
+      if (typeof entry.error === "string" && entry.error.trim() !== "") {
+        return { vantage, method: "tcp", ok: false, error: entry.error };
+      }
+    } else if (
+      "time" in entry &&
+      typeof entry.time === "number" &&
+      Number.isFinite(entry.time) &&
+      entry.time >= 0
+    ) {
+      return { vantage, method: "tcp", ok: true, rtt: entry.time };
+    }
   }
 
-  if ("error" in entry) {
-    return {
-      vantage,
-      method: "tcp",
-      ok: false,
-      error: String((entry as { error: unknown }).error),
-    };
-  }
-
-  const time = (entry as { time?: unknown }).time;
-  const rtt = Number.isFinite(Number(time)) ? Number(time) : undefined;
-
-  return { vantage, method: "tcp", ok: true, rtt };
+  throw new ProviderResponseError(
+    "check-host.net returned an invalid TCP result",
+  );
 }

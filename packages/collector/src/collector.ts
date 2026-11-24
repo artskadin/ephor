@@ -280,7 +280,7 @@ function probeErrorDetail(error: ProbeError): string {
     case "not_configured":
       return `missing: ${error.what}`;
     case "bad_response":
-      return `status: ${error.status ?? "unknown"}`;
+      return error.detail ?? `status: ${error.status ?? "unknown"}`;
     case "internal":
       return error.cause instanceof Error
         ? error.cause.message

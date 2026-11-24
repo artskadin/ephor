@@ -11,6 +11,7 @@ import {
   type ReachabilityResult,
   summarize,
 } from "@ephorate/core";
+import { ProviderResponseError } from "../../reachability/provider-response-error";
 import {
   REACHABILITY_METHODS,
   type ReachabilitySettings,
@@ -169,6 +170,10 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
 
 // "The service said no" is retried differently from a network failure.
 function toProbeError(cause: unknown): ProbeError {
+  if (cause instanceof ProviderResponseError) {
+    return { kind: "bad_response", detail: cause.message };
+  }
+
   if (!(cause instanceof HttpRequestError)) {
     return { kind: "internal", cause };
   }
