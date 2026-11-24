@@ -1,5 +1,9 @@
 import { formatDuration } from "../config/duration";
-import type { ResolvedNode, ResolvedProbe } from "../config/resolve";
+import {
+  DISABLED_REASON_TEXT,
+  type ResolvedNode,
+  type ResolvedProbe,
+} from "../config/resolve";
 import type { Threshold } from "../config/schema";
 import type { DecisiveCount, Verdict } from "../reachability/verdict";
 import type { Acknowledgement } from "../storage/types";
@@ -148,6 +152,21 @@ function buildNodeStateFor(
   const metrics: MetricView[] = [];
   const reasons: string[] = [];
   let status: MetricStatus = "ok";
+
+  if (enabledProbes.size === 0) {
+    status = "unknown";
+    const probeNamesWithoutExecutor = [...node.probes.values()].flatMap(
+      (probe) =>
+        !probe.enabled && probe.disabledReason === "no-executor"
+          ? [probe.name]
+          : [],
+    );
+    reasons.push(
+      probeNamesWithoutExecutor.length > 0
+        ? `no probes can run: ${probeNamesWithoutExecutor.join(", ")} (${DISABLED_REASON_TEXT["no-executor"]})`
+        : "no probes enabled for this node: enable one under `probes:`",
+    );
+  }
 
   const worsenTo = (candidate: MetricStatus): void => {
     if (STATUS_RANK[candidate] > STATUS_RANK[status]) status = candidate;

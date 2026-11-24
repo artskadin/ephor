@@ -167,6 +167,48 @@ describe("buildNodeState", () => {
     });
   });
 
+  it.each([
+    {
+      problem: "system has no SSH configuration",
+      nodeSettings: {},
+      reason: "no probes can run: system (no `ssh:` in the config)",
+    },
+    {
+      problem: "all probes are off in the config",
+      nodeSettings: {
+        ssh: "unmeasured",
+        probes: { system: { enabled: false } },
+      },
+      reason: "no probes enabled for this node: enable one under `probes:`",
+    },
+  ])(
+    "reports an unmeasured node as unknown when $problem",
+    ({ nodeSettings, reason }) => {
+      const [monitored, unmeasured] = stateOf(
+        {
+          probes: { reachability: { enabled: false } },
+          nodes: [
+            { name: "solo", host: "203.0.113.10", ssh: "solo" },
+            { name: "unmeasured", host: "203.0.113.11", ...nodeSettings },
+          ],
+        },
+        [
+          point("system.up", { ok: true }),
+          point("system.up", { node: "unmeasured", ok: true }),
+        ],
+      );
+
+      expect(monitored).toMatchObject({ status: "ok", probes: ["system"] });
+      expect(unmeasured).toMatchObject({
+        status: "unknown",
+        probes: [],
+        metrics: [],
+        reachability: null,
+        reasons: [reason],
+      });
+    },
+  );
+
   describe("thresholds", () => {
     const withDisk = soloConfig({
       thresholds: { "system.disk_percent": { warn: 85, critical: 95 } },
