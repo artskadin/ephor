@@ -19,3 +19,4 @@ config.local.*
 tmp/
 
 CLAUDE.md
+ephor-handoff.md
