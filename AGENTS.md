@@ -8,14 +8,44 @@ SSH management access and public reachability are separate signals.
 
 ## First release and next change
 
-- Next fix: [A2: node without runnable probes can look healthy](AUDIT.md#a2-node-without-runnable-probes-can-look-healthy).
-  See the [dated code audit](AUDIT.md) for other findings.
+- [A4 public endpoints](docs/a4-endpoints.md) separates public checks from
+  `ssh` and `ports`. Reachability requires named `nodes[].endpoints`; there
+  is no legacy fallback. The [dated audit](AUDIT.md) records prior behavior.
+- Separate follow-up: simplify [`regions`](#planned-regions-simplification).
+  A4 uses the existing region schema; neither migration requires the other.
 - First release: continuous monitoring with understandable setup and a
   persistent journal for **network and system incidents**, even when
   `watch` is closed. A failed measurement is not a measured outage.
 - Active `speed` is desirable, but its value, accuracy and traffic cost
-  need a separate assessment before choosing a release. Explicit `targets`,
-  `requestFrom` and `config explain` are proposals, not supported features.
+  need a separate assessment before choosing a release. `requestFrom`
+  and `config explain` are proposals, not supported features.
+
+### Planned `regions` simplification
+
+Agreed direction for a separate change. **Proposed YAML, not supported
+today** (inside `probes.reachability`):
+
+```yaml
+regions:
+  targets: [ru, kz]
+  control: [de, nl]
+```
+
+- At least one target country; controls are optional. Without controls,
+  report observed failures (e.g. zero successful TCP connections from
+  three reporting points in RU), but do not claim to distinguish a
+  regional failure from a wider outage.
+- Measure each country separately. Healthy RU does not replace missing
+  KZ observations. No custom group names or user-facing `required`,
+  `match`, or `count`; the collector selects points within provider
+  capabilities and limits, with no promise to use all points or a fixed
+  provider-independent cap.
+- Distinguish no points in a country, points that did not report, and
+  points that ran the check and reported a failed connection. Only the
+  last case is an observed failure.
+- Migrate separately: legacy `match: [de, nl], count: 3` means up to
+  three points across both countries. Checking them separately can
+  change coverage and request load; do not switch silently.
 
 ## What works in this checkout
 
@@ -30,11 +60,11 @@ SSH management access and public reachability are separate signals.
   `bandwidth` adds utilization percentages, not an active speed test.
 - `reachability` needs no node login. The collector requests checks from
   check-host; the provider's external points make the actual connections.
-  TCP uses the first declared public TCP port, otherwise 443, even on an
-  explicitly UDP-only list (see [A4](AUDIT.md#a4-implicit-destination-can-probe-the-wrong-service)).
-  Methods are global: TCP wins over HTTP, then ping, among methods with
-  readings in a region. For a CDN, use the public `domain` with global
-  `methods: [http]`; no UDP or VPN protocol handshake is implemented.
+  Each endpoint selects the method: `tcp` uses the node's public `host`
+  and explicit port; `https` uses the public URL, including for a CDN.
+  `udp` is shown as unmeasured, with no substitute TCP check. `ports`
+  and `ssh` never choose a destination; global `methods` and node
+  `domain` are no longer accepted. No VPN handshake is implemented.
 - `status` shows a snapshot; `watch` shows the live table and can send
   desktop notifications while it runs. `ack` can suppress covered changes
   without changing the node's state. The collector keeps collecting without
@@ -67,7 +97,7 @@ RU 0/4   EU 3/3   →  blocked      RU 2/4   EU 3/3   →  partial
 RU 0/4   EU 0/3   →  down         RU 4/4   EU 3/3   →  ok
 ```
 
-These counts are selected points for the decisive method, not a census.
+These counts are reported observations for one endpoint, not a census.
 RU 3/4 is `partial`. With RU and KZ required and RU and control EU
 passing, no KZ readings means `unknown`; an observed KZ timeout
 still means `partial`.
@@ -93,15 +123,19 @@ still means `partial`.
 
 - The registry builds the strict schema. A probe runs only where a section
   is written (including blank YAML), unless disabled or lacking its
-  executor. A node can override enablement and timing; reachability-specific
-  methods and regions are global. A config with no runnable probe anywhere
-  is refused. `probeDefaults` does not enable or schedule probes.
+  executor. A node can override enablement and timing. Reachability uses
+  per-node endpoints and global regions; a system-only node needs no
+  endpoint. A config with no runnable probe anywhere is refused.
+  `probeDefaults` does not enable or schedule probes.
 - Use typed `ProbeOutcome` for expected failures. Every finished run writes
   `<probe>.up`, including failure. `system.up: false` is a warning about the
   measurement, not proof of a public outage. No implicit numeric thresholds.
 - `buildNodeState` uses currently declared metrics, not old settings'
-  leftovers. Scheduled values go stale after twice their interval; stale
-  reachability does not count as a current verdict. Order:
+  leftovers. Endpoint observations belong to their destination and region
+  settings. A failed attempt records an error without replacing the last
+  measured verdict or confirming recovery. Scheduled values go stale after
+  twice their interval; stale reachability does not count as a current
+  verdict. Order:
   `critical > stale > warn > unknown > ok`. Verdict and node state are not
   interchangeable: system metrics can worsen the latter.
 - `metrics_latest` and history update in the same transaction. The

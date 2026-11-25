@@ -2,6 +2,7 @@ import {
   type Acknowledgement,
   buildNodeState,
   type Config,
+  endpointScope,
   type Logger,
   type MetricPoint,
   type MetricStatus,
@@ -9,8 +10,10 @@ import {
   type ProbeError,
   type QueueState,
   type ResolvedNode,
+  reachabilityRegionScope,
   resolveConcurrency,
   resolveConfig,
+  resolveEndpoints,
   type SshQueues,
   type Storage,
 } from "@ephorate/core";
@@ -165,7 +168,7 @@ export class Collector {
     const context: ProbeContext = {
       nodeName: nodeConfig.name,
       host: nodeConfig.host,
-      domain: nodeConfig.domain,
+      endpoints: nodeConfig.endpoints,
       ports: nodeConfig.ports,
       bandwidth: nodeConfig.bandwidth,
       executor: createExecutor(nodeConfig, timeoutMs, this.sshGates),
@@ -183,6 +186,16 @@ export class Collector {
     });
 
     const points: MetricPoint[] = [];
+    const scope =
+      probe.descriptor.name === "reachability" &&
+      context.endpoints !== undefined
+        ? {
+            scope: endpointScope(
+              resolveEndpoints(context.host, context.endpoints),
+            ),
+            regionScope: reachabilityRegionScope(context.settings),
+          }
+        : {};
 
     if (outcome.ok) {
       points.push(...probe.toMetrics(outcome.data, context));
@@ -191,7 +204,7 @@ export class Collector {
         node: nodeConfig.name,
         metric: `${probe.descriptor.name}.up`,
         ok: true,
-        meta: { durationMs: outcome.durationMs },
+        meta: { ...scope, durationMs: outcome.durationMs },
       });
 
       logger.debug("probe finished", {
@@ -199,12 +212,16 @@ export class Collector {
         points: points.length,
       });
     } else {
+      if (outcome.failedData !== undefined) {
+        points.push(...probe.toMetrics(outcome.failedData, context));
+      }
       points.push({
         ts: startedAt,
         node: nodeConfig.name,
         metric: `${probe.descriptor.name}.up`,
         ok: false,
         meta: {
+          ...scope,
           errorKind: outcome.error.kind,
           detail: probeErrorDetail(outcome.error),
           durationMs: outcome.durationMs,

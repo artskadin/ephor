@@ -10,8 +10,7 @@ interface RegionSummary {
   decisive: DecisiveCount;
 }
 
-/** A point that did not answer counts as one that failed. */
-type Reach = "all" | "some" | "none";
+type Reach = "all" | "some" | "none" | "unmeasured";
 
 /** Written beside the verdict, so a reason can say how bad: `ru 2/3 tcp`. */
 export interface DecisiveCount {
@@ -21,11 +20,14 @@ export interface DecisiveCount {
   method: ReachabilityMethod;
   passed: number;
   total: number;
+  /** Omitted when every selected point reported. */
+  reported?: number;
 }
 
 interface MethodSummary {
   passed: number;
   total: number;
+  reported: number;
   /** Median round-trip time of the successful checks, seconds. */
   rtt?: number | undefined;
 }
@@ -74,7 +76,7 @@ function groupIntoRegions(
       (["tcp", "http", "ping"] as const).find(
         (candidate) => byMethod[candidate] !== undefined,
       ) ?? "ping";
-    const counts = byMethod[method] ?? { passed: 0, total: 0 };
+    const counts = byMethod[method] ?? { passed: 0, reported: 0, total: 0 };
 
     return {
       region,
@@ -87,6 +89,9 @@ function groupIntoRegions(
         method,
         passed: counts.passed,
         total: counts.total,
+        ...(counts.reported === counts.total
+          ? {}
+          : { reported: counts.reported }),
       },
     };
   });
@@ -95,7 +100,8 @@ function groupIntoRegions(
 // One point that cannot reach the node is a problem to look at: some of
 // the users behind that network are cut off.
 function reachOf(counts: MethodSummary): Reach {
-  if (counts.passed === 0) return "none";
+  if (counts.passed === 0)
+    return counts.reported === counts.total ? "none" : "unmeasured";
 
   return counts.passed === counts.total ? "all" : "some";
 }
@@ -109,7 +115,8 @@ function summarizeMethods(
     const forMethod = readings.filter((reading) => reading.method === method);
     if (forMethod.length === 0) continue;
 
-    const passed = forMethod.filter((reading) => reading.ok);
+    const reported = forMethod.filter((reading) => reading.observed !== false);
+    const passed = reported.filter((reading) => reading.ok);
     const times = passed
       .map((reading) => reading.rtt)
       .filter((time): time is number => time !== undefined);
@@ -117,6 +124,7 @@ function summarizeMethods(
     result[method] = {
       passed: passed.length,
       total: forMethod.length,
+      reported: reported.length,
       rtt: median(times),
     };
   }
@@ -140,22 +148,31 @@ function decideVerdict(
 
   if (required.length === 0) return "unknown";
 
+  const hasFullCoverage = requiredRegions.every((regionName) =>
+    required.some((region) => region.region === regionName),
+  );
   if (required.every((region) => region.reach === "all")) {
-    const hasFullCoverage = requiredRegions.every((regionName) =>
-      required.some((region) => region.region === regionName),
-    );
     return hasFullCoverage ? "ok" : "unknown";
   }
 
   if (required.every((region) => region.reach === "none")) {
-    if (control.some((region) => region.reach !== "none")) {
+    if (!hasFullCoverage) return "unknown";
+    if (control.some((region) => region.decisive.passed > 0)) {
       return "blocked";
     }
-    if (control.length > 0) return "down";
+    if (
+      control.length > 0 &&
+      control.every((region) => region.reach === "none")
+    )
+      return "down";
     return "unknown";
   }
 
-  return "partial";
+  const hasSuccess = required.some(({ decisive }) => decisive.passed > 0);
+  const hasFailure = required.some(
+    ({ decisive }) => (decisive.reported ?? decisive.total) > decisive.passed,
+  );
+  return hasSuccess && hasFailure ? "partial" : "unknown";
 }
 
 /** A median survives one slow vantage point; a mean does not. */

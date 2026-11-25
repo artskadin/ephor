@@ -284,10 +284,73 @@ const ThresholdsSchema = optionalSection(
 
 export const NODE_NAME_FORM = /^[a-z0-9][a-z0-9_-]*$/i;
 
+function containsControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+  });
+}
+
+const EndpointPortSchema = z.number().int().min(1).max(65535);
+const HttpsEndpointSchema = z.string().refine((value) => {
+  if (
+    !/^https:\/\/[^/]/i.test(value) ||
+    /[\s\\#]/.test(value) ||
+    containsControlCharacter(value)
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.port !== "0"
+    );
+  } catch {
+    return false;
+  }
+}, "use an absolute HTTPS URL without credentials or a fragment");
+
+function isEndpointHost(host: string): boolean {
+  if (/[\s/\\?#@%]/.test(host) || containsControlCharacter(host)) return false;
+  const authority =
+    host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  try {
+    const url = new URL(`http://${authority}`);
+    return (
+      url.port === "" && (!authority.startsWith("[") || authority.endsWith("]"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+const EndpointSchema = z.union([
+  z.object({ tcp: EndpointPortSchema }).strict(),
+  z.object({ https: HttpsEndpointSchema }).strict(),
+  z.object({ udp: EndpointPortSchema }).strict(),
+]);
+
+const ENDPOINT_EXAMPLE =
+  "add `endpoints: { vpn: { tcp: 443 } }` (use the actual public entry port)";
+
+const EndpointsSchema = z
+  .record(
+    z
+      .string()
+      .regex(NODE_NAME_FORM, "endpoint names use letters, digits, - and _"),
+    EndpointSchema,
+  )
+  .refine((endpoints) => Object.keys(endpoints).length > 0, ENDPOINT_EXAMPLE);
+
+export type Endpoints = z.infer<typeof EndpointsSchema>;
+
 const nodeShape = {
   name: z.string().regex(NODE_NAME_FORM, "letters, digits, - and _"),
   host: z.string().min(1),
-  domain: z.string().min(1).optional(),
+  endpoints: EndpointsSchema.optional(),
   tags: optionalSection(z.array(z.string().min(1)).default([])),
   enabled: z.boolean().default(true),
   local: z.boolean().default(false),
@@ -386,24 +449,60 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
         "thresholds",
       ]);
 
-      // Here, not per node: a reachability region is named in `probes`.
-      const metricsByProbe = new Map(
-        descriptors.map((descriptor) => [
-          descriptor.name,
-          descriptor.listAllMetrics(
-            probeSpecificSettings(config.probes[descriptor.name]),
-          ),
-        ]),
-      );
-      checkThresholdMetrics(config.thresholds, metricsByProbe, context, [
-        "thresholds",
-      ]);
+      const metricCatalog = (nodes: readonly Node[]) =>
+        new Map(
+          descriptors.map((descriptor) => [
+            descriptor.name,
+            descriptor.listAllMetrics(
+              probeSpecificSettings(config.probes[descriptor.name]),
+              nodes,
+            ),
+          ]),
+        );
+      if (Object.keys(config.thresholds).length > 0) {
+        checkThresholdMetrics(
+          config.thresholds,
+          metricCatalog(config.nodes),
+          context,
+          ["thresholds"],
+        );
+      }
       config.nodes.forEach((node, index) => {
-        checkThresholdMetrics(node.thresholds, metricsByProbe, context, [
-          "nodes",
-          index,
-          "thresholds",
-        ]);
+        if (
+          node.enabled &&
+          descriptors.some(
+            ({ name, requiresEndpoints }) =>
+              requiresEndpoints && isEnabledInConfig(config, node, name),
+          ) &&
+          node.endpoints === undefined
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: `reachability needs a public endpoint: ${ENDPOINT_EXAMPLE}`,
+            path: ["nodes", index, "endpoints"],
+          });
+        }
+        if (
+          Object.values(node.endpoints ?? {}).some(
+            (endpoint) => !("https" in endpoint),
+          ) &&
+          !isEndpointHost(node.host)
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "TCP and UDP endpoints need a public host name or IP address without a URL or credentials",
+            path: ["nodes", index, "host"],
+          });
+        }
+        if (Object.keys(node.thresholds).length > 0) {
+          checkThresholdMetrics(
+            node.thresholds,
+            metricCatalog([node]),
+            context,
+            ["nodes", index, "thresholds"],
+          );
+        }
       });
     })
     .refine(

@@ -28,8 +28,13 @@ import { withProbesOn } from "./fixtures/probes-on";
 /** One node with ssh and one without, so `system` cannot run on the second. */
 const FLEET = {
   nodes: [
-    { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
-    { name: "german", host: "203.0.113.12" },
+    {
+      name: "achilles",
+      host: "203.0.113.10",
+      ssh: "achilles",
+      endpoints: { vpn: { tcp: 443 } },
+    },
+    { name: "german", host: "203.0.113.12", endpoints: { vpn: { tcp: 443 } } },
   ],
 };
 

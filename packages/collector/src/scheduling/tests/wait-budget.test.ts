@@ -23,7 +23,7 @@ const nodes = resolveConfig(
           { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
           { name: "antilochus", host: "203.0.113.11", ssh: "antilochus" },
           { name: "patroclus", host: "203.0.113.12", ssh: "patroclus" },
-        ],
+        ].map((node) => ({ ...node, endpoints: { vpn: { tcp: 443 } } })),
       },
       ["system", "reachability"],
     ),
@@ -94,6 +94,24 @@ describe("waitBudgetMs", () => {
     expect(
       waitBudgetMs(runOf([taskOf("system")], ["system"]), queueOf({})),
     ).toBe(2 * longest("system"));
+  });
+
+  it("allows for each measurable endpoint on the node, not unsupported UDP", () => {
+    const task = taskOf("reachability");
+    const node = {
+      ...task.node,
+      config: {
+        ...task.node.config,
+        endpoints: {
+          vpn: { tcp: 443 },
+          site: { https: "https://vpn.example.com/" },
+          udp: { udp: 51820 },
+        },
+      },
+    };
+    expect(waitBudgetMs(runOf([{ ...task, node }]), queueOf({}))).toBe(
+      2 * longest("reachability"),
+    );
   });
 
   // The probes run side by side under separate limits; adding them up

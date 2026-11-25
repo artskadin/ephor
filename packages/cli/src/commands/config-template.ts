@@ -13,8 +13,8 @@ export const CONFIG_TEMPLATE = `# ephor: what the collector measures, read by \`
 # every section of it, or write \`enabled: false\` where it should not run.
 # \`ephor serve\` says at its start where each probe runs.
 probes:
-  # Asks outside vantage points (check-host.net) whether each node answers:
-  # nothing is installed on the nodes, and a dead node is still judged.
+  # Asks outside vantage points (check-host.net) whether each public
+  # endpoint answers. TCP and HTTPS checks do not test a VPN tunnel.
   reachability:
     interval: 5m
 
@@ -22,9 +22,9 @@ probes:
     # vantage point there reaches the node; the control group, not
     # required, tells a block from an outage:
     #
-    #   RU 0/3   EU 3/3   ->  blocked   (filtered there, the server is fine)
-    #   RU 0/3   EU 0/3   ->  down      (the server is gone)
-    #   RU 2/3   EU 3/3   ->  partial   (some operators filter it)
+    #   RU 0/3   EU 3/3   ->  blocked   (the control group still connects)
+    #   RU 0/3   EU 0/3   ->  down      (neither group connects)
+    #   RU 2/3   EU 3/3   ->  partial
     #   RU 3/3   EU 3/3   ->  ok
     #
     # \`match\`: country codes, lowercase, as check-host names its points.
@@ -61,6 +61,9 @@ probes:
 nodes:
   # Your servers, one entry each. Uncomment one form and fill it in; the
   # addresses below are documentation examples, not real servers.
+  # A node with reachability enabled needs at least one named endpoint.
+  # Use the actual public port or URL, not a management port. For a
+  # system-only node, disable reachability there and omit endpoints.
   #
   # The usual form: \`ssh:\` is a Host alias from ~/.ssh/config, so the
   # user, port, key and jump host are taken from there.
@@ -68,11 +71,16 @@ nodes:
   # - name: amsterdam
   #   host: 203.0.113.10
   #   ssh: amsterdam
+  #   endpoints:
+  #     vpn: { tcp: 443 }
   #
   # Without ssh: only reachability, the rest of the row shows a dash.
   #
   # - name: frankfurt
   #   host: 203.0.113.11
+  #   endpoints:
+  #     vpn: { tcp: 8443 }
+  #     site: { https: "https://vpn.example.com/" }
   #
   # Without an alias: ssh connects to \`host\` as this user, on this port,
   # through this jump host (itself a name ssh resolves). \`key\` is tried
@@ -86,11 +94,14 @@ nodes:
   #     port: 22
   #     key: ~/.ssh/id_ed25519
   #     jump: bastion       # ProxyJump; leave out to connect directly
+  #   endpoints:
+  #     vpn: { udp: 51820 }  # Described, but not measured; no TCP fallback.
   #
   # Ports are optional. Left out, the PORTS column lists the TCP ports
   # that listen on the node beyond loopback, for reference. Listed, one
   # that stops listening warns (say, the VPN on 443 went down), and so
   # does one that is not listed: list every such port. UDP is not seen.
+  # This local audit never chooses a public endpoint.
   #
   #   ports: [443, 2222]
   #

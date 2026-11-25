@@ -1,8 +1,11 @@
 import {
   CHECK_MAX_WAIT_SECONDS,
+  endpointScope,
   type MetricPoint,
   parseConfig,
+  reachabilityRegionScope,
   resolveConfig,
+  resolveEndpoints,
 } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import type { Task } from "../../scheduling/scheduler";
@@ -11,12 +14,13 @@ import { postCheck } from "../handlers";
 import { depsOf, NOW, schedulerOf, TEST_PROBES } from "./fixtures";
 
 /** Two reachable nodes and one with no ssh, so `system` cannot run there. */
+const ENDPOINTS = { vpn: { tcp: 443 } };
 const FLEET = {
   nodes: [
     { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
     { name: "antilochus", host: "203.0.113.11", ssh: "antilochus" },
     { name: "german", host: "203.0.113.12" },
-  ],
+  ].map((node) => ({ ...node, endpoints: ENDPOINTS })),
 };
 
 const pairOf = (task: Task): string =>
@@ -81,11 +85,20 @@ function finish(
   outcome: { ok?: boolean } = {},
 ): void {
   for (const task of world.dispatched) {
+    const { config } = task.node;
     world.points.push({
       ts: world.clock.now,
-      node: task.node.config.name,
+      node: config.name,
       metric: `${task.probeName}.up`,
       ok: outcome.ok ?? true,
+      ...(task.probeName === "reachability" && {
+        meta: {
+          scope: endpointScope(resolveEndpoints(config.host, config.endpoints)),
+          regionScope: reachabilityRegionScope(
+            task.node.probes.get("reachability")?.settings ?? {},
+          ),
+        },
+      }),
     });
     world.scheduler.complete(task);
   }
@@ -139,6 +152,7 @@ describe("postCheck", () => {
           name: "achilles",
           host: "203.0.113.10",
           ssh: "achilles",
+          endpoints: ENDPOINTS,
           probes: { system: { enabled: false } },
         },
       ],
@@ -160,7 +174,7 @@ describe("postCheck", () => {
           probes: { reachability: { enabled: false } },
         },
         // A config where nothing runs is refused before this.
-        { name: "antilochus", host: "203.0.113.11" },
+        { name: "antilochus", host: "203.0.113.11", endpoints: ENDPOINTS },
       ],
     });
 

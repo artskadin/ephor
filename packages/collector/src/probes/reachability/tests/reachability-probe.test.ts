@@ -15,7 +15,6 @@ import {
 
 const SETTINGS = {
   provider: "check-host.net",
-  methods: ["tcp"],
   vantageRefresh: 86_400,
   regions: {
     ru: { match: ["ru"], count: 3, required: true },
@@ -41,6 +40,7 @@ function probeThatFailsWith(failure: unknown) {
 const CONTEXT = {
   nodeName: "solo",
   host: "203.0.113.10",
+  endpoints: { vpn: { tcp: 443 } },
   ports: [],
   startedAt: 0,
   timeoutMs: 1000,
@@ -128,15 +128,29 @@ describe("reachability verdict metric", () => {
 
     const verdict = probe
       .toMetrics(outcome.data, CONTEXT)
-      .find((point) => point.metric === "reachability.verdict");
+      .find((point) => point.metric === "reachability.endpoint.vpn.verdict");
 
     expect(verdict).toMatchObject({
       ok: false,
       meta: {
         verdict: "partial",
+        transport: "tcp",
+        destination: "203.0.113.10:443",
         regions: [
-          { region: "ru", required: true, method: "tcp", passed: 2, total: 3 },
-          { region: "eu", required: false, method: "tcp", passed: 3, total: 3 },
+          {
+            region: "ru",
+            required: true,
+            method: "tcp",
+            passed: 2,
+            total: 3,
+          },
+          {
+            region: "eu",
+            required: false,
+            method: "tcp",
+            passed: 3,
+            total: 3,
+          },
         ],
       },
     });
@@ -165,7 +179,9 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
   const resolvedWith = (reachability: Record<string, unknown>) => {
     const config = parseConfig(
       {
-        nodes: [{ name: "solo", host: "203.0.113.10" }],
+        nodes: [
+          { name: "solo", host: CONTEXT.host, endpoints: CONTEXT.endpoints },
+        ],
         probes: { reachability },
       },
       [reachabilityProbeDescriptor],
@@ -179,22 +195,13 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
 
   it("lists exactly what a run with every point answering writes", async () => {
     const resolvedProbe = resolvedWith({
-      methods: ["ping", "tcp"],
       regions: {
         ru: { match: ["ru"], required: true },
         eu: { match: ["de"] },
       },
     });
     const points = [vantage("ru-1", "ru"), vantage("de-1", "eu")];
-    const probe = probeReading(
-      points.flatMap((point) =>
-        (["ping", "tcp"] as const).map((method) => ({
-          vantage: point,
-          method,
-          ok: true,
-        })),
-      ),
-    );
+    const probe = probeReading(points.map((point) => tcp(point, true)));
     const context = { ...CONTEXT, settings: resolvedProbe.settings };
 
     const outcome = await probe.run(context);
@@ -206,16 +213,15 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
     expect([...resolvedProbe.metrics].sort()).toEqual(written.sort());
   });
 
-  // A method taken out of `methods` is no typo in a threshold; a region
-  // that is not configured is.
-  it("lets a threshold name any method of a configured region", () => {
+  it("lets a threshold name a configured endpoint, region and method", () => {
     const parse = (metric: string) => () =>
       parseConfig(
         {
-          nodes: [{ name: "solo", host: "203.0.113.10" }],
+          nodes: [
+            { name: "solo", host: CONTEXT.host, endpoints: CONTEXT.endpoints },
+          ],
           probes: {
             reachability: {
-              methods: ["tcp"],
               regions: { ru: { match: ["ru"], required: true } },
             },
           },
@@ -224,21 +230,21 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
         [reachabilityProbeDescriptor],
       );
 
-    expect(parse("reachability.ru.ping")).not.toThrow();
-    expect(parse("reachability.rus.tcp")).toThrow(
-      /Unknown metric "reachability\.rus\.tcp"/,
+    expect(parse("reachability.endpoint.vpn.ru.tcp")).not.toThrow();
+    expect(parse("reachability.endpoint.vpn.rus.tcp")).toThrow(
+      /Unknown metric "reachability\.endpoint\.vpn\.rus\.tcp"/,
     );
   });
 
-  it("leaves out a method and a region the config no longer has", () => {
+  it("lists only the configured regions for the endpoint", () => {
     const resolvedProbe = resolvedWith({
-      methods: ["tcp"],
       regions: { ru: { match: ["ru"], required: true } },
     });
 
     expect([...resolvedProbe.metrics].sort()).toEqual([
-      "reachability.ru.tcp",
-      "reachability.verdict",
+      "reachability.endpoint.vpn.attempt",
+      "reachability.endpoint.vpn.ru.tcp",
+      "reachability.endpoint.vpn.verdict",
     ]);
   });
 });

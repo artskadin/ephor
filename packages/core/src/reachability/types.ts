@@ -12,15 +12,15 @@ export interface ProbeReading {
   vantage: Vantage;
   method: ReachabilityMethod;
   ok: boolean;
+  /** The provider did not return any observation for the selected point. */
+  observed?: false;
   rtt?: number | undefined;
   error?: string | undefined;
 }
 
-export interface ReachabilityTarget {
-  host: string;
-  port: number;
-  domain?: string | undefined;
-}
+export type ReachabilityTarget =
+  | { method: "tcp"; host: string; port: number }
+  | { method: "http"; url: string };
 
 /** Injected: where a request originates is not the provider's business. */
 export interface HttpRequester {
@@ -42,7 +42,6 @@ export class HttpRequestError extends Error {
 export interface ReachabilityRequest {
   target: ReachabilityTarget;
   vantages: readonly Vantage[];
-  methods: readonly ReachabilityMethod[];
   /** How this particular run reaches the outside world. */
   requester: HttpRequester;
 }

@@ -46,8 +46,8 @@ const COLUMNS: readonly Column[] = [
     title: "REACH",
     probe: "reachability",
     read: (node) => {
+      if (node.endpoints?.length) return reachabilityCell(node, node.endpoints);
       const view = metricView(node, REACHABILITY_VERDICT_METRIC);
-
       return view && cellFromView(view, node.reachability ?? "unknown");
     },
   },
@@ -345,13 +345,72 @@ function buildRow(
           }
         : { text: "", status: "ok" },
     ),
-    reasons: node.reasons,
+    reasons: [...node.reasons, ...(node.endpoints ?? []).map(endpointText)],
   };
   if (node.acknowledged !== undefined) {
     row.acknowledgement = acknowledgementText(node.acknowledged, now);
   }
 
   return row;
+}
+
+function reachabilityCell(
+  node: NodeState,
+  endpoints: NonNullable<NodeState["endpoints"]>,
+): Cell {
+  if (endpoints.every(({ transport }) => transport === "udp")) {
+    return { text: "not measured", severity: "unknown", stale: false };
+  }
+  const verdict = node.reachability ?? "unknown";
+  const ageSeconds = endpoints.flatMap((endpoint) =>
+    endpoint.verdict === null ||
+    endpoint.ageSeconds === undefined ||
+    endpoint.status === "stale"
+      ? []
+      : [endpoint.ageSeconds],
+  );
+  return {
+    text: verdict,
+    ageSeconds: ageSeconds.length > 0 ? Math.max(...ageSeconds) : undefined,
+    severity:
+      verdict === "down" || verdict === "blocked"
+        ? "critical"
+        : verdict === "partial"
+          ? "warn"
+          : verdict,
+    stale: false,
+  };
+}
+
+function endpointText(
+  endpoint: NonNullable<NodeState["endpoints"]>[number],
+): string {
+  const method = endpoint.transport.toUpperCase();
+  const label = `${endpoint.name} · ${method} ${endpoint.destination}`;
+  if (endpoint.verdict === null) {
+    const detail = endpoint.error ?? endpoint.reason ?? "no measurement yet";
+    return `${label} · not measured: ${detail}`;
+  }
+
+  const evidence = endpoint.regions
+    .map(({ region, passed, total, required, reported }) => {
+      const label = `${region}${required ? "" : " (control)"}`;
+      if (reported === 0)
+        return `${label}: no results from ${total} selected points`;
+      const coverage =
+        reported === undefined ? "" : ` (${reported}/${total} reported)`;
+      return `${label} ${passed}/${reported ?? total} reporting points${coverage}`;
+    })
+    .join(", ");
+  const result =
+    evidence === ""
+      ? "no regional result"
+      : `${method === "TCP" ? "TCP connections" : "HTTPS successes"}: ${evidence}`;
+  const failure =
+    endpoint.error === undefined
+      ? ""
+      : `; latest attempt failed: ${endpoint.error}`;
+  return `${label} · ${endpoint.verdict}${endpoint.status === "stale" ? " (stale)" : ""}: ${result}${failure}`;
 }
 
 // Ages by the collector's clock, `now` from its answer: a bastion's clock

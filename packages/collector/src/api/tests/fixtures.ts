@@ -1,9 +1,12 @@
 import {
+  endpointScope,
   type MetricPoint,
   parseConfig,
   type QueryFilter,
   type ResolvedNode,
+  reachabilityRegionScope,
   resolveConfig,
+  resolveEndpoints,
   type Storage,
 } from "@ephorate/core";
 import { reachabilityProbeDescriptor } from "../../probes/reachability/reachability-probe";
@@ -23,6 +26,12 @@ import type { ApiDeps } from "../handlers";
 export const TEST_PROBES = [systemProbeDescriptor, reachabilityProbeDescriptor];
 
 export const NOW = 1_800_000_000;
+const ENDPOINTS = { vpn: { tcp: 443 } };
+export const FIXTURE_DESTINATION = "203.0.113.10:443";
+export const FIXTURE_SCOPE = endpointScope(
+  resolveEndpoints("203.0.113.10", ENDPOINTS),
+);
+export const FIXTURE_REGION_SCOPE = reachabilityRegionScope({ regions: {} });
 
 /**
  * Answers `latest()` from a fixed list and records what it was asked. The
@@ -116,7 +125,12 @@ export function depsOf(
     withProbesOn(
       {
         nodes: [
-          { name: "achilles", host: "203.0.113.10", ssh: "achilles" },
+          {
+            name: "achilles",
+            host: "203.0.113.10",
+            ssh: "achilles",
+            endpoints: ENDPOINTS,
+          },
           { name: "retired", host: "203.0.113.11", enabled: false },
         ],
       },

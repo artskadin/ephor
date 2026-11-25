@@ -84,7 +84,11 @@ function providerWith(
   return { provider, requester };
 }
 
-const TARGET = { host: "203.0.113.10", port: 443, domain: "vpn.example.com" };
+const TARGET = { method: "tcp", host: "203.0.113.10", port: 443 } as const;
+const HTTPS_TARGET = {
+  method: "http",
+  url: "https://vpn.example.com:8443/client/path?format=text",
+} as const;
 
 function vantage(id: string, region: string): Vantage {
   return { id, region, countryCode: region, network: "datacenter" };
@@ -179,7 +183,6 @@ describe("listVantages", () => {
     await frozen.probe({
       target: TARGET,
       vantages: [vantage("ru1", "ru"), vantage("de1", "eu")],
-      methods: ["tcp"],
       requester,
     });
 
@@ -200,27 +203,20 @@ describe("probe", () => {
       url.includes("/check-result/") ? results : { ok: 1, request_id: "req-1" };
   }
 
-  it("asks for the right host format per method", async () => {
+  it("sends the full HTTPS URL, including the port, path and query", async () => {
     const { provider, requester } = providerWith(
-      scriptFor({ ru1: [{ time: 0.01 }], de1: [{ time: 0.02 }] }),
+      scriptFor({ ru1: [[1, 0.01]], de1: [[1, 0.02]] }),
     );
 
     await provider.probe({
-      target: TARGET,
+      target: HTTPS_TARGET,
       vantages: VANTAGES,
-      methods: ["tcp", "http", "ping"],
       requester,
     });
 
-    const starts = requester.urls.filter((url) => url.includes("/check-"));
-
-    expect(starts.some((url) => url.includes("203.0.113.10%3A443"))).toBe(true);
-    expect(
-      starts.some((url) =>
-        url.includes(encodeURIComponent("https://vpn.example.com/")),
-      ),
-    ).toBe(true);
-    expect(starts.some((url) => url.includes("host=203.0.113.10&"))).toBe(true);
+    const start = new URL(requester.urls[0] ?? "");
+    expect(start.pathname).toBe("/check-http");
+    expect(start.searchParams.get("host")).toBe(HTTPS_TARGET.url);
   });
 
   it("names every vantage point in the start call", async () => {
@@ -231,7 +227,6 @@ describe("probe", () => {
     await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
@@ -239,6 +234,7 @@ describe("probe", () => {
 
     expect(start).toContain("node=ru1");
     expect(start).toContain("node=de1");
+    expect(new URL(start).searchParams.get("host")).toBe("203.0.113.10:443");
   });
 
   it("reads a successful tcp result as reachable with a round-trip time", async () => {
@@ -249,7 +245,6 @@ describe("probe", () => {
     const readings = await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
@@ -271,7 +266,6 @@ describe("probe", () => {
     const readings = await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
@@ -299,11 +293,12 @@ describe("probe", () => {
     const outcome = await probe.run({
       nodeName: "test-node",
       host: TARGET.host,
+      endpoints: { vpn: { tcp: 443 } },
       ports: [],
       startedAt: 0,
       timeoutMs: 1000,
       intervalSeconds: 300,
-      settings: { methods: ["tcp"], regions: REGIONS },
+      settings: { regions: REGIONS },
     });
 
     expect(outcome).toMatchObject({
@@ -332,44 +327,9 @@ describe("probe", () => {
       provider.probe({
         target: TARGET,
         vantages: VANTAGES,
-        methods: ["tcp"],
         requester,
       }),
     ).rejects.toThrow("check-host.net returned an invalid TCP result");
-  });
-
-  // ping returns nested arrays of individual attempts, unlike the others.
-  it("counts a majority of successful pings as reachable", async () => {
-    const { provider, requester } = providerWith(
-      scriptFor({
-        ru1: [
-          [
-            ["OK", 0.04, "1.1.1.1"],
-            ["TIMEOUT", 3.0],
-            ["OK", 0.05],
-          ],
-        ],
-        de1: [
-          [
-            ["TIMEOUT", 3.0],
-            ["TIMEOUT", 3.0],
-          ],
-        ],
-      }),
-    );
-
-    const readings = await provider.probe({
-      target: TARGET,
-      vantages: VANTAGES,
-      methods: ["ping"],
-      requester,
-    });
-
-    expect(readingFor(readings, "ru1")).toMatchObject({ ok: true });
-    expect(readingFor(readings, "de1")).toMatchObject({
-      ok: false,
-      error: "TIMEOUT",
-    });
   });
 
   // http is a flat array whose first field is a numeric success flag.
@@ -382,9 +342,8 @@ describe("probe", () => {
     );
 
     const readings = await provider.probe({
-      target: TARGET,
+      target: HTTPS_TARGET,
       vantages: VANTAGES,
-      methods: ["http"],
       requester,
     });
 
@@ -393,6 +352,16 @@ describe("probe", () => {
       ok: false,
       error: "Connection refused",
     });
+  });
+
+  it("does not treat a malformed HTTPS result as a failed connection", async () => {
+    const { provider, requester } = providerWith(
+      scriptFor({ ru1: [[1, 0.03]], de1: [{}] }),
+    );
+
+    await expect(
+      provider.probe({ target: HTTPS_TARGET, vantages: VANTAGES, requester }),
+    ).rejects.toThrow("check-host.net returned an invalid HTTPS result");
   });
 
   // A vantage that never reported is not the same as one that reported a
@@ -405,12 +374,12 @@ describe("probe", () => {
     const readings = await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
     expect(readingFor(readings, "de1")).toMatchObject({
       ok: false,
+      observed: false,
       error: "no response",
     });
   });
@@ -428,7 +397,6 @@ describe("probe", () => {
     await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
@@ -449,12 +417,12 @@ describe("probe", () => {
     const readings = await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
     expect(readingFor(readings, "de1")).toMatchObject({
       ok: false,
+      observed: false,
       error: "no response",
     });
   });
@@ -472,7 +440,6 @@ describe("probe", () => {
     await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
@@ -494,7 +461,6 @@ describe("probe", () => {
     const readings = await provider.probe({
       target: TARGET,
       vantages: VANTAGES,
-      methods: ["tcp"],
       requester,
     });
 
@@ -511,27 +477,8 @@ describe("probe", () => {
       provider.probe({
         target: TARGET,
         vantages: VANTAGES,
-        methods: ["tcp"],
         requester,
       }),
     ).rejects.toThrow("too many requests");
-  });
-
-  it("merges the readings of every requested method", async () => {
-    const { provider, requester } = providerWith(
-      scriptFor({ ru1: [{ time: 0.01 }], de1: [{ time: 0.02 }] }),
-    );
-
-    const readings = await provider.probe({
-      target: TARGET,
-      vantages: VANTAGES,
-      methods: ["tcp", "ping"],
-      requester,
-    });
-
-    expect(readings).toHaveLength(4);
-    expect(new Set(readings.map((r) => r.method))).toEqual(
-      new Set(["tcp", "ping"]),
-    );
   });
 });

@@ -84,21 +84,62 @@ describe("summarize", () => {
     ]);
   });
 
-  // The provider writes a point that gave no answer as a failed reading.
-  it("counts a point that did not answer as one that failed", () => {
+  it("does not count a missing result as either a pass or a measured failure", () => {
     const silent: ProbeReading = {
       ...(readings("ru", "tcp", 0, 1)[0] as ProbeReading),
+      observed: false,
       error: "no response",
     };
 
-    expect(
-      verdictOf(
-        readings("ru", "tcp", 2, 2),
-        [silent],
-        readings("eu", "tcp", 3, 3),
-      ),
-    ).toBe("partial");
+    const result = summarize({
+      requiredRegions: ["ru"],
+      readings: [
+        ...readings("ru", "tcp", 2, 2),
+        silent,
+        ...readings("eu", "tcp", 3, 3),
+      ],
+    });
+    expect(result.verdict).toBe("unknown");
+    expect(result.regions[0]?.decisive).toMatchObject({
+      passed: 2,
+      total: 3,
+      reported: 2,
+    });
   });
+
+  it("cannot infer blocking from an unreported required region", () => {
+    const unreported = readings("ru", "tcp", 0, 3).map(
+      (reading): ProbeReading => ({
+        ...reading,
+        observed: false,
+      }),
+    );
+    expect(verdictOf(unreported, readings("eu", "tcp", 3, 3))).toBe("unknown");
+  });
+
+  it("cannot infer a wider outage from an unreported control region", () => {
+    const unreported = readings("eu", "tcp", 0, 3).map(
+      (reading): ProbeReading => ({
+        ...reading,
+        observed: false,
+      }),
+    );
+    expect(verdictOf(readings("ru", "tcp", 0, 3), unreported)).toBe("unknown");
+  });
+
+  it.each([0, 3])(
+    "does not infer an outage across RU and KZ from RU alone (control %i/3)",
+    (controlPassed) => {
+      const result = summarize({
+        requiredRegions: ["ru", "kz"],
+        readings: [
+          ...readings("ru", "tcp", 0, 3),
+          ...readings("eu", "tcp", controlPassed, 3),
+        ],
+      });
+      expect(result.verdict).toBe("unknown");
+    },
+  );
 
   it.each([
     ["unknown", "has no readings", []],

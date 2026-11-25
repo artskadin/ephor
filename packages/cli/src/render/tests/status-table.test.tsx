@@ -261,6 +261,59 @@ describe("StatusTable", () => {
   const plain = frame(stateOf(FLEET, FLEET_POINTS), false);
   const lines = plain.split("\n");
 
+  it("names each public endpoint and shows what was actually measured without colour", () => {
+    const output = frame(
+      {
+        now: NOW,
+        nodes: [
+          {
+            name: "gateway",
+            status: "unknown",
+            reachability: "unknown",
+            probes: ["reachability"],
+            metrics: [],
+            reasons: [],
+            endpoints: [
+              {
+                name: "vpn",
+                transport: "tcp",
+                destination: "203.0.113.10:443",
+                verdict: "ok",
+                status: "ok",
+                regions: [
+                  {
+                    region: "ru",
+                    required: true,
+                    method: "tcp",
+                    passed: 3,
+                    total: 3,
+                  },
+                ],
+              },
+              {
+                name: "wire",
+                transport: "udp",
+                destination: "203.0.113.10:51820",
+                verdict: null,
+                status: "unknown",
+                reason: "UDP checks are not supported",
+                regions: [],
+              },
+            ],
+          },
+        ],
+      },
+      false,
+    );
+    expect(output).toContain(
+      "vpn · TCP 203.0.113.10:443 · ok: TCP connections: ru 3/3 reporting points",
+    );
+    expect(output).toContain(
+      "wire · UDP 203.0.113.10:51820 · not measured: UDP checks are not supported",
+    );
+    expect(output).not.toContain("VPN works");
+  });
+
   it("draws a header, then values with their own ages under them", () => {
     expect(cells(lines[0])).toEqual([
       "NODE",

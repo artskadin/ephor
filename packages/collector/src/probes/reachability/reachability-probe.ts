@@ -1,4 +1,7 @@
 import {
+  endpointMetric,
+  endpointRegionMetric,
+  endpointTransport,
   HttpRequestError,
   type HttpRequester,
   type MetricPoint,
@@ -9,11 +12,13 @@ import {
   type ProbeOutcome,
   type ReachabilityProvider,
   type ReachabilityResult,
+  type ResolvedEndpoint,
+  reachabilityRegionScope,
+  resolveEndpoints,
   summarize,
 } from "@ephorate/core";
 import { ProviderResponseError } from "../../reachability/provider-response-error";
 import {
-  REACHABILITY_METHODS,
   type ReachabilitySettings,
   ReachabilitySettingsSchema,
   reachabilitySettingsShape,
@@ -23,6 +28,7 @@ import {
 export const reachabilityProbeDescriptor: ProbeDescriptor = {
   name: "reachability",
   requiresExecutor: false,
+  requiresEndpoints: true,
   summary: "answers from outside, by region; nothing on the node",
   defaults: {
     interval: 300,
@@ -32,33 +38,47 @@ export const reachabilityProbeDescriptor: ProbeDescriptor = {
     concurrency: 50,
   },
   settings: reachabilitySettingsShape,
-  listMetrics: (_node, settings) => {
-    const { regions, methods } = ReachabilitySettingsSchema.parse(settings);
-    return buildMetricIds(Object.keys(regions), methods);
-  },
-  // Every method, not the ones in use: one taken out of `methods` is no
-  // typo in a threshold. A region is the user's own name: one not
-  // configured is a typo, or a threshold left behind.
-  listAllMetrics: (settings) => {
+  listMetrics: (node, settings) => {
     const { regions } = ReachabilitySettingsSchema.parse(settings);
-    return buildMetricIds(Object.keys(regions), REACHABILITY_METHODS);
+    return buildMetricIds(
+      resolveEndpoints(node.host, node.endpoints),
+      Object.keys(regions),
+    );
+  },
+  listAllMetrics: (settings, nodes) => {
+    const { regions } = ReachabilitySettingsSchema.parse(settings);
+    const endpoints = nodes.flatMap((node) =>
+      resolveEndpoints(node.host, node.endpoints),
+    );
+    return [...new Set(buildMetricIds(endpoints, Object.keys(regions)))].filter(
+      (metric) => !metric.endsWith(".attempt"),
+    );
   },
 };
 
 function buildMetricIds(
+  endpoints: readonly ResolvedEndpoint[],
   regionNames: readonly string[],
-  methods: readonly string[],
 ): string[] {
-  return [
-    "reachability.verdict",
-    ...regionNames.flatMap((region) =>
-      methods.map((method) => `reachability.${region}.${method}`),
-    ),
-  ];
+  return endpoints.flatMap(({ name, target }) => {
+    const method = target.method;
+    return method === "udp"
+      ? []
+      : [
+          endpointMetric(name, "verdict"),
+          endpointMetric(name, "attempt"),
+          ...regionNames.map((region) =>
+            endpointRegionMetric(name, region, method),
+          ),
+        ];
+  });
 }
 
-/** When the node declares no public TCP port of its own. */
-const DEFAULT_PUBLIC_PORT = 443;
+type EndpointRun = { endpoint: ResolvedEndpoint } & (
+  | { kind: "measured"; result: ReachabilityResult }
+  | { kind: "failed"; error: ProbeError }
+  | { kind: "unsupported" }
+);
 
 interface ReachabilityProbeOptions {
   createProvider: (settings: ReachabilitySettings) => ReachabilityProvider;
@@ -66,7 +86,7 @@ interface ReachabilityProbeOptions {
   requesterFor: (context: ProbeContext) => HttpRequester;
 }
 
-export class ReachabilityProbe implements Probe<ReachabilityResult> {
+export class ReachabilityProbe implements Probe<EndpointRun[]> {
   readonly descriptor = reachabilityProbeDescriptor;
 
   /** Reused: the provider caches the vantage point list. */
@@ -74,22 +94,47 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
 
   constructor(private readonly options: ReachabilityProbeOptions) {}
 
-  async run(context: ProbeContext): Promise<ProbeOutcome<ReachabilityResult>> {
+  async run(context: ProbeContext): Promise<ProbeOutcome<EndpointRun[]>> {
     const startedAt = Date.now();
+    const endpoints = resolveEndpoints(context.host, context.endpoints);
+    const fail = (
+      error: ProbeError,
+      runs?: EndpointRun[],
+    ): ProbeOutcome<EndpointRun[]> => ({
+      ok: false,
+      error,
+      durationMs: Date.now() - startedAt,
+      failedData:
+        runs ??
+        endpoints
+          .filter(({ target }) => target.method !== "udp")
+          .map((endpoint) => ({ endpoint, kind: "failed", error })),
+    });
 
     try {
+      if (endpoints.length === 0) {
+        return fail({ kind: "not_configured", what: "endpoints" });
+      }
+
+      if (endpoints.every(({ target }) => target.method === "udp")) {
+        return {
+          ok: true,
+          data: endpoints.map((endpoint) => ({
+            endpoint,
+            kind: "unsupported",
+          })),
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
       // Parsed again to type the settings without core knowing them.
       const settings = ReachabilitySettingsSchema.parse(context.settings);
 
       if (Object.keys(settings.regions).length === 0) {
-        return {
-          ok: false,
-          error: {
-            kind: "not_configured",
-            what: "probes.reachability.regions",
-          },
-          durationMs: Date.now() - startedAt,
-        };
+        return fail({
+          kind: "not_configured",
+          what: "probes.reachability.regions",
+        });
       }
 
       this.provider ??= this.options.createProvider(settings);
@@ -98,71 +143,113 @@ export class ReachabilityProbe implements Probe<ReachabilityResult> {
       const vantages = await this.provider.listVantages(requester);
 
       if (vantages.length === 0) {
-        return {
-          ok: false,
-          error: { kind: "not_configured", what: "vantage points" },
-          durationMs: Date.now() - startedAt,
-        };
+        return fail({ kind: "not_configured", what: "vantage points" });
       }
 
-      const readings = await this.provider.probe({
-        target: {
-          host: context.host,
-          port: publicTcpPort(context),
-          domain: context.domain,
-        },
-        vantages,
-        methods: settings.methods,
-        requester,
-      });
+      const runs: EndpointRun[] = [];
+      const requiredRegions = requiredRegionsOf(settings);
+      for (const endpoint of endpoints) {
+        if (endpoint.target.method === "udp") {
+          runs.push({ endpoint, kind: "unsupported" });
+          continue;
+        }
 
-      const result = summarize({
-        readings,
-        requiredRegions: requiredRegionsOf(settings),
-      });
+        try {
+          const readings = await this.provider.probe({
+            target: endpoint.target,
+            vantages,
+            requester,
+          });
+          if (readings.every((reading) => reading.observed === false)) {
+            runs.push({
+              endpoint,
+              kind: "failed",
+              error: {
+                kind: "bad_response",
+                detail: "no selected point reported a result",
+              },
+            });
+            continue;
+          }
+          runs.push({
+            endpoint,
+            kind: "measured",
+            result: summarize({ readings, requiredRegions }),
+          });
+        } catch (cause) {
+          runs.push({ endpoint, kind: "failed", error: toProbeError(cause) });
+        }
+      }
 
-      return { ok: true, data: result, durationMs: Date.now() - startedAt };
+      // A failed endpoint must not discard a sibling's valid measurements.
+      if (!runs.some((run) => run.kind === "measured")) {
+        const failure = runs.find((run) => run.kind === "failed");
+        if (failure !== undefined) {
+          return fail(failure.error, runs);
+        }
+      }
+      return { ok: true, data: runs, durationMs: Date.now() - startedAt };
     } catch (cause) {
-      return {
-        ok: false,
-        error: toProbeError(cause),
-        durationMs: Date.now() - startedAt,
-      };
+      return fail(toProbeError(cause));
     }
   }
 
-  toMetrics(result: ReachabilityResult, context: ProbeContext): MetricPoint[] {
+  toMetrics(runs: EndpointRun[], context: ProbeContext): MetricPoint[] {
     const base = { ts: context.startedAt, node: context.nodeName };
     const points: MetricPoint[] = [];
+    const regionScope = reachabilityRegionScope(context.settings);
 
-    for (const region of result.regions) {
-      for (const [method, summary] of Object.entries(region.byMethod)) {
+    for (const run of runs) {
+      const { endpoint } = run;
+      const { name, destination, target } = endpoint;
+      if (run.kind === "unsupported" || target.method === "udp") continue;
+      const identity = {
+        destination,
+        transport: endpointTransport(endpoint),
+        regionScope,
+      };
+      points.push({
+        ...base,
+        metric: endpointMetric(name, "attempt"),
+        ok: run.kind === "measured",
+        meta:
+          run.kind === "failed"
+            ? { ...identity, error: measurementError(run.error) }
+            : identity,
+      });
+      if (run.kind !== "measured") continue;
+
+      const { verdict } = run.result;
+      points.push({
+        ...base,
+        metric: endpointMetric(name, "verdict"),
+        value: VERDICT_CODES[verdict],
+        ok: verdict === "ok",
+        meta: {
+          ...identity,
+          verdict,
+          regions: run.result.regions.map((region) => region.decisive),
+        },
+      });
+      for (const region of run.result.regions) {
+        const summary = region.byMethod[target.method];
+        if (summary === undefined || summary.reported === 0) continue;
         points.push({
           ...base,
-          metric: `reachability.${region.region}.${method}`,
-          value: summary.total > 0 ? summary.passed / summary.total : 0,
+          metric: endpointRegionMetric(name, region.region, target.method),
+          value: summary.passed / summary.reported,
           ok: summary.passed > 0,
           meta: {
+            ...identity,
             passed: summary.passed,
             total: summary.total,
+            reported: summary.reported,
             rtt: summary.rtt,
             network: region.network,
           },
         });
       }
     }
-
-    points.push({
-      ...base,
-      metric: "reachability.verdict",
-      value: VERDICT_CODES[result.verdict],
-      ok: result.verdict === "ok",
-      // The counts behind the verdict, for a reason that says how bad.
-      meta: {
-        verdict: result.verdict,
-        regions: result.regions.map((region) => region.decisive),
-      },
-    });
 
     return points;
   }
@@ -185,12 +272,15 @@ function toProbeError(cause: unknown): ProbeError {
   return { kind: "bad_response", status: cause.status };
 }
 
-function publicTcpPort(context: ProbeContext): number {
-  return (
-    context.ports.find(
-      (port) => port.expose === "public" && port.proto === "tcp",
-    )?.port ?? DEFAULT_PUBLIC_PORT
-  );
+function measurementError(error: ProbeError): string {
+  if ("detail" in error && error.detail)
+    return `${error.kind}: ${error.detail}`;
+  if (error.kind === "bad_response" && error.status !== undefined) {
+    return `bad_response: HTTP ${error.status}`;
+  }
+  if (error.kind === "not_configured")
+    return `not_configured: missing ${error.what}`;
+  return error.kind;
 }
 
 /** Ordered by severity, for charts. */

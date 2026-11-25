@@ -1,11 +1,11 @@
-import type {
-  HttpRequester,
-  ProbeReading,
-  ReachabilityMethod,
-  ReachabilityProvider,
-  ReachabilityRequest,
-  ReachabilityTarget,
-  Vantage,
+import {
+  type HttpRequester,
+  hostWithPort,
+  type ProbeReading,
+  type ReachabilityProvider,
+  type ReachabilityRequest,
+  type ReachabilityTarget,
+  type Vantage,
 } from "@ephorate/core";
 import { sleep } from "../scheduling/clock";
 import { ProviderResponseError } from "./provider-response-error";
@@ -83,19 +83,16 @@ export class CheckHostProvider implements ReachabilityProvider {
     return this.cachedVantages;
   }
 
-  async probe(request: ReachabilityRequest): Promise<ProbeReading[]> {
-    const perMethods = await Promise.all(
-      request.methods.map((method) => this.runOneMethod(request, method)),
-    );
-
-    return perMethods.flat();
-  }
-
-  private async runOneMethod(
-    { target, vantages, requester }: ReachabilityRequest,
-    method: ReachabilityMethod,
-  ) {
-    const hostParam = buildHostParam(target, method);
+  async probe({
+    target,
+    vantages,
+    requester,
+  }: ReachabilityRequest): Promise<ProbeReading[]> {
+    const method = target.method;
+    const hostParam =
+      target.method === "tcp"
+        ? hostWithPort(target.host, target.port)
+        : target.url;
     const nodeParams = vantages.map(
       (vantage) => `node=${encodeURIComponent(vantage.id)}`,
     );
@@ -121,7 +118,13 @@ export class CheckHostProvider implements ReachabilityProvider {
     );
 
     return vantages.map((vantage) =>
-      toReading(vantage, method, raw[vantage.id]),
+      toReading(
+        vantage,
+        method,
+        start.nodes === undefined || Object.hasOwn(start.nodes, vantage.id)
+          ? raw[vantage.id]
+          : undefined,
+      ),
     );
   }
 
@@ -182,32 +185,22 @@ export class CheckHostProvider implements ReachabilityProvider {
   }
 }
 
-function buildHostParam(
-  target: ReachabilityTarget,
-  method: ReachabilityMethod,
-): string {
-  switch (method) {
-    case "tcp":
-      return `${target.host}:${target.port}`;
-    case "http":
-      return `https://${target.domain ?? target.host}/`;
-    case "ping":
-      return target.host;
-  }
-}
-
 function toReading(
   vantage: Vantage,
-  method: ReachabilityMethod,
+  method: ReachabilityTarget["method"],
   raw: unknown,
 ): ProbeReading {
   if (raw === null || raw === undefined) {
-    return { vantage, method, ok: false, error: "no response" };
+    return {
+      vantage,
+      method,
+      ok: false,
+      observed: false,
+      error: "no response",
+    };
   }
 
   switch (method) {
-    case "ping":
-      return parsePing(vantage, raw);
     case "http":
       return parseHttp(vantage, raw);
     case "tcp":
@@ -215,61 +208,27 @@ function toReading(
   }
 }
 
-/** `[[ ["OK", 0.044, "ip"], ["TIMEOUT", 3.005] ]]`; a majority of OK is up. */
-function parsePing(vantage: Vantage, raw: unknown): ProbeReading {
-  const attempts = Array.isArray(raw) ? raw[0] : null;
-
-  if (!Array.isArray(attempts)) {
-    return { vantage, method: "ping", ok: false, error: "no data" };
-  }
-
-  const results = attempts.filter(Array.isArray) as unknown[][];
-  const successful = results.filter((entry) => entry[0] === "OK");
-
-  if (successful.length === 0) {
-    const firstStatus = results[0]?.[0];
-
-    return {
-      vantage,
-      method: "ping",
-      ok: false,
-      error: typeof firstStatus === "string" ? firstStatus : "no data",
-    };
-  }
-
-  const times = successful
-    .map((entry) => Number(entry[1]))
-    .filter((time) => Number.isFinite(time));
-
-  const rtt =
-    times.length > 0
-      ? times.reduce((sum, time) => sum + time, 0) / times.length
-      : undefined;
-
-  const ok = successful.length * 2 >= results.length;
-
-  return { vantage, method: "ping", ok, rtt };
-}
-
 /** `[[1, 0.13, "OK", "200", "ip"]]`; the first field is the success flag. */
 function parseHttp(vantage: Vantage, raw: unknown): ProbeReading {
   const entry = Array.isArray(raw) ? raw[0] : null;
 
-  if (!Array.isArray(entry)) {
-    return { vantage, method: "http", ok: false, error: "no data" };
+  if (Array.isArray(entry)) {
+    const [flag, time, error] = entry as unknown[];
+    if (
+      flag === 1 &&
+      typeof time === "number" &&
+      Number.isFinite(time) &&
+      time >= 0
+    ) {
+      return { vantage, method: "http", ok: true, rtt: time };
+    }
+    if (flag === 0 && typeof error === "string" && error.trim() !== "") {
+      return { vantage, method: "http", ok: false, error };
+    }
   }
-
-  const ok = entry[0] === 1;
-  const rtt = Number.isFinite(Number(entry[1])) ? Number(entry[1]) : undefined;
-
-  return ok
-    ? { vantage, method: "http", ok: true, rtt }
-    : {
-        vantage,
-        method: "http",
-        ok: false,
-        error: typeof entry[2] === "string" ? entry[2] : "failed",
-      };
+  throw new ProviderResponseError(
+    "check-host.net returned an invalid HTTPS result",
+  );
 }
 
 /** `[{"time": 0.03}]` on success, `[{"error": "..."}]` on failure. */

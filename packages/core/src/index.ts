@@ -53,6 +53,16 @@ export type {
 export { DEFAULT_API_PORT } from "./config/schema";
 export type { LogFields, Logger, LogLevel } from "./logging/logger";
 export { createLogger } from "./logging/logger";
+export {
+  endpointMetric,
+  endpointRegionMetric,
+  endpointScope,
+  endpointTransport,
+  hostWithPort,
+  type ResolvedEndpoint,
+  reachabilityRegionScope,
+  resolveEndpoints,
+} from "./reachability/endpoints";
 export type {
   HttpRequester,
   ProbeReading,

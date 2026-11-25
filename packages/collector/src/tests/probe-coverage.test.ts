@@ -17,6 +17,7 @@ function coverageOf(config: Record<string, unknown>) {
 const node = (name: string, index: number, fields = {}) => ({
   name,
   host: `203.0.113.${10 + index}`,
+  endpoints: { vpn: { tcp: 443 } },
   ...fields,
 });
 

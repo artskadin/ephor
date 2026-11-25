@@ -5,6 +5,15 @@ import {
   type ResolvedProbe,
 } from "../config/resolve";
 import type { Threshold } from "../config/schema";
+import {
+  type EndpointObservation,
+  endpointMetric,
+  endpointScope,
+  endpointTransport,
+  type ResolvedEndpoint,
+  reachabilityRegionScope,
+  resolveEndpoints,
+} from "../reachability/endpoints";
 import type { DecisiveCount, Verdict } from "../reachability/verdict";
 import type { Acknowledgement } from "../storage/types";
 import type { MetricPoint } from "../types/metrics";
@@ -60,6 +69,7 @@ export interface NodeState {
   status: MetricStatus;
   /** `null` when the probe is switched off for this node. */
   reachability: Verdict | null;
+  endpoints?: EndpointState[];
   /** Enabled probes in registry order; enabled but silent is still listed. */
   probes: string[];
   metrics: MetricView[];
@@ -67,6 +77,12 @@ export interface NodeState {
   reasons: string[];
   /** Its problem is known and owned; the status stays what it is. */
   acknowledged?: Acknowledgement | undefined;
+}
+
+interface EndpointState extends EndpointObservation {
+  status: MetricStatus;
+  ageSeconds?: number;
+  reason?: string;
 }
 
 interface NodeStateInput {
@@ -151,6 +167,44 @@ function buildNodeStateFor(
 
   const metrics: MetricView[] = [];
   const reasons: string[] = [];
+  const reachabilityProbe = enabledProbes.get(REACHABILITY_PROBE);
+  const endpoints =
+    reachabilityProbe !== undefined
+      ? resolveEndpoints(node.config.host, node.config.endpoints)
+      : [];
+  const scope = endpoints.length === 0 ? undefined : endpointScope(endpoints);
+  const regionScope =
+    scope === undefined || reachabilityProbe === undefined
+      ? undefined
+      : reachabilityRegionScope(reachabilityProbe.settings);
+  const endpointsByName = new Map(
+    endpoints.map((endpoint) => [endpoint.name, endpoint]),
+  );
+  const endpointPoints = points.filter((point) => {
+    if (!reachabilityProbe?.metrics.has(point.metric)) return false;
+    const endpoint = endpointsByName.get(endpointNameOf(point.metric));
+    return (
+      endpoint !== undefined &&
+      point.meta?.regionScope === regionScope &&
+      point.meta?.destination === endpoint.destination &&
+      point.meta?.transport === endpointTransport(endpoint)
+    );
+  });
+  const endpointVerdictTimes = new Map(
+    endpointPoints.flatMap((point) => {
+      const name = endpointNameOf(point.metric);
+      return point.metric === endpointMetric(name, "verdict")
+        ? [[name, point.ts] as const]
+        : [];
+    }),
+  );
+  const currentEndpointPoints = new Set(
+    endpointPoints.filter(
+      (point) =>
+        isEndpointOutcomeMetric(point.metric) ||
+        point.ts === endpointVerdictTimes.get(endpointNameOf(point.metric)),
+    ),
+  );
   let status: MetricStatus = "ok";
 
   if (enabledProbes.size === 0) {
@@ -176,11 +230,14 @@ function buildNodeStateFor(
     // What the probe is not set to write now is a leftover of an older
     // config (`bandwidth` removed, a method dropped): `metrics_latest`
     // keeps it, a probe switched off keeps all of them.
-    const forProbe = points.filter(
-      (point) =>
-        point.metric === `${name}${PROBE_LIVENESS_SUFFIX}` ||
-        probe.metrics.has(point.metric),
-    );
+    const forProbe = points.filter((point) => {
+      const isLiveness = point.metric === `${name}${PROBE_LIVENESS_SUFFIX}`;
+      if (!isLiveness && !probe.metrics.has(point.metric)) return false;
+      if (name !== REACHABILITY_PROBE || scope === undefined) return true;
+      return isLiveness
+        ? point.meta?.scope === scope && point.meta?.regionScope === regionScope
+        : currentEndpointPoints.has(point);
+    });
 
     if (forProbe.length === 0) {
       // Nobody promised a run: not having one is no news.
@@ -204,6 +261,16 @@ function buildNodeStateFor(
 
       const view = buildMetricView(point, probe, node.thresholds, now);
       metrics.push(view);
+      if (
+        name === REACHABILITY_PROBE &&
+        isEndpointOutcomeMetric(point.metric)
+      ) {
+        if (view.breached !== undefined) {
+          const reason = reasonFor(view, node.thresholds.get(point.metric));
+          if (reason !== undefined) reasons.push(reason);
+        }
+        continue;
+      }
       worsenTo(view.status);
 
       if (view.status === "stale") staleViews.push(view);
@@ -237,12 +304,34 @@ function buildNodeStateFor(
   }
 
   // `null` is "not measured", `unknown` is "measured and cannot tell".
-  const measured = enabledProbes.has(REACHABILITY_PROBE);
+  const measured = reachabilityProbe !== undefined;
   const verdictView = metrics.find(
     (view) => view.metric === REACHABILITY_VERDICT_METRIC,
   );
-  const verdict = verdictFromView(verdictView);
+  const viewsByMetric = new Map(metrics.map((view) => [view.metric, view]));
+  const endpointStates = endpoints.map((endpoint) =>
+    endpointState(
+      endpoint,
+      viewsByMetric.get(endpointMetric(endpoint.name, "verdict")),
+      viewsByMetric.get(endpointMetric(endpoint.name, "attempt")),
+    ),
+  );
+  const verdict =
+    endpoints.length === 0
+      ? verdictFromView(verdictView)
+      : summarizeEndpoints(endpointStates);
   const reachability = measured ? verdict : null;
+  for (const state of endpointStates) {
+    worsenTo(state.status);
+    if (state.status === "stale") continue;
+    const reason =
+      state.error !== undefined
+        ? `measurement failed: ${state.error}`
+        : state.verdict === null
+          ? undefined
+          : VERDICT_REASON[state.verdict];
+    if (reason !== undefined) reasons.push(`${state.name}: ${reason}`);
+  }
 
   if (measured && verdictView !== undefined) {
     const severity = VERDICT_SEVERITY[verdict];
@@ -253,7 +342,8 @@ function buildNodeStateFor(
       verdictView.status = severity;
       worsenTo(severity);
 
-      const reason = VERDICT_REASON[verdict];
+      const reason =
+        endpointStates.length === 0 ? VERDICT_REASON[verdict] : undefined;
       if (reason !== undefined) {
         const counts = countsText(verdictView.meta?.regions);
         reasons.push(counts === "" ? reason : `${reason}: ${counts}`);
@@ -265,10 +355,108 @@ function buildNodeStateFor(
     name: node.config.name,
     status,
     reachability,
+    ...(scope === undefined ? {} : { endpoints: endpointStates }),
     probes: [...enabledProbes.keys()],
     metrics,
     reasons,
   };
+}
+
+function endpointState(
+  endpoint: ResolvedEndpoint,
+  measured: MetricView | undefined,
+  attempt: MetricView | undefined,
+): EndpointState {
+  const transport = endpointTransport(endpoint);
+  const base = {
+    name: endpoint.name,
+    transport,
+    destination: endpoint.destination,
+    verdict: null,
+    regions: [],
+  };
+  if (transport === "udp") {
+    return {
+      ...base,
+      status: "unknown",
+      reason: "UDP checks are not supported",
+    };
+  }
+
+  const error =
+    attempt?.ok === false && typeof attempt.meta?.error === "string"
+      ? attempt.meta.error
+      : undefined;
+  const verdict = measured === undefined ? null : verdictFromView(measured);
+  const severity = verdict === null ? "unknown" : VERDICT_SEVERITY[verdict];
+  const measuredStatus = withOutcomeSeverity(measured, severity);
+  const attemptStatus =
+    attempt === undefined
+      ? "ok"
+      : withOutcomeSeverity(attempt, error === undefined ? "ok" : "warn");
+  const status =
+    STATUS_RANK[measuredStatus] > STATUS_RANK[attemptStatus]
+      ? measuredStatus
+      : attemptStatus;
+  const ageSeconds = measured?.ageSeconds ?? attempt?.ageSeconds;
+  const counts = measured?.meta?.regions;
+  return {
+    ...base,
+    ...(ageSeconds === undefined ? {} : { ageSeconds }),
+    ...(error === undefined ? {} : { error }),
+    ...(verdict === null
+      ? {
+          reason:
+            error === undefined ? "no measurement yet" : "measurement failed",
+        }
+      : {}),
+    verdict,
+    regions: Array.isArray(counts) ? counts.filter(isDecisiveCount) : [],
+    status,
+  };
+}
+
+function withOutcomeSeverity(
+  view: MetricView | undefined,
+  severity: MetricSeverity,
+): MetricStatus {
+  if (view === undefined) return "unknown";
+  if (
+    STATUS_RANK[severity] > STATUS_RANK[view.severity] ||
+    view.breached === undefined
+  ) {
+    view.severity = severity;
+  }
+  if (view.status !== "stale") view.status = view.severity;
+  return view.status;
+}
+
+function endpointNameOf(metric: string): string {
+  return metric.startsWith("reachability.endpoint.")
+    ? (metric.split(".")[2] ?? "")
+    : "";
+}
+
+function isEndpointOutcomeMetric(metric: string): boolean {
+  const name = endpointNameOf(metric);
+  return (
+    name !== "" &&
+    (metric === endpointMetric(name, "verdict") ||
+      metric === endpointMetric(name, "attempt"))
+  );
+}
+
+function summarizeEndpoints(endpoints: readonly EndpointState[]): Verdict {
+  const fresh = endpoints.filter((endpoint) => endpoint.status !== "stale");
+  for (const verdict of ["down", "blocked", "partial"] as const) {
+    if (fresh.some((endpoint) => endpoint.verdict === verdict)) return verdict;
+  }
+  return fresh.length === endpoints.length &&
+    fresh.every(
+      (endpoint) => endpoint.verdict === "ok" && endpoint.error === undefined,
+    )
+    ? "ok"
+    : "unknown";
 }
 
 // When the probe last measured, not when it last ran: `.up` is written on
@@ -433,7 +621,8 @@ function isDecisiveCount(value: unknown): value is DecisiveCount {
     typeof candidate.required === "boolean" &&
     typeof candidate.method === "string" &&
     typeof candidate.passed === "number" &&
-    typeof candidate.total === "number"
+    typeof candidate.total === "number" &&
+    (candidate.reported === undefined || typeof candidate.reported === "number")
   );
 }
 

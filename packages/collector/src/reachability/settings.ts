@@ -14,16 +14,10 @@ const RegionSchema = z
 
 export type Region = z.infer<typeof RegionSchema>;
 
-export const REACHABILITY_METHODS = ["ping", "tcp", "http"] as const;
-
 // `regions` has no default: any default is an opinion about where the
 // user's audience lives. Empty makes the probe report "not configured".
 export const reachabilitySettingsShape = {
   provider: z.enum(["check-host.net"]).default("check-host.net"),
-  methods: z
-    .array(z.enum(REACHABILITY_METHODS))
-    .min(1)
-    .default(["ping", "tcp"]),
   // Removed 2026-09-29: a node is ok only when every vantage point reaches
   // it. Said out loud, since `.strict()` would only call the key unknown.
   quorum: z

@@ -54,5 +54,15 @@ function slowestRunMs(task: Task): number {
     );
   }
 
-  return longestRunMs(resolvedProbe.timeout * 1000, resolvedProbe.retries);
+  const endpointCount =
+    task.probeName === "reachability"
+      ? Object.values(task.node.config.endpoints ?? {}).filter(
+          (endpoint) => !("udp" in endpoint),
+        ).length
+      : 1;
+  // A node's public endpoints run in sequence, under one probe slot.
+  return (
+    Math.max(1, endpointCount) *
+    longestRunMs(resolvedProbe.timeout * 1000, resolvedProbe.retries)
+  );
 }

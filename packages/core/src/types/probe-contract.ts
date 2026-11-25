@@ -1,12 +1,12 @@
 import type { z } from "zod";
-import type { Bandwidth, Node, Port } from "../config/schema";
+import type { Bandwidth, Endpoints, Node, Port } from "../config/schema";
 import type { MetricPoint } from "./metrics";
 import type { ProbeOutcome } from "./probe";
 
 export interface ProbeContext {
   nodeName: string;
   host: string;
-  domain?: string | undefined;
+  endpoints?: Endpoints | undefined;
   ports: readonly Port[];
   /** The hoster's promise, when the config gives one. */
   bandwidth?: Bandwidth | undefined;
@@ -41,6 +41,7 @@ interface ProbeDefaults {
 export interface ProbeDescriptor {
   readonly name: string;
   readonly requiresExecutor: boolean;
+  readonly requiresEndpoints?: boolean;
   /** What it measures and how, a few words for a YAML comment. */
   readonly summary: string;
   readonly defaults: ProbeDefaults;
@@ -56,17 +57,19 @@ export interface ProbeDescriptor {
     settings: Readonly<Record<string, unknown>>,
   ) => readonly string[];
   /**
-   * Every metric id the probe can write on any node with these settings,
+   * Every metric id the probe can write with these settings and inventory,
    * `<probe>.up` aside: what a threshold may name. A threshold on a metric
    * no node writes now (no `bandwidth` anywhere) is no typo.
    */
   readonly listAllMetrics: (
     settings: Readonly<Record<string, unknown>>,
+    nodes: readonly Node[],
   ) => readonly string[];
 }
 
 export interface Probe<TResult = unknown> {
   readonly descriptor: ProbeDescriptor;
   run(context: ProbeContext): Promise<ProbeOutcome<TResult>>;
+  /** Failed runs may supply diagnostics but must not replace measurements. */
   toMetrics(result: TResult, context: ProbeContext): MetricPoint[];
 }

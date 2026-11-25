@@ -55,7 +55,7 @@ logger.info("running probe", {
 const outcome = await probe.run({
   nodeName: target.config.name,
   host: target.config.host,
-  domain: target.config.domain,
+  endpoints: target.config.endpoints,
   ports: target.config.ports,
   bandwidth: target.config.bandwidth,
   executor: createExecutor(

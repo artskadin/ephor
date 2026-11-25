@@ -421,7 +421,7 @@ describe("systemProbeDescriptor.listMetrics", () => {
   it("has every metric of any node in its catalog", () => {
     const { written } = metricsWrittenAndListed("1Gbit");
 
-    expect([...systemProbeDescriptor.listAllMetrics({})].sort()).toEqual(
+    expect([...systemProbeDescriptor.listAllMetrics({}, [])].sort()).toEqual(
       written,
     );
   });

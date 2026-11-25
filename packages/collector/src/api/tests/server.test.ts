@@ -4,7 +4,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../storage/sqlite-storage";
 import type { ApiDeps } from "../handlers";
 import { createApiServer, MissingTokenError } from "../server";
-import { depsOf, NOW, QUEUES, SSH_QUEUES, storageOf } from "./fixtures";
+import {
+  depsOf,
+  FIXTURE_DESTINATION,
+  FIXTURE_REGION_SCOPE,
+  FIXTURE_SCOPE,
+  NOW,
+  QUEUES,
+  SSH_QUEUES,
+  storageOf,
+} from "./fixtures";
 
 const TOKEN = "0123456789abcdef";
 
@@ -24,7 +33,13 @@ const serverDeps = (): ApiDeps =>
   depsOf(
     [
       { ts: NOW, node: "achilles", metric: "system.up", ok: true },
-      { ts: NOW, node: "achilles", metric: "reachability.up", ok: true },
+      {
+        ts: NOW,
+        node: "achilles",
+        metric: "reachability.up",
+        ok: true,
+        meta: { scope: FIXTURE_SCOPE, regionScope: FIXTURE_REGION_SCOPE },
+      },
     ],
     {
       startedAt: NOW - 60,
@@ -434,13 +449,25 @@ describe("createApiServer", () => {
       const server = await ackServer();
       await storage?.write([
         { ts: NOW, node: "achilles", metric: "system.up", ok: true },
-        { ts: NOW, node: "achilles", metric: "reachability.up", ok: true },
         {
           ts: NOW,
           node: "achilles",
-          metric: "reachability.verdict",
+          metric: "reachability.up",
           ok: true,
-          meta: { verdict: "ok" },
+          meta: { scope: FIXTURE_SCOPE, regionScope: FIXTURE_REGION_SCOPE },
+        },
+        {
+          ts: NOW,
+          node: "achilles",
+          metric: "reachability.endpoint.vpn.verdict",
+          ok: true,
+          meta: {
+            verdict: "ok",
+            transport: "tcp",
+            regionScope: FIXTURE_REGION_SCOPE,
+            destination: FIXTURE_DESTINATION,
+            regions: [],
+          },
         },
       ]);
 

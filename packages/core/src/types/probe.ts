@@ -1,6 +1,6 @@
 export type ProbeOutcome<T> =
   | { ok: true; data: T; durationMs: number }
-  | { ok: false; error: ProbeError; durationMs: number };
+  | { ok: false; error: ProbeError; durationMs: number; failedData?: T };
 
 export type ProbeError =
   | { kind: "timeout" }
