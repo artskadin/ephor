@@ -1,9 +1,7 @@
 # A4: explicit public endpoints
 
-Public reachability requires named `nodes[].endpoints`. It uses the
-existing `probes.reachability.regions` format. The separate
-[regions proposal](../AGENTS.md#planned-regions-simplification) is not a
-prerequisite or part of A4.
+Public reachability requires named `nodes[].endpoints` and at least one
+[target country](../AGENTS.md#reachability-countries).
 
 ## Problem and scope
 
@@ -45,8 +43,8 @@ Keep three separate concepts:
   `endpoints` map. Missing endpoints produce a config error naming the
   node and showing an example fix. A system-only node needs no endpoint.
   The endpoint selects the method: there is no global `methods` setting
-  and no background ping check. Probe enablement and region selection
-  otherwise stay the same.
+  and no background ping check. Country selection applies to all
+  measurable endpoints.
 - Keep results separate by endpoint. An unsupported entry cannot erase
   a sibling's measured success or failure, nor count toward an all-healthy
   summary. System metrics are still collected once per node per system
@@ -78,18 +76,17 @@ Keep three separate concepts:
 
 ## Examples
 
-Use this existing `probes` block with **one** of the `nodes` examples
-below. Here `ru` is an existing-style group with up to three selected
-points; `control` is another group, with up to three points **across**
-DE and NL together. `system` is enabled only on the second example's
+Use this `probes` block with **one** of the `nodes` examples. Ephor
+reports RU, DE and NL separately, but starts one check-host job per
+measurable endpoint. `system` is enabled only on the second example's
 node, where `ssh` is configured.
 
 ```yaml
 probes:
   reachability:
     regions:
-      ru: { match: [ru], count: 3, required: true }
-      control: { match: [de, nl], count: 3, required: false }
+      targets: [ru]
+      control: [de, nl]
 ```
 
 ### One direct TCP entry
@@ -102,7 +99,7 @@ nodes:
       vpn: { tcp: 443 }
 ```
 
-Check `203.0.113.10:443` from the configured groups. No `ports` or SSH
+Check `203.0.113.10:443` from the configured countries. No `ports` or SSH
 settings are needed for this reachability check.
 
 ### Two independent entries on one node
@@ -146,6 +143,14 @@ There is no legacy mode: a node with reachability enabled must have an
 explicit endpoint before `serve` or `check` accepts its config. Remove
 the old global `methods` and node `domain` keys. Keep `ssh` and `ports`
 unchanged unless you also intend to change the system probe.
+
+Replace grouped regions with country lists: flatten old required groups'
+`match` lists into `targets` and old optional groups' lists into
+`control`. Keep each country in only one list. The old
+`match: [de, nl], count: 3` selected up to three points across two
+countries; `control: [de, nl]` measures and reports them separately.
+There is no old `count` setting. Rules for country-specific thresholds
+now name a country (e.g. `.de.tcp`, not a custom `.eu.tcp` group).
 
 | Old configuration | What to write now |
 | --- | --- |

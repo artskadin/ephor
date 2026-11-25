@@ -42,6 +42,8 @@ export interface ProbeDescriptor {
   readonly name: string;
   readonly requiresExecutor: boolean;
   readonly requiresEndpoints?: boolean;
+  /** Global settings that must be present if this probe is enabled. */
+  readonly requiredSettings?: Readonly<Record<string, string>>;
   /** What it measures and how, a few words for a YAML comment. */
   readonly summary: string;
   readonly defaults: ProbeDefaults;

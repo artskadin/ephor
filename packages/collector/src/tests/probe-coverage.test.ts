@@ -6,6 +6,7 @@ import { systemProbeDescriptor } from "../probes/system/system-probe";
 
 const PROBES = [systemProbeDescriptor, reachabilityProbeDescriptor];
 const PROBE_NAMES = PROBES.map((probe) => probe.name);
+const REACHABILITY = { regions: { targets: ["ru"] } };
 
 function coverageOf(config: Record<string, unknown>) {
   return describeProbeCoverage(
@@ -25,7 +26,7 @@ describe("describeProbeCoverage", () => {
   it("names a probe on every node, and one left out of the file as off", () => {
     expect(
       coverageOf({
-        probes: { reachability: {} },
+        probes: { reachability: REACHABILITY },
         nodes: ["achilles", "hector"].map((name, index) => node(name, index)),
       }),
     ).toEqual([
@@ -36,7 +37,7 @@ describe("describeProbeCoverage", () => {
 
   it("says why not, grouped by reason", () => {
     const [system] = coverageOf({
-      probes: { system: {}, reachability: {} },
+      probes: { system: {}, reachability: REACHABILITY },
       nodes: [
         node("achilles", 0, { ssh: "achilles" }),
         node("german", 1),
@@ -62,7 +63,7 @@ describe("describeProbeCoverage", () => {
       node(`node-${index}`, index, index < 12 ? {} : { ssh: `node-${index}` }),
     );
     const [system] = coverageOf({
-      probes: { system: {}, reachability: {} },
+      probes: { system: {}, reachability: REACHABILITY },
       nodes,
     });
 
@@ -73,7 +74,7 @@ describe("describeProbeCoverage", () => {
 
   it("warns of a probe written in the file that runs on no node", () => {
     const [system] = coverageOf({
-      probes: { system: {}, reachability: {} },
+      probes: { system: {}, reachability: REACHABILITY },
       nodes: [node("german", 0), node("priam", 1)],
     });
 
@@ -85,7 +86,7 @@ describe("describeProbeCoverage", () => {
 
   it("names the node of a fleet of one", () => {
     const [, reachability] = coverageOf({
-      probes: { reachability: {} },
+      probes: { reachability: REACHABILITY },
       nodes: [node("achilles", 0)],
     });
 
@@ -96,7 +97,7 @@ describe("describeProbeCoverage", () => {
   it("says nothing runs when every node is switched off", () => {
     expect(
       coverageOf({
-        probes: { reachability: {} },
+        probes: { reachability: REACHABILITY },
         nodes: [node("achilles", 0, { enabled: false })],
       }),
     ).toEqual([{ isWarning: true, text: "no node is enabled: nothing runs" }]);

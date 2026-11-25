@@ -65,37 +65,6 @@ export function endpointScope(endpoints: readonly ResolvedEndpoint[]): string {
   );
 }
 
-/** A verdict belongs to the region coverage it was measured against. */
-export function reachabilityRegionScope(
-  settings: Readonly<Record<string, unknown>>,
-): string {
-  const { regions } = settings;
-  if (typeof regions !== "object" || regions === null) return "[]";
-
-  const byName = regions as Record<
-    string,
-    | {
-        match?: readonly string[];
-        count?: number;
-        required?: boolean;
-      }
-    | undefined
-  >;
-  return JSON.stringify(
-    Object.keys(byName)
-      .sort()
-      .map((name) => {
-        const group = byName[name];
-        return [
-          name,
-          [...new Set(group?.match)].sort(),
-          group?.count,
-          group?.required,
-        ];
-      }),
-  );
-}
-
 export function endpointRegionMetric(
   name: string,
   region: string,

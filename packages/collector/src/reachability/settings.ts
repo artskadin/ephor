@@ -1,21 +1,7 @@
-import { Duration } from "@ephorate/core";
+import { Duration, ReachabilityRegionsSchema } from "@ephorate/core";
 import { z } from "zod";
 
-// `required: false` regions are the control group: without one, "blocked
-// in Russia" and "the server is gone" look identical.
-const RegionSchema = z
-  .object({
-    /** ISO country codes a vantage point may belong to. */
-    match: z.array(z.string().length(2)).min(1),
-    count: z.number().int().min(1).default(3),
-    required: z.boolean().default(false),
-  })
-  .strict();
-
-export type Region = z.infer<typeof RegionSchema>;
-
-// `regions` has no default: any default is an opinion about where the
-// user's audience lives. Empty makes the probe report "not configured".
+// There is no default audience. The enabled probe requires targets.
 export const reachabilitySettingsShape = {
   provider: z.enum(["check-host.net"]).default("check-host.net"),
   // Removed 2026-09-29: a node is ok only when every vantage point reaches
@@ -29,7 +15,7 @@ export const reachabilitySettingsShape = {
     })
     .optional(),
   vantageRefresh: Duration.default(86_400),
-  regions: z.record(z.string(), RegionSchema).default({}),
+  regions: ReachabilityRegionsSchema.optional(),
 } satisfies z.ZodRawShape;
 
 export const ReachabilitySettingsSchema = z
@@ -37,11 +23,3 @@ export const ReachabilitySettingsSchema = z
   .strict();
 
 export type ReachabilitySettings = z.infer<typeof ReachabilitySettingsSchema>;
-
-export function requiredRegionsOf(
-  settings: ReachabilitySettings,
-): readonly string[] {
-  return Object.entries(settings.regions)
-    .filter(([, region]) => region.required)
-    .map(([key]) => key);
-}

@@ -261,6 +261,61 @@ describe("StatusTable", () => {
   const plain = frame(stateOf(FLEET, FLEET_POINTS), false);
   const lines = plain.split("\n");
 
+  it("distinguishes an absent country, a silent point and an observed failure in plain output", () => {
+    const output = frame(
+      {
+        now: NOW,
+        nodes: [
+          {
+            name: "gateway",
+            status: "unknown",
+            reachability: "unknown",
+            probes: ["reachability"],
+            metrics: [],
+            reasons: [],
+            endpoints: [
+              {
+                name: "vpn",
+                transport: "tcp",
+                destination: "203.0.113.10:443",
+                verdict: "unknown",
+                status: "unknown",
+                regions: [
+                  {
+                    region: "ru",
+                    required: true,
+                    method: "tcp",
+                    passed: 0,
+                    total: 2,
+                  },
+                  {
+                    region: "kz",
+                    required: true,
+                    method: "tcp",
+                    passed: 0,
+                    total: 0,
+                  },
+                  {
+                    region: "de",
+                    required: false,
+                    method: "tcp",
+                    passed: 0,
+                    total: 1,
+                    reported: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      false,
+    ).replace(/\s+/g, " ");
+    expect(output).toContain("ru 0/2 reporting points");
+    expect(output).toContain("kz: no provider points");
+    expect(output).toContain("de (control): no results from 1 selected point");
+  });
+
   it("names each public endpoint and shows what was actually measured without colour", () => {
     const output = frame(
       {

@@ -7,6 +7,11 @@ export function withProbesOn(
   probeNames: readonly string[],
 ): Record<string, unknown> {
   const written = (config.probes ?? {}) as Record<string, unknown>;
-  const sections = Object.fromEntries(probeNames.map((name) => [name, {}]));
+  const sections = Object.fromEntries(
+    probeNames.map((name) => [
+      name,
+      name === "reachability" ? { regions: { targets: ["ru"] } } : {},
+    ]),
+  );
   return { ...config, probes: { ...sections, ...written } };
 }

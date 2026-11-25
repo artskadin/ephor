@@ -2,7 +2,6 @@ import type { HttpRequester, ProbeReading, Vantage } from "@ephorate/core";
 import { describe, expect, it } from "vitest";
 import { ReachabilityProbe } from "../../probes/reachability/reachability-probe";
 import { CheckHostProvider } from "../check-host-provider";
-import type { Region } from "../settings";
 
 /**
  * Answers from a script of canned responses, recording what was asked. Time
@@ -50,13 +49,15 @@ const NODES_RESPONSE = {
       ip: "1.1.1.4",
       location: ["pt", "Portugal", "Lisbon"],
     },
+    "us1.node.check-host.net": {
+      asn: "AS5",
+      ip: "203.0.113.5",
+      location: ["us", "United States", "Fixture"],
+    },
   },
 };
 
-const REGIONS: Record<string, Region> = {
-  ru: { match: ["ru"], count: 4, required: true },
-  eu: { match: ["de", "pt"], count: 1, required: false },
-};
+const REGIONS = { targets: ["ru"], control: ["de", "pt"] };
 
 /**
  * Time is always injected. With a zero poll interval and a real clock, a
@@ -91,7 +92,7 @@ const HTTPS_TARGET = {
 } as const;
 
 function vantage(id: string, region: string): Vantage {
-  return { id, region, countryCode: region, network: "datacenter" };
+  return { id, countryCode: region, network: "datacenter" };
 }
 
 function readingFor(
@@ -106,37 +107,45 @@ function readingFor(
 }
 
 describe("listVantages", () => {
-  it("picks the nodes whose country matches the region", async () => {
+  it("uses points in both control countries and ignores unconfigured countries", async () => {
     const { provider, requester } = providerWith(() => NODES_RESPONSE);
 
     const vantages = await provider.listVantages(requester);
 
-    expect(vantages.map((v) => `${v.region}:${v.id}`)).toEqual([
+    expect(vantages.map((v) => `${v.countryCode}:${v.id}`)).toEqual([
       "ru:ru1.node.check-host.net",
       "ru:ru2.node.check-host.net",
-      "eu:de1.node.check-host.net",
+      "de:de1.node.check-host.net",
+      "pt:pt1.node.check-host.net",
     ]);
   });
 
-  // check-host has three Russian nodes in total, so a region asking for four
-  // gets three. Normal, not an error — and visible, because each reading
-  // carries its region.
-  it("returns fewer than asked when the service has fewer", async () => {
-    const { provider, requester } = providerWith(() => NODES_RESPONSE);
-
+  it("sends all eligible countries in a single provider job", async () => {
+    const { provider, requester } = providerWith((url) => {
+      if (url.endsWith("/nodes/hosts")) return NODES_RESPONSE;
+      if (url.includes("/check-result/")) {
+        return Object.fromEntries(
+          Object.keys(NODES_RESPONSE.nodes).map((id) => [id, [{ time: 0.01 }]]),
+        );
+      }
+      return { request_id: "fixture" };
+    });
     const vantages = await provider.listVantages(requester);
-
-    expect(REGIONS.ru?.count).toBe(4);
-    expect(vantages.filter((v) => v.region === "ru")).toHaveLength(2);
-  });
-
-  it("keeps the region key, not the country, on each vantage", async () => {
-    const { provider, requester } = providerWith(() => NODES_RESPONSE);
-
-    const vantages = await provider.listVantages(requester);
-    const german = vantages.find((v) => v.id.startsWith("de1"));
-
-    expect(german).toMatchObject({ region: "eu", countryCode: "de" });
+    const readings = await provider.probe({
+      target: TARGET,
+      vantages,
+      requester,
+    });
+    const starts = requester.urls.filter(
+      (url) => new URL(url).pathname === "/check-tcp",
+    );
+    expect(starts).toHaveLength(1);
+    expect(new URL(starts[0] ?? "").searchParams.getAll("node")).toEqual(
+      vantages.map(({ id }) => id),
+    );
+    expect(new Set(readings.map(({ vantage }) => vantage.countryCode))).toEqual(
+      new Set(["ru", "de", "pt"]),
+    );
   });
 
   it("caches the list instead of refetching on every check", async () => {
@@ -147,6 +156,33 @@ describe("listVantages", () => {
 
     expect(requester.urls).toHaveLength(1);
   });
+
+  it.each([
+    { vantageTtlMs: 86_400_000, emptyTtlMs: 300_000 },
+    { vantageTtlMs: 60_000, emptyTtlMs: 60_000 },
+  ])(
+    "retries empty discovery after $emptyTtlMs ms with a $vantageTtlMs ms refresh",
+    async ({ vantageTtlMs, emptyTtlMs }) => {
+      let clock = 1_000_000;
+      const { provider, requester } = providerWith(
+        (_url, call) => (call === 0 ? { nodes: {} } : NODES_RESPONSE),
+        { now: () => clock, vantageTtlMs },
+      );
+      expect(await provider.listVantages(requester)).toEqual([]);
+
+      clock += emptyTtlMs - 1;
+      expect(await provider.listVantages(requester)).toEqual([]);
+      expect(requester.urls).toHaveLength(1);
+
+      clock++;
+      expect(await provider.listVantages(requester)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ countryCode: "ru" }),
+        ]),
+      );
+      expect(requester.urls).toHaveLength(2);
+    },
+  );
 
   it("refetches once the cache is older than the configured lifetime", async () => {
     let clock = 1_000_000;

@@ -3,18 +3,21 @@ import {
   hostWithPort,
   type ProbeReading,
   type ReachabilityProvider,
+  type ReachabilityRegions,
   type ReachabilityRequest,
   type ReachabilityTarget,
+  regionCountries,
   type Vantage,
 } from "@ephorate/core";
 import { sleep } from "../scheduling/clock";
 import { ProviderResponseError } from "./provider-response-error";
-import type { Region } from "./settings";
 
 const API_BASE = "https://check-host.net";
+// An empty list must not hide recovered points for a full refresh period.
+const EMPTY_VANTAGE_TTL_MS = 5 * 60_000;
 
 interface CheckHostProviderOptions {
-  regions: Readonly<Record<string, Region>>;
+  regions: ReachabilityRegions;
   vantageTtlMs: number;
   pollIntervalMs?: number;
   /** After it, whatever arrived is returned. */
@@ -49,7 +52,7 @@ type CheckResultResponse = Record<string, unknown[] | null>;
 export class CheckHostProvider implements ReachabilityProvider {
   readonly id = "check-host.net";
 
-  private cachedVantages: Vantage[] = [];
+  private cachedVantages?: Vantage[];
   private cachedAt = 0;
 
   private readonly pollIntervalMs: number;
@@ -66,9 +69,13 @@ export class CheckHostProvider implements ReachabilityProvider {
 
   /** Cached: the list changes over days, checks run every few minutes. */
   async listVantages(requester: HttpRequester): Promise<Vantage[]> {
+    const cacheTtlMs =
+      this.cachedVantages?.length === 0
+        ? Math.min(this.options.vantageTtlMs, EMPTY_VANTAGE_TTL_MS)
+        : this.options.vantageTtlMs;
     if (
-      this.cachedVantages.length > 0 &&
-      this.now() - this.cachedAt < this.options.vantageTtlMs
+      this.cachedVantages !== undefined &&
+      this.now() - this.cachedAt < cacheTtlMs
     ) {
       return this.cachedVantages;
     }
@@ -161,27 +168,15 @@ export class CheckHostProvider implements ReachabilityProvider {
     return latest;
   }
 
-  /** Fewer than `count` is normal: check-host has three Russian nodes. */
   private selectVantages(response: VantageListResponse): Vantage[] {
-    const selected: Vantage[] = [];
-
-    for (const [regionKey, region] of Object.entries(this.options.regions)) {
-      const matching = Object.entries(response.nodes)
-        .filter(([, info]) => region.match.includes(info.location[0]))
-        .slice(0, region.count);
-
-      for (const [id, info] of matching) {
-        selected.push({
-          id,
-          region: regionKey,
-          countryCode: info.location[0],
-          city: info.location[2],
-          network: "datacenter",
-        });
-      }
-    }
-
-    return selected;
+    const countries = new Set(regionCountries(this.options.regions));
+    // A single job uses the eligible points this provider lists.
+    return Object.entries(response.nodes).flatMap(([id, info]) => {
+      const countryCode = info.location[0].toLowerCase();
+      return countries.has(countryCode)
+        ? [{ id, countryCode, city: info.location[2], network: "datacenter" }]
+        : [];
+    });
   }
 }
 

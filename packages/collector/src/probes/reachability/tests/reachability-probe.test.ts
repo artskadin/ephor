@@ -16,10 +16,7 @@ import {
 const SETTINGS = {
   provider: "check-host.net",
   vantageRefresh: 86_400,
-  regions: {
-    ru: { match: ["ru"], count: 3, required: true },
-    eu: { match: ["de"], count: 3, required: false },
-  },
+  regions: { targets: ["ru"], control: ["de"] },
 };
 
 function probeThatFailsWith(failure: unknown) {
@@ -84,8 +81,8 @@ describe("reachability error mapping", () => {
   });
 });
 
-function vantage(id: string, region: string): Vantage {
-  return { id, region, countryCode: region, network: "datacenter" };
+function vantage(id: string, countryCode: string): Vantage {
+  return { id, countryCode, network: "datacenter" };
 }
 
 /** A provider that answers with the given readings, over fixed vantages. */
@@ -115,12 +112,12 @@ describe("reachability verdict metric", () => {
   // points reach it. Either way the same kind of problem, not ok.
   it("writes partial with the counts behind it when some RU points fail", async () => {
     const ru = ["ru-1", "ru-2", "ru-3"].map((id) => vantage(id, "ru"));
-    const eu = ["de-1", "de-2", "de-3"].map((id) => vantage(id, "eu"));
+    const control = ["de-1", "de-2", "de-3"].map((id) => vantage(id, "de"));
     const probe = probeReading([
       tcp(ru[0] as Vantage, true),
       tcp(ru[1] as Vantage, true),
       tcp(ru[2] as Vantage, false),
-      ...eu.map((point) => tcp(point, true)),
+      ...control.map((point) => tcp(point, true)),
     ]);
 
     const outcome = await probe.run(CONTEXT);
@@ -145,7 +142,7 @@ describe("reachability verdict metric", () => {
             total: 3,
           },
           {
-            region: "eu",
+            region: "de",
             required: false,
             method: "tcp",
             passed: 3,
@@ -195,12 +192,9 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
 
   it("lists exactly what a run with every point answering writes", async () => {
     const resolvedProbe = resolvedWith({
-      regions: {
-        ru: { match: ["ru"], required: true },
-        eu: { match: ["de"] },
-      },
+      regions: { targets: ["ru"], control: ["de"] },
     });
-    const points = [vantage("ru-1", "ru"), vantage("de-1", "eu")];
+    const points = [vantage("ru-1", "ru"), vantage("de-1", "de")];
     const probe = probeReading(points.map((point) => tcp(point, true)));
     const context = { ...CONTEXT, settings: resolvedProbe.settings };
 
@@ -222,7 +216,7 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
           ],
           probes: {
             reachability: {
-              regions: { ru: { match: ["ru"], required: true } },
+              regions: { targets: ["ru"] },
             },
           },
           thresholds: { [metric]: { warn: 1, worseWhen: "below" } },
@@ -238,7 +232,7 @@ describe("reachabilityProbeDescriptor.listMetrics", () => {
 
   it("lists only the configured regions for the endpoint", () => {
     const resolvedProbe = resolvedWith({
-      regions: { ru: { match: ["ru"], required: true } },
+      regions: { targets: ["ru"] },
     });
 
     expect([...resolvedProbe.metrics].sort()).toEqual([

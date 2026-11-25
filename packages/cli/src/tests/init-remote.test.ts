@@ -80,7 +80,7 @@ function setup(options: {
 const portOf = (url: string) => Number(new URL(url).port);
 
 const HECTOR =
-  "probes:\n  reachability:\nnodes:\n  - name: hector\n    host: 203.0.113.12\n    endpoints: { vpn: { tcp: 443 } }\n";
+  "probes:\n  reachability:\n    regions: { targets: [ru] }\nnodes:\n  - name: hector\n    host: 203.0.113.12\n    endpoints: { vpn: { tcp: 443 } }\n";
 
 /**
  * A port held for the test whose every connection is reset: what a
@@ -164,7 +164,7 @@ describe("ephor init --remote", () => {
     });
     const template = readFileSync(join(there, "config.yaml"), "utf8");
     const mine =
-      "probes:\n  reachability:\nnodes:\n  - name: mine\n    host: 203.0.113.10\n    endpoints: { vpn: { tcp: 443 } }\n";
+      "probes:\n  reachability:\n    regions: { targets: [ru] }\nnodes:\n  - name: mine\n    host: 203.0.113.10\n    endpoints: { vpn: { tcp: 443 } }\n";
     writeFileSync(join(here, "config.yaml"), mine);
 
     const run = await ephor(["init", "--remote", "bastion"], environment);
@@ -194,7 +194,7 @@ describe("ephor init --remote", () => {
     writeFileSync(join(there, "config.yaml"), broken);
     writeFileSync(
       join(here, "config.yaml"),
-      "probes:\n  reachability:\nnodes:\n  - name: mine\n    host: 203.0.113.10\n    endpoints: { vpn: { tcp: 443 } }\n",
+      "probes:\n  reachability:\n    regions: { targets: [ru] }\nnodes:\n  - name: mine\n    host: 203.0.113.10\n    endpoints: { vpn: { tcp: 443 } }\n",
     );
 
     const run = await ephor(["init", "--remote", "bastion"], environment);
@@ -219,11 +219,11 @@ describe("ephor init --remote", () => {
       apiPort: await nobodyServing(),
       nodesThere: false,
     });
-    const theirs = `${readFileSync(join(there, "config.yaml"), "utf8")}probes:\n  reachability:\nnodes:\n  - name: theirs\n    host: 203.0.113.11\n    endpoints: { vpn: { tcp: 443 } }\n`;
+    const theirs = `${readFileSync(join(there, "config.yaml"), "utf8")}probes:\n  reachability:\n    regions: { targets: [ru] }\nnodes:\n  - name: theirs\n    host: 203.0.113.11\n    endpoints: { vpn: { tcp: 443 } }\n`;
     writeFileSync(join(there, "config.yaml"), theirs);
     writeFileSync(
       join(here, "config.yaml"),
-      "probes:\n  reachability:\nnodes:\n  - name: mine\n    host: 203.0.113.10\n    endpoints: { vpn: { tcp: 443 } }\n",
+      "probes:\n  reachability:\n    regions: { targets: [ru] }\nnodes:\n  - name: mine\n    host: 203.0.113.10\n    endpoints: { vpn: { tcp: 443 } }\n",
     );
 
     const run = await ephor(["init", "--remote", "bastion"], environment);

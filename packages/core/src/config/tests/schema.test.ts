@@ -61,7 +61,6 @@ describe("buildConfigSchema", () => {
     expect(config.probes.reachability).toEqual({
       enabled: true,
       quorum: 0.5,
-      regions: {},
     });
   });
 
@@ -207,7 +206,7 @@ describe("buildConfigSchema", () => {
   it("keeps probe-specific settings and applies their defaults", () => {
     const config = parseUsual(
       {
-        probes: { reachability: { regions: { ru: { match: ["ru"] } } } },
+        probes: { reachability: { regions: { targets: ["ru"] } } },
         nodes: [{ name: "solo", host: "203.0.113.10" }],
       },
       TEST_PROBES,
@@ -216,7 +215,7 @@ describe("buildConfigSchema", () => {
     expect(config.probes.reachability).toEqual({
       enabled: true,
       quorum: 0.5,
-      regions: { ru: { match: ["ru"] } },
+      regions: { targets: ["ru"], control: [] },
     });
   });
 
@@ -569,7 +568,7 @@ describe("threshold metric ids", () => {
 
   it("knows a region's readings by the regions in the config", () => {
     const withRegions = (metric: string) => ({
-      probes: { reachability: { regions: { ru: { match: ["ru"] } } } },
+      probes: { reachability: { regions: { targets: ["ru"] } } },
       thresholds: { [metric]: { warn: 1, worseWhen: "below" } },
       nodes: [{ name: "solo", host: "203.0.113.10" }],
     });
@@ -579,7 +578,7 @@ describe("threshold metric ids", () => {
     ).toHaveProperty(["reachability.ru.tcp"]);
     expect(issuesOf(withRegions("reachability.eu.tcp"))).toEqual([
       'thresholds.reachability.eu.tcp: Unknown metric "reachability.eu.tcp". ' +
-        "reachability writes: reachability.verdict, reachability.ru.ping, " +
+        "reachability writes: reachability.verdict, " +
         "reachability.ru.tcp, reachability.ru.http",
     ]);
   });
@@ -616,15 +615,13 @@ describe("threshold metric ids", () => {
     ]);
   });
 
-  // A region name with an escape went raw into the list, to the terminal.
+  // Threshold keys appear in both the config path and the diagnostic.
   it("prints a key's control characters escaped, not raw", () => {
     const load = () =>
       parseUsual(
         {
-          probes: {
-            reachability: { regions: { "r\u001b[31mu": { match: ["ru"] } } },
-          },
           thresholds: {
+            "reachability.r\u001b[31mu.tcp": { warn: 1, worseWhen: "below" },
             "reachability.x\ny.tcp": { warn: 1, worseWhen: "below" },
           },
           nodes: [{ name: "solo", host: "203.0.113.10" }],

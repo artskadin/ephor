@@ -31,7 +31,9 @@ export const FIXTURE_DESTINATION = "203.0.113.10:443";
 export const FIXTURE_SCOPE = endpointScope(
   resolveEndpoints("203.0.113.10", ENDPOINTS),
 );
-export const FIXTURE_REGION_SCOPE = reachabilityRegionScope({ regions: {} });
+export const FIXTURE_REGION_SCOPE = reachabilityRegionScope({
+  regions: { targets: ["ru"] },
+});
 
 /**
  * Answers `latest()` from a fixed list and records what it was asked. The

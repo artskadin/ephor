@@ -46,29 +46,18 @@ probes:
     timeout: 60s
     concurrency: 50
 
-    # A required region is ok when every vantage point reaches the node,
-    # partial (warn) when some do, failed when none do: one ISP cutting
-    # the node off already leaves part of its users without the service.
-
-    # Regions have no default: where your users live is not something this
-    # tool can guess. Without them the probe reports "not configured".
+    # List at least one target country. Control countries are optional
+    # and help distinguish a regional failure from a wider outage.
+    # Results are separate by country and endpoint. These examples use
+    # one target and one control, with all selected points reporting:
     #
-    # At least one `required: false` region is what makes the verdict
-    # possible — it is the control group, not extra data:
-    #
-    #   RU 0/3   EU 3/3   ->  blocked   (the control group still connects)
-    #   RU 0/3   EU 0/3   ->  down      (neither group connects)
-    #   RU 2/3   EU 3/3   ->  partial
-    #   RU 3/3   EU 3/3   ->  ok
+    #   RU 0/3   DE 3/3   ->  blocked   (control points still connect)
+    #   RU 0/3   DE 0/3   ->  down      (neither country connects)
+    #   RU 2/3   DE 3/3   ->  partial
+    #   RU 3/3   DE 3/3   ->  ok
     regions:
-      ru:
-        match: [ru]
-        count: 3 # at most what check-host has there: ru 3 on 2026-10-05
-        required: true
-      eu:
-        match: [de, nl, fi]
-        count: 3
-        required: false
+      targets: [ru]
+      control: [de, nl, fi]
 
   # speed: not implemented yet. It will ship disabled — a throughput test
   # both costs bandwidth and saturates the node's link while it runs.

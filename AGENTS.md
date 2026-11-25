@@ -11,8 +11,8 @@ SSH management access and public reachability are separate signals.
 - [A4 public endpoints](docs/a4-endpoints.md) separates public checks from
   `ssh` and `ports`. Reachability requires named `nodes[].endpoints`; there
   is no legacy fallback. The [dated audit](AUDIT.md) records prior behavior.
-- Separate follow-up: simplify [`regions`](#planned-regions-simplification).
-  A4 uses the existing region schema; neither migration requires the other.
+- [Country coverage](#reachability-countries) uses `targets` and `control`,
+  independently of the endpoint configuration.
 - First release: continuous monitoring with understandable setup and a
   persistent journal for **network and system incidents**, even when
   `watch` is closed. A failed measurement is not a measured outage.
@@ -20,10 +20,9 @@ SSH management access and public reachability are separate signals.
   need a separate assessment before choosing a release. `requestFrom`
   and `config explain` are proposals, not supported features.
 
-### Planned `regions` simplification
+### Reachability countries
 
-Agreed direction for a separate change. **Proposed YAML, not supported
-today** (inside `probes.reachability`):
+Inside `probes.reachability`:
 
 ```yaml
 regions:
@@ -43,9 +42,9 @@ regions:
 - Distinguish no points in a country, points that did not report, and
   points that ran the check and reported a failed connection. Only the
   last case is an observed failure.
-- Migrate separately: legacy `match: [de, nl], count: 3` means up to
-  three points across both countries. Checking them separately can
-  change coverage and request load; do not switch silently.
+- The old grouped `match`/`count`/`required` YAML is rejected with a
+  replacement example. Old observations remain in history but do not
+  establish the current country verdict.
 
 ## What works in this checkout
 
@@ -85,20 +84,20 @@ regions:
 | Probe | A kind of measurement: `system` or `reachability` |
 | Task | One run of one probe against one node |
 | Vantage | An external location a reachability check is made from |
-| Region | A named group of vantages, e.g. `ru`, `eu` |
+| Region | One country, identified by its two-letter code |
 | Verdict | `ok`, `blocked`, `down`, `partial`, `unknown` |
 
-`required: false` defines a control region. Comparing regions distinguishes
-regional failure from a failure also seen by controls; it does not establish
-the cause. A single control region does not need to represent all of Europe.
+`control` lists comparison countries. Comparing their observations with
+`targets` distinguishes a regional failure from one also seen elsewhere;
+it does not establish the cause.
 
 ```
-RU 0/4   EU 3/3   →  blocked      RU 2/4   EU 3/3   →  partial
-RU 0/4   EU 0/3   →  down         RU 4/4   EU 3/3   →  ok
+RU 0/4   DE 3/3   →  blocked      RU 2/4   DE 3/3   →  partial
+RU 0/4   DE 0/3   →  down         RU 4/4   DE 3/3   →  ok
 ```
 
 These counts are reported observations for one endpoint, not a census.
-RU 3/4 is `partial`. With RU and KZ required and RU and control EU
+RU 3/4 is `partial`. With RU and KZ required and RU and control DE
 passing, no KZ readings means `unknown`; an observed KZ timeout
 still means `partial`.
 

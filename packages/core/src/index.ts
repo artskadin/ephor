@@ -60,9 +60,15 @@ export {
   endpointTransport,
   hostWithPort,
   type ResolvedEndpoint,
-  reachabilityRegionScope,
   resolveEndpoints,
 } from "./reachability/endpoints";
+export {
+  REGION_SETTINGS_EXAMPLE,
+  type ReachabilityRegions,
+  ReachabilityRegionsSchema,
+  reachabilityRegionScope,
+  regionCountries,
+} from "./reachability/regions";
 export type {
   HttpRequester,
   ProbeReading,
@@ -73,7 +79,7 @@ export type {
   Vantage,
 } from "./reachability/types";
 export { HttpRequestError } from "./reachability/types";
-export type { ReachabilityResult } from "./reachability/verdict";
+export type { DecisiveCount, ReachabilityResult } from "./reachability/verdict";
 export { summarize } from "./reachability/verdict";
 export type {
   MetricSeverity,

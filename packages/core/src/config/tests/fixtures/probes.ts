@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  ReachabilityRegionsSchema,
+  regionCountries,
+} from "../../../reachability/regions";
 import type { ProbeDescriptor } from "../../../types/probe-contract";
 
 /**
@@ -16,12 +20,13 @@ const SYSTEM_METRICS = [
 ];
 const PERCENTS = ["system.received_percent", "system.sent_percent"];
 
-// Every method in every configured region: the real probe narrows by its
-// `methods`, which this stand-in does not have.
+// The stand-in has no endpoints, so it lists both methods per country.
 const regionMetrics = (settings: Readonly<Record<string, unknown>>) => [
   "reachability.verdict",
-  ...Object.keys(settings.regions ?? {}).flatMap((region) =>
-    ["ping", "tcp", "http"].map((method) => `reachability.${region}.${method}`),
+  ...regionCountries(
+    ReachabilityRegionsSchema.optional().parse(settings.regions),
+  ).flatMap((region) =>
+    ["tcp", "http"].map((method) => `reachability.${region}.${method}`),
   ),
 ];
 
@@ -44,12 +49,7 @@ export const TEST_PROBES: ProbeDescriptor[] = [
     defaults: { interval: 301, timeout: 62, retries: 1, concurrency: 17 },
     settings: {
       quorum: z.number().min(0).max(1).default(0.5),
-      regions: z
-        .record(
-          z.string(),
-          z.object({ match: z.array(z.string().length(2)) }).strict(),
-        )
-        .default({}),
+      regions: ReachabilityRegionsSchema.optional(),
     },
     listMetrics: (_node, settings) => regionMetrics(settings),
     listAllMetrics: regionMetrics,

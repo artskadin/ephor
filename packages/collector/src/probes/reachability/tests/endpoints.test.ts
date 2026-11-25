@@ -24,13 +24,10 @@ import {
 const HOST = "203.0.113.10";
 const PUBLIC_URL = "https://vpn.example.com:9443/connect";
 const VANTAGES: Vantage[] = [
-  { id: "ru-1", region: "ru", countryCode: "ru", network: "datacenter" },
-  { id: "de-1", region: "eu", countryCode: "de", network: "datacenter" },
+  { id: "ru-1", countryCode: "ru", network: "datacenter" },
+  { id: "de-1", countryCode: "de", network: "datacenter" },
 ];
-const REGIONS = {
-  ru: { match: ["ru"], required: true },
-  eu: { match: ["de"], required: false },
-};
+const REGIONS = { targets: ["ru"], control: ["de"] };
 const DESCRIPTORS = [systemProbeDescriptor, reachabilityProbeDescriptor];
 
 function probeFor(
@@ -98,6 +95,67 @@ function reading(
 }
 
 describe("endpoint configuration", () => {
+  const configWithRegions = (regions: unknown) =>
+    parseConfig(
+      {
+        probes: { reachability: regions === undefined ? {} : { regions } },
+        nodes: [nodeWith({ endpoints: { vpn: { tcp: 443 } } })],
+      },
+      DESCRIPTORS,
+    );
+
+  it("requires target countries and accepts a single target without controls", () => {
+    expect(() => configWithRegions(undefined)).toThrow(
+      /probes\.reachability\.regions[\s\S]*targets: \[ru, kz\]/,
+    );
+    expect(
+      configWithRegions({ targets: ["RU"] }).probes.reachability,
+    ).toMatchObject({
+      regions: { targets: ["ru"], control: [] },
+    });
+  });
+
+  it("rejects the old grouped config with a replacement example", () => {
+    expect(() =>
+      configWithRegions({
+        ru: { match: ["ru"], required: true },
+        eu: { match: ["de", "nl"], count: 3, required: false },
+      }),
+    ).toThrow(
+      /regions\.targets[\s\S]*use `regions: \{ targets: \[ru, kz\], control: \[de, nl\] \}`/,
+    );
+  });
+
+  it.each([
+    {
+      description: "no targets",
+      regions: { targets: [], control: ["de"] },
+      message: /at least one target country/,
+    },
+    {
+      description: "invalid code",
+      regions: { targets: ["europe"] },
+      message: /two-letter country code/,
+    },
+    {
+      description: "duplicate target",
+      regions: { targets: ["ru", "RU"] },
+      message: /must appear only once/,
+    },
+    {
+      description: "duplicate control",
+      regions: { targets: ["ru"], control: ["de", "de"] },
+      message: /must appear only once/,
+    },
+    {
+      description: "overlap",
+      regions: { targets: ["ru"], control: ["RU"] },
+      message: /must appear only once/,
+    },
+  ])("rejects $description in country settings", ({ regions, message }) => {
+    expect(() => configWithRegions(regions)).toThrow(message);
+  });
+
   it("validates a node threshold against its own endpoints, but global thresholds against the fleet", () => {
     const metric = "reachability.endpoint.other.ru.tcp";
     const thresholds = { [metric]: { warn: 0.5, worseWhen: "below" } };
@@ -126,8 +184,16 @@ describe("endpoint configuration", () => {
   });
 
   it.each([
-    { location: "globally", probes: { reachability: {} }, nodeProbes: {} },
-    { location: "on the node", probes: {}, nodeProbes: { reachability: {} } },
+    {
+      location: "globally",
+      probes: { reachability: { regions: REGIONS } },
+      nodeProbes: {},
+    },
+    {
+      location: "on the node",
+      probes: { reachability: { enabled: false, regions: REGIONS } },
+      nodeProbes: { reachability: {} },
+    },
   ])(
     "requires a named node to declare an endpoint when reachability is enabled $location",
     ({ probes, nodeProbes }) => {
@@ -200,7 +266,7 @@ describe("endpoint configuration", () => {
 function collectorFor(
   storage: SqliteStorage,
   requester: HttpRequester,
-  regions: Record<string, { match: string[]; required: boolean }> = REGIONS,
+  regions = REGIONS,
 ) {
   let providerNowMs = 0;
   const registry = new ProbeRegistry();
@@ -282,6 +348,51 @@ function checkHostFixture() {
 }
 
 describe("endpoint history in the collector", () => {
+  it("makes no endpoint requests if no configured country has provider points", async () => {
+    const requests: string[] = [];
+    const storage = new SqliteStorage(":memory:");
+    const requester: HttpRequester = {
+      async getJson<T>(url: string): Promise<T> {
+        const path = new URL(url).pathname;
+        requests.push(path);
+        return {
+          nodes: { de: { location: ["de", "Germany", "Fixture"] } },
+        } as T;
+      },
+    };
+    const collector = collectorFor(storage, requester, {
+      targets: ["kz"],
+      control: ["nl"],
+    });
+    try {
+      await storage.migrate();
+      await collector.runNow().finished;
+      expect(requests).toEqual(["/nodes/hosts"]);
+      const [state] = buildNodeState({
+        nodes: collector.nodes,
+        points: await storage.latest(),
+        now: Math.floor(Date.now() / 1000),
+      });
+      expect(state).toMatchObject({
+        reachability: "unknown",
+        endpoints: [
+          {
+            name: "vpn",
+            verdict: null,
+            attemptRegions: [
+              { region: "kz", required: true, total: 0 },
+              { region: "nl", required: false, total: 0 },
+            ],
+          },
+          { name: "site", verdict: null },
+        ],
+      });
+    } finally {
+      collector.stop();
+      await storage.close();
+    }
+  });
+
   it("records every failed attempt and keeps both last verdicts when all endpoints fail", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
     const storage = new SqliteStorage(":memory:");
@@ -356,7 +467,7 @@ describe("endpoint history in the collector", () => {
     const before = collectorFor(storage, requester);
     const after = collectorFor(storage, requester, {
       ...REGIONS,
-      kz: { match: ["kz"], required: true },
+      targets: ["ru", "kz"],
     });
     try {
       await storage.migrate();
@@ -430,7 +541,7 @@ describe("explicit endpoint measurements", () => {
         reading(
           target,
           point,
-          target.method === "tcp" || point.region === "eu",
+          target.method === "tcp" || point.countryCode === "de",
         ),
       );
     });
@@ -623,7 +734,7 @@ describe("explicit endpoint measurements", () => {
     );
     const vantages: Vantage[] = [
       ...VANTAGES,
-      { id: "ru-2", region: "ru", countryCode: "ru", network: "datacenter" },
+      { id: "ru-2", countryCode: "ru", network: "datacenter" },
     ];
     const probe = probeFor(
       (target) =>

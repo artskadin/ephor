@@ -63,7 +63,7 @@ const point = (
 const SYSTEM_INTERVAL = 61;
 
 /** A probe writes a reading per region only for the regions configured. */
-const REGIONS = { ru: { match: ["RU"] }, eu: { match: ["DE"] } };
+const REGIONS = { targets: ["ru"], control: ["de"] };
 
 const regionsConfig = (
   regions: Record<string, unknown> = REGIONS,
@@ -513,20 +513,20 @@ describe("buildNodeState", () => {
       point("reachability.ru.tcp", { value: 1, ok: true }),
     ];
     // Written while `eu` was still configured: old enough to read stale.
-    const leftover = point("reachability.eu.tcp", {
+    const leftover = point("reachability.de.tcp", {
       value: 1,
       ok: true,
       ts: NOW - 1000,
     });
 
     it("is not reported, however recent", () => {
-      const state = firstOf(regionsConfig({ ru: REGIONS.ru }), [
+      const state = firstOf(regionsConfig({ targets: ["ru"] }), [
         ...fresh(),
         leftover,
       ]);
 
       expect(state.metrics.map((view) => view.metric)).not.toContain(
-        "reachability.eu.tcp",
+        "reachability.de.tcp",
       );
       expect(state.status).toBe("ok");
       expect(state.reasons).toEqual([]);
@@ -535,7 +535,7 @@ describe("buildNodeState", () => {
     it("is stale while the config still asks for it", () => {
       const state = firstOf(regionsConfig(), [...fresh(), leftover]);
 
-      expect(viewOf(state, "reachability.eu.tcp").status).toBe("stale");
+      expect(viewOf(state, "reachability.de.tcp").status).toBe("stale");
       expect(state.status).toBe("stale");
     });
 
@@ -861,7 +861,7 @@ describe("buildNodeState", () => {
       const state = firstOf(regionsConfig(), [
         ...withVerdict("down"),
         point("reachability.ru.tcp", { value: 0, ok: false }),
-        point("reachability.eu.tcp", { value: 0, ok: false }),
+        point("reachability.de.tcp", { value: 0, ok: false }),
       ]);
 
       expect(state.reasons).toEqual([
@@ -888,7 +888,7 @@ describe("buildNodeState", () => {
                 total: 3,
               },
               {
-                region: "eu",
+                region: "de",
                 required: false,
                 method: "tcp",
                 passed: 3,
@@ -901,7 +901,7 @@ describe("buildNodeState", () => {
 
       expect(state.status).toBe("warn");
       expect(state.reasons).toEqual([
-        "reachable from some vantage points only: ru 2/3 tcp, control eu 3/3 tcp",
+        "reachable from some vantage points only: ru 2/3 tcp, control de 3/3 tcp",
       ]);
     });
 
@@ -942,10 +942,10 @@ describe("buildNodeState", () => {
     it("does not warn on a failed reading the verdict called ok", () => {
       const state = firstOf(regionsConfig(), [
         ...withVerdict("ok"),
-        point("reachability.eu.tcp", { value: 0, ok: false }),
+        point("reachability.de.tcp", { value: 0, ok: false }),
       ]);
 
-      expect(viewOf(state, "reachability.eu.tcp").ok).toBe(false);
+      expect(viewOf(state, "reachability.de.tcp").ok).toBe(false);
       expect(state.status).toBe("ok");
     });
 
@@ -979,7 +979,7 @@ describe("buildNodeState", () => {
           node: "german",
         }),
         point("reachability.ru.tcp", { value: 0, ok: false, node: "german" }),
-        point("reachability.eu.tcp", { value: 0, ok: false, node: "german" }),
+        point("reachability.de.tcp", { value: 0, ok: false, node: "german" }),
       ],
     );
 

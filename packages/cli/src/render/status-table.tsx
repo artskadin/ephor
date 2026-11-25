@@ -1,5 +1,6 @@
 import {
   type Acknowledgement,
+  type DecisiveCount,
   formatDuration,
   type MetricSeverity,
   type MetricStatus,
@@ -387,21 +388,14 @@ function endpointText(
 ): string {
   const method = endpoint.transport.toUpperCase();
   const label = `${endpoint.name} · ${method} ${endpoint.destination}`;
+  const coverage = coverageText(endpoint.attemptRegions ?? []);
+  const attempt = coverage === "" ? "" : ` (${coverage})`;
   if (endpoint.verdict === null) {
     const detail = endpoint.error ?? endpoint.reason ?? "no measurement yet";
-    return `${label} · not measured: ${detail}`;
+    return `${label} · not measured: ${detail}${attempt}`;
   }
 
-  const evidence = endpoint.regions
-    .map(({ region, passed, total, required, reported }) => {
-      const label = `${region}${required ? "" : " (control)"}`;
-      if (reported === 0)
-        return `${label}: no results from ${total} selected points`;
-      const coverage =
-        reported === undefined ? "" : ` (${reported}/${total} reported)`;
-      return `${label} ${passed}/${reported ?? total} reporting points${coverage}`;
-    })
-    .join(", ");
+  const evidence = coverageText(endpoint.regions);
   const result =
     evidence === ""
       ? "no regional result"
@@ -409,8 +403,22 @@ function endpointText(
   const failure =
     endpoint.error === undefined
       ? ""
-      : `; latest attempt failed: ${endpoint.error}`;
+      : `; latest attempt failed: ${endpoint.error}${attempt}`;
   return `${label} · ${endpoint.verdict}${endpoint.status === "stale" ? " (stale)" : ""}: ${result}${failure}`;
+}
+
+function coverageText(countries: readonly DecisiveCount[]): string {
+  return countries
+    .map(({ region, passed, total, required, reported }) => {
+      const label = `${region}${required ? "" : " (control)"}`;
+      if (total === 0) return `${label}: no provider points`;
+      if (reported === 0)
+        return `${label}: no results from ${total} selected ${total === 1 ? "point" : "points"}`;
+      const coverage =
+        reported === undefined ? "" : ` (${reported}/${total} reported)`;
+      return `${label} ${passed}/${reported ?? total} reporting points${coverage}`;
+    })
+    .join(", ");
 }
 
 // Ages by the collector's clock, `now` from its answer: a bastion's clock

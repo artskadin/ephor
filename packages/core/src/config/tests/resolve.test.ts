@@ -241,7 +241,7 @@ describe("resolveNode", () => {
           interval: 120,
           concurrency: 9,
           quorum: 0.75,
-          regions: { ru: { match: ["ru"] } },
+          regions: { targets: ["ru"] },
         },
       },
       nodes: [{ name: "solo", host: "203.0.113.10" }],
@@ -249,7 +249,7 @@ describe("resolveNode", () => {
 
     expect(probes.get("reachability")?.settings).toEqual({
       quorum: 0.75,
-      regions: { ru: { match: ["ru"] } },
+      regions: { targets: ["ru"], control: [] },
     });
   });
 
@@ -257,7 +257,7 @@ describe("resolveNode", () => {
   // only for a node with `bandwidth`: both must reach the descriptor.
   it("asks the probe what it writes, given the node and the settings", () => {
     const probes = firstNodeProbes({
-      probes: { reachability: { regions: { ru: { match: ["ru"] } } } },
+      probes: { reachability: { regions: { targets: ["ru"] } } },
       nodes: [
         { name: "solo", host: "203.0.113.10", ssh: "solo", bandwidth: "1Gbit" },
       ],

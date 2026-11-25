@@ -11,9 +11,9 @@ import {
   endpointScope,
   endpointTransport,
   type ResolvedEndpoint,
-  reachabilityRegionScope,
   resolveEndpoints,
 } from "../reachability/endpoints";
+import { reachabilityRegionScope } from "../reachability/regions";
 import type { DecisiveCount, Verdict } from "../reachability/verdict";
 import type { Acknowledgement } from "../storage/types";
 import type { MetricPoint } from "../types/metrics";
@@ -83,6 +83,7 @@ interface EndpointState extends EndpointObservation {
   status: MetricStatus;
   ageSeconds?: number;
   reason?: string;
+  attemptRegions?: DecisiveCount[];
 }
 
 interface NodeStateInput {
@@ -400,10 +401,15 @@ function endpointState(
       : attemptStatus;
   const ageSeconds = measured?.ageSeconds ?? attempt?.ageSeconds;
   const counts = measured?.meta?.regions;
+  const attemptCounts =
+    error === undefined ? undefined : attempt?.meta?.regions;
   return {
     ...base,
     ...(ageSeconds === undefined ? {} : { ageSeconds }),
     ...(error === undefined ? {} : { error }),
+    ...(Array.isArray(attemptCounts)
+      ? { attemptRegions: attemptCounts.filter(isDecisiveCount) }
+      : {}),
     ...(verdict === null
       ? {
           reason:

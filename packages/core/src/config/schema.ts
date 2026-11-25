@@ -445,6 +445,25 @@ export function buildConfigSchema(descriptors: readonly ProbeDescriptor[]) {
     .strict()
     .superRefine((config, context) => {
       checkSomethingRuns(config, descriptors, context);
+      for (const { name, requiredSettings } of descriptors) {
+        if (
+          requiredSettings === undefined ||
+          !config.nodes.some(
+            (node) => node.enabled && isEnabledInConfig(config, node, name),
+          )
+        )
+          continue;
+        const settings = probeSpecificSettings(config.probes[name]);
+        for (const [key, message] of Object.entries(requiredSettings)) {
+          if (settings[key] === undefined) {
+            context.addIssue({
+              code: "custom",
+              path: ["probes", name, key],
+              message,
+            });
+          }
+        }
+      }
       checkThresholdProbes(config.thresholds, knownNames, context, [
         "thresholds",
       ]);

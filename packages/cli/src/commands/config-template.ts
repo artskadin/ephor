@@ -18,27 +18,20 @@ probes:
   reachability:
     interval: 5m
 
-    # Where your users are. A required region is ok only when every
-    # vantage point there reaches the node; the control group, not
-    # required, tells a block from an outage:
+    # Countries whose networks should reach the endpoint. Set at least
+    # one target. Optional control countries help distinguish a regional
+    # failure from a wider outage. Each country is reported separately:
     #
-    #   RU 0/3   EU 3/3   ->  blocked   (the control group still connects)
-    #   RU 0/3   EU 0/3   ->  down      (neither group connects)
-    #   RU 2/3   EU 3/3   ->  partial
-    #   RU 3/3   EU 3/3   ->  ok
+    #   RU 0/3   DE 3/3   ->  blocked   (control points still connect)
+    #   RU 0/3   DE 0/3   ->  down      (neither country connects)
+    #   RU 2/3   DE 3/3   ->  partial
+    #   RU 3/3   DE 3/3   ->  ok
     #
-    # \`match\`: country codes, lowercase, as check-host names its points.
-    # \`count\`: how many to ask, at most what check-host has there (on
-    # 2026-10-05: ru 3, de 3, nl 2, fi 1).
+    # Use two-letter country codes. The provider chooses how many points
+    # are available; no returned result does not mean a failed connection.
     regions:
-      ru:
-        match: [ru]
-        count: 3
-        required: true
-      eu:
-        match: [de, nl, fi]
-        count: 3
-        required: false
+      targets: [ru]
+      control: [de, nl, fi]
 
   # Load, memory, disk and listening ports, read over ssh. Only nodes with
   # \`ssh:\` (or \`local: true\`, the machine running ephor) get it; the

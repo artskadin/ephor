@@ -1,8 +1,7 @@
-export type ReachabilityMethod = "ping" | "tcp" | "http";
+export type ReachabilityMethod = "tcp" | "http";
 
 export interface Vantage {
   id: string;
-  region: string;
   countryCode: string;
   city?: string | undefined;
   network: "datacenter" | "residental" | "mobile";
