@@ -49,13 +49,16 @@ const serverDeps = (): ApiDeps =>
 
 let app: FastifyInstance | undefined;
 
-function serverOf(options: { token?: string; deps?: ApiDeps } = {}) {
+function serverOf(
+  options: { token?: string; deps?: ApiDeps; isReady?: () => boolean } = {},
+) {
   app = createApiServer({
     deps: options.deps ?? serverDeps(),
     settings: SETTINGS,
     token: options.token ?? TOKEN,
     logger: silent(),
     version: "1.2.3",
+    isReady: options.isReady,
   });
 
   return app;
@@ -120,6 +123,19 @@ describe("createApiServer", () => {
   });
 
   describe("GET /api/health", () => {
+    it("returns 503 while the collector is starting, without bypassing authentication", async () => {
+      let ready = false;
+      const server = serverOf({ isReady: () => ready });
+      const headers = authorized;
+      const url = "/api/health";
+      expect((await server.inject({ url })).statusCode).toBe(401);
+      const starting = await server.inject({ url, headers });
+      expect(starting.statusCode).toBe(503);
+      expect(starting.json()).toEqual({ error: "collector is starting" });
+      ready = true;
+      expect((await server.inject({ url, headers })).statusCode).toBe(200);
+    });
+
     it("reports uptime and what is being watched", async () => {
       const response = await serverOf().inject({
         method: "GET",

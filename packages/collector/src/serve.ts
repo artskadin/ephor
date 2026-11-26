@@ -52,6 +52,7 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
   const stopping = new AbortController();
   let api: FastifyInstance | undefined;
   let stopped: Promise<void> | undefined;
+  let collectorReady = false;
 
   // Once: a second signal during shutdown would close the database twice,
   // and `DatabaseSync.close()` throws on a closed handle.
@@ -76,6 +77,7 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
         settings: config.api,
         token: options.token,
         version: options.version,
+        isReady: () => collectorReady,
         logger: logger.child({ component: "api" }),
         deps: {
           storage,
@@ -94,7 +96,18 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
       });
     }
 
-    await collector.start();
+    let apiUrl: string | undefined;
+    // A config is not active until its API can bind. A failed contender
+    // must not end incidents that belong to the running collector.
+    await collector.start(async () => {
+      if (api) {
+        apiUrl = await api.listen({
+          host: config.api.bind,
+          port: config.api.port,
+        });
+      }
+    });
+    collectorReady = true;
 
     logger.info("collector started", {
       // Enabled ones, as the probe lines below count them.
@@ -109,13 +122,7 @@ export async function serve(options: ServeOptions): Promise<Daemon> {
       else logger.info(line.text);
     }
 
-    let apiUrl: string | undefined;
-
-    if (api) {
-      apiUrl = await api.listen({
-        host: config.api.bind,
-        port: config.api.port,
-      });
+    if (apiUrl !== undefined) {
       logger.info("API listening", {
         bind: config.api.bind,
         port: config.api.port,

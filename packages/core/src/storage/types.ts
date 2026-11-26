@@ -1,3 +1,4 @@
+import type { IncidentMonitor, JournalBatch } from "../journal/incidents";
 import type { MetricStatus } from "../state/node-state";
 import type { MetricPoint } from "../types/metrics";
 
@@ -28,7 +29,11 @@ export interface Acknowledgement {
 
 export interface Storage {
   migrate(): Promise<void>;
-  write(points: readonly MetricPoint[]): Promise<void>;
+  write(points: readonly MetricPoint[], journal?: JournalBatch): Promise<void>;
+  reconcileIncidents(
+    monitors: readonly IncidentMonitor[],
+    observedAt: number,
+  ): Promise<void>;
   query(filter: QueryFilter): Promise<MetricPoint[]>;
   latest(node?: string): Promise<MetricPoint[]>;
   prune(olderThanTs: number): Promise<number>;

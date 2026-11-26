@@ -122,6 +122,53 @@ export const MIGRATIONS: readonly Migration[] = [
       database.exec("UPDATE acknowledgements SET until_ok = 1");
     },
   },
+  {
+    version: 5,
+    name: "incident-journal",
+    apply(database) {
+      database.exec(`
+        CREATE TABLE incidents (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kind TEXT NOT NULL CHECK (kind IN ('network', 'system', 'measurement')),
+          node_name TEXT,
+          subject_key TEXT NOT NULL,
+          rule_key TEXT NOT NULL,
+          subject_json TEXT NOT NULL CHECK (json_valid(subject_json)),
+          state TEXT NOT NULL CHECK (state IN ('open', 'recovered', 'observation_stopped')),
+          first_observed_at INTEGER NOT NULL,
+          last_observed_at INTEGER NOT NULL,
+          last_assessment_json TEXT NOT NULL CHECK (json_valid(last_assessment_json)),
+          last_event_at INTEGER NOT NULL,
+          last_event_id INTEGER,
+          read_through_event_id INTEGER,
+          ended_at INTEGER,
+          end_reason TEXT,
+          CHECK (
+            (state = 'open' AND ended_at IS NULL AND end_reason IS NULL) OR
+            (state <> 'open' AND ended_at IS NOT NULL AND end_reason IS NOT NULL)
+          ),
+          CHECK (state <> 'recovered' OR end_reason IS 'recovery_observed')
+        ) STRICT;
+
+        CREATE TABLE journal_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          incident_id INTEGER REFERENCES incidents(id) ON DELETE CASCADE,
+          observed_at INTEGER NOT NULL,
+          event_kind TEXT NOT NULL CHECK (event_kind IN (
+            'opened', 'changed', 'measurement_lost', 'measurement_resumed',
+            'recovered', 'observation_stopped', 'coverage_gap'
+          )),
+          evidence_json TEXT NOT NULL CHECK (json_valid(evidence_json)),
+          CHECK ((incident_id IS NULL) = (event_kind = 'coverage_gap'))
+        ) STRICT;
+
+        CREATE UNIQUE INDEX incidents_one_open
+          ON incidents (kind, subject_key)
+          WHERE state = 'open';
+        CREATE INDEX journal_events_by_incident ON journal_events (incident_id);
+      `);
+    },
+  },
 ];
 
 /** An explicit level never parses `EPHOR_LOG_LEVEL`; safe at import. */

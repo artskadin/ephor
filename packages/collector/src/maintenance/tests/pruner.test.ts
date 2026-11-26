@@ -29,6 +29,7 @@ class FakeStorage implements Storage {
 
   async migrate(): Promise<void> {}
   async write(): Promise<void> {}
+  async reconcileIncidents(): Promise<void> {}
   async query(_filter: QueryFilter): Promise<MetricPoint[]> {
     return [];
   }

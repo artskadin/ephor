@@ -16,6 +16,8 @@ SSH management access and public reachability are separate signals.
 - First release: continuous monitoring with understandable setup and a
   persistent journal for **network and system incidents**, even when
   `watch` is closed. A failed measurement is not a measured outage.
+  The [SQLite writer](docs/incident-journal.md) records episodes; the API,
+  journal screen and collector-wide gaps are separate follow-ups.
 - Active `speed` is desirable, but its value, accuracy and traffic cost
   need a separate assessment before choosing a release. `requestFrom`
   and `config explain` are proposals, not supported features.
@@ -51,7 +53,8 @@ regions:
 - `ephor serve` schedules `system` and `reachability`, stores measurements
   in SQLite and serves a bearer-authenticated HTTP API (default
   `127.0.0.1:31556`). Inventory comes from YAML; edits take effect on
-  restart. Metric history and acknowledgements are not an incident journal.
+  restart. The collector also records incident transitions in SQLite,
+  independent of `watch` and acknowledgements.
 - `system` reads Linux load, memory, disk, TCP listeners and passive
   interface traffic via SSH, or locally with `local: true`. No agent to
   install on nodes. Without `ports`, listeners are informational; with it,

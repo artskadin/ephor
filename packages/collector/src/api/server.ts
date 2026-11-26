@@ -30,6 +30,7 @@ interface ApiServerOptions {
   settings: ApiSettings;
   token: string;
   logger: Logger;
+  isReady?: (() => boolean) | undefined;
   /** The ephor serving: in every answer a client compares its own with. */
   version: string;
 }
@@ -54,7 +55,12 @@ export function createApiServer(options: ApiServerOptions): FastifyInstance {
   const app = Fastify({ logger: false });
 
   app.addHook("onRequest", async (request, reply) => {
-    if (matchesToken(request.headers.authorization, options.token)) return;
+    if (matchesToken(request.headers.authorization, options.token)) {
+      if (options.isReady?.() === false) {
+        await sendError(reply, 503, "collector is starting");
+      }
+      return;
+    }
 
     options.logger.warn("rejected an unauthenticated API request", {
       method: request.method,

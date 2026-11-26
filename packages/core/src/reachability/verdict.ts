@@ -3,6 +3,7 @@ import type { ProbeReading, ReachabilityMethod, Vantage } from "./types";
 
 interface CountrySummary {
   decisive: DecisiveCount;
+  reportingPoints: string[];
   network: Vantage["network"] | undefined;
   rtt: number | undefined;
 }
@@ -74,6 +75,7 @@ function summarizeCountry(
   return {
     network: readings[0]?.vantage.network,
     rtt: median(times),
+    reportingPoints: reported.map(({ vantage }) => vantage.id).sort(),
     decisive: {
       region: country,
       required,

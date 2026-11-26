@@ -554,7 +554,7 @@ function isDecidedByVerdict(metric: string, probe: string): boolean {
 }
 
 /** Strictly past the bound: `warn: 85` leaves exactly 85 alone. */
-function exceededThresholdLevel(
+export function exceededThresholdLevel(
   value: number,
   threshold: Threshold,
 ): ThresholdLevel | undefined {

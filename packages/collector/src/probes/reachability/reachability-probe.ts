@@ -254,6 +254,12 @@ export class ReachabilityProbe implements Probe<EndpointRun[]> {
           ...identity,
           verdict,
           regions: run.result.regions.map((region) => region.decisive),
+          reportingPoints: Object.fromEntries(
+            run.result.regions.map(({ decisive, reportingPoints }) => [
+              decisive.region,
+              reportingPoints,
+            ]),
+          ),
         },
       });
       for (const { decisive, rtt, network } of run.result.regions) {

@@ -51,6 +51,16 @@ export type {
   Ssh,
 } from "./config/schema";
 export { DEFAULT_API_PORT } from "./config/schema";
+export type {
+  CountryEvidence,
+  IncidentAssessment,
+  IncidentEvidence,
+  IncidentMachine,
+  IncidentMonitor,
+  IncidentObservation,
+  IncidentSubject,
+  JournalBatch,
+} from "./journal/incidents";
 export type { LogFields, Logger, LogLevel } from "./logging/logger";
 export { createLogger } from "./logging/logger";
 export {
@@ -89,6 +99,7 @@ export type {
 } from "./state/node-state";
 export {
   buildNodeState,
+  exceededThresholdLevel,
   isMetricStatus,
   REACHABILITY_VERDICT_METRIC,
   STATUS_RANK,

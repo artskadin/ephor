@@ -3,12 +3,15 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   type Acknowledgement,
+  type IncidentMonitor,
   isMetricStatus,
+  type JournalBatch,
   type Logger,
   type MetricPoint,
   type QueryFilter,
   type Storage,
 } from "@ephorate/core";
+import { stopUnmonitoredIncidents, writeJournal } from "./journal";
 import { applyMigrations, MIGRATIONS, SILENT_LOGGER } from "./migrations";
 
 interface AcknowledgementRow {
@@ -40,6 +43,7 @@ export class SqliteStorage implements Storage {
     this.database = new DatabaseSync(path);
     this.logger = logger;
 
+    this.database.exec("PRAGMA foreign_keys = ON");
     this.database.exec("PRAGMA journal_mode = WAL");
     this.database.exec("PRAGMA synchronous = NORMAL");
   }
@@ -48,8 +52,11 @@ export class SqliteStorage implements Storage {
     applyMigrations(this.database, MIGRATIONS, this.logger);
   }
 
-  async write(points: readonly MetricPoint[]): Promise<void> {
-    if (points.length === 0) return;
+  async write(
+    points: readonly MetricPoint[],
+    journal?: JournalBatch,
+  ): Promise<void> {
+    if (points.length === 0 && !journal?.observations.length) return;
 
     // A repeat replaces: a forced run can land in the same second as a
     // scheduled one.
@@ -74,8 +81,7 @@ export class SqliteStorage implements Storage {
       WHERE excluded.ts >= metrics_latest.ts
     `);
 
-    this.database.exec("BEGIN");
-    try {
+    this.writeTransaction(() => {
       for (const point of points) {
         const value = point.value ?? null;
         const ok = point.ok === undefined ? null : point.ok ? 1 : 0;
@@ -84,11 +90,17 @@ export class SqliteStorage implements Storage {
         insert.run(point.ts, point.node, point.metric, value, ok, meta);
         upsertLatest.run(point.node, point.metric, point.ts, value, ok, meta);
       }
-      this.database.exec("COMMIT");
-    } catch (error) {
-      this.database.exec("ROLLBACK");
-      throw error;
-    }
+      if (journal !== undefined) writeJournal(this.database, journal);
+    });
+  }
+
+  async reconcileIncidents(
+    monitors: readonly IncidentMonitor[],
+    observedAt: number,
+  ): Promise<void> {
+    this.writeTransaction(() =>
+      stopUnmonitoredIncidents(this.database, monitors, observedAt),
+    );
   }
 
   async query(filter: QueryFilter): Promise<MetricPoint[]> {
@@ -209,6 +221,17 @@ export class SqliteStorage implements Storage {
 
   async close(): Promise<void> {
     this.database.close();
+  }
+
+  private writeTransaction(write: () => void): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      write();
+      this.database.exec("COMMIT");
+    } catch (error) {
+      if (this.database.isTransaction) this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 }
 

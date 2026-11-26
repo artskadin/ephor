@@ -20,6 +20,7 @@ import {
 import { createExecutor } from "./execution/create-executor";
 import { SshGates } from "./execution/ssh-gates";
 import { inspectSshOptions } from "./execution/ssh-route";
+import { incidentMonitors, incidentObservations } from "./journal/observations";
 import { Pruner } from "./maintenance/pruner";
 import type { ProbeRegistry } from "./probes/registry";
 import { runWithRetry } from "./probes/with-retry";
@@ -96,8 +97,13 @@ export class Collector {
     });
   }
 
-  async start(): Promise<void> {
+  async start(beforeActivating?: () => Promise<void>): Promise<void> {
     await this.options.storage.migrate();
+    await beforeActivating?.();
+    await this.options.storage.reconcileIncidents(
+      incidentMonitors(this.resolvedNodes),
+      Math.floor(Date.now() / 1000),
+    );
 
     this.wakeWatch.start();
     this.scheduler.start();
@@ -235,7 +241,11 @@ export class Collector {
       });
     }
 
-    await this.options.storage.write(points);
+    const observedAt = Math.floor(Date.now() / 1000);
+    await this.options.storage.write(points, {
+      observedAt,
+      observations: incidentObservations(task.node, task.probeName, points),
+    });
 
     // The measurement is stored; a failure here must not fail the task.
     await this.settleAcknowledgement(task.node).catch((cause: unknown) =>

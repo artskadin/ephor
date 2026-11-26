@@ -52,6 +52,7 @@ export function storageOf(points: readonly MetricPoint[]): Storage & {
   return {
     latestCalls,
     migrate: async () => {},
+    reconcileIncidents: async () => {},
     write: async () => {},
     query: async (_filter: QueryFilter) => [],
     latest: async (node?: string) => {

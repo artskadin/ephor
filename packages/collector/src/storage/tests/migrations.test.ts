@@ -178,6 +178,26 @@ describe("applyMigrations", () => {
     ).toThrowError(/version 2.*only up to 1/s);
   });
 
+  it("adds an empty journal to an existing metrics database without inferring past incidents", () => {
+    applyMigrations(database, MIGRATIONS.slice(0, 4));
+    database.exec(`
+      INSERT INTO metrics (ts, node, metric, value)
+      VALUES (100, 'gateway', 'system.disk_percent', 96);
+      INSERT INTO metrics_latest (ts, node, metric, value)
+      VALUES (100, 'gateway', 'system.disk_percent', 96);
+    `);
+
+    applyMigrations(database, MIGRATIONS);
+
+    expect(appliedVersions()).toContain(5);
+    expect(database.prepare("SELECT value FROM metrics").get()?.value).toBe(96);
+    expect(
+      database.prepare("SELECT value FROM metrics_latest").get()?.value,
+    ).toBe(96);
+    expect(database.prepare("SELECT * FROM incidents").all()).toEqual([]);
+    expect(database.prepare("SELECT * FROM journal_events").all()).toEqual([]);
+  });
+
   describe("a failing migration", () => {
     const failing: readonly Migration[] = [
       {
